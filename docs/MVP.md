@@ -46,3 +46,7 @@ The MVP succeeds if:
   - MFE/MAE over N-minute windows
   - slippage/fee assumptions
   - candidate TP/SL templates
+
+## Ground truth examples
+
+See `docs/TELEGRAM_PAYLOADS.md` for real Mobchart Telegram alert shapes and what we can parse in v0.
