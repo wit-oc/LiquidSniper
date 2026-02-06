@@ -6,7 +6,7 @@ Improve signal quality and reduce manipulation risk (and preserve the Mobchart 1
 
 For the first iteration:
 
-- **Universe = Top 100 coins by market cap (CMC-style)**
+- **Universe = Top 100 *non-stablecoin* coins by market cap (CMC-style)**
 - **Pairs = `*USDT`** only (spot and/or perps depending on venue feed)
 
 This should bias the signal stream toward higher-liquidity, more widely-followed assets.
@@ -20,7 +20,8 @@ This should bias the signal stream toward higher-liquidity, more widely-followed
 
 Notes:
 - Some exchanges use alternate symbols or prefixes/suffixes (e.g., `1000PEPEUSDT`). Those require mapping rules.
-- Stablecoins and wrapped assets may appear in top lists; we may want an explicit exclude list.
+- Stablecoins may appear in top lists; we should exclude them by default.
+- Wrapped assets may appear; we can include or exclude them explicitly depending on how Mobchart symbols them.
 
 ---
 
