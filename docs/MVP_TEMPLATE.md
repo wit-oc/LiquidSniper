@@ -22,7 +22,7 @@ These are placeholders to iterate on; the system should record the configured va
 - Lifespan: `>= 60–120 min` (avoid newborn levels)
 - Strength: `>= 80%` (or higher)
 - Quantity distribution groups: `>= 6` (if exposed)
-- Size ($): **>= $150k** (strict-first; dial to $100k if too quiet, or $200k+ if too chatty)
+- Size ($): **>= $250k** (strict-first to preserve the 100/day cap; dial down to $150k/$100k if too quiet)
 - Exclude unstable quantities: `ON`
 - Estimated fill rate: prefer low fill (avoid mostly-consumed walls)
 - Touches (current order): prefer low-to-moderate (avoid chewed-through levels)
