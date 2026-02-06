@@ -132,7 +132,7 @@ We’ll start with a minimal schema and extend.
 - `apps/ingestor/` — telegram ingestion service (Phase 1)
 - `apps/viewer/` — React UI (Phase 1)
 - `packages/core/` — shared types + parsing + storage helpers
-- `docs/` — architecture, MVP definition, threat model, and later execution-bot contract
+- `docs/` — architecture, MVP definition, threat model, universe selection, and later execution-bot contract
 
 ---
 
