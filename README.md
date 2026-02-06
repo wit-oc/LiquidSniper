@@ -118,6 +118,7 @@ We’ll start with a minimal schema and extend.
 ## Roadmap
 
 - [ ] Collect sample Mobchart alerts (verbatim) and finalize the parser
+- [ ] Define the **trading universe** (Phase 1: Top 100 by market cap, USDT pairs) and enforce it upstream (Mobchart whitelist) + in ingest (safety net)
 - [ ] Implement ingestion → JSONL event store
 - [ ] Implement React table viewer
 - [ ] Add enrichment hooks (price candles, etc.)

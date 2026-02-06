@@ -50,7 +50,8 @@ These can be used to dial fidelity and reduce noise:
 
 9) **Pair whitelist**
 - Strongly recommended for MVP.
-- Start with majors (BTC/ETH/SOL) and a small set of liquid alts.
+- Phase-1 design: restrict to **Top 100 coins by market cap** with **USDT pairs**.
+- See `docs/UNIVERSE.md`.
 
 10) **Pair blacklist**
 - Exclude obvious manipulation magnets or low-liquidity pairs.
