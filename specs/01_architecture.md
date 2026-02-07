@@ -39,7 +39,13 @@ Responsibilities:
 - `docker-compose.yml` with:
   - `liquidsniper-ingestor`
   - `liquidsniper-web`
-- Shared persistent volume mounted at `/data/liquidsniper.sqlite`.
+- **Shared persistent volume** mounted at `/data` containing:
+  - `liquidsniper.sqlite` (SQLite DB)
+  - `telethon.session` (Telethon user session)
+
+Rationale:
+- Phase 1 requires **mutable** state (cards/trades) and Telethon requires a durable session.
+- Both must survive container restarts.
 
 ## Observability
 
