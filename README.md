@@ -149,6 +149,7 @@ We’ll start with a minimal schema and extend.
 
 - Local environment setup: `docs/dev_setup.md`
 - Pre-merge quality gate: `docs/PRE_MERGE_CHECKLIST.md`
+- Codex on Mac mini runbook: `docs/CODEX_CLI_RUNBOOK.md`
 
 ## License
 
