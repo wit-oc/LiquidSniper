@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liquidsniper"
+version = "0.1.0"
+description = "LiquidSniper scaffold"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pytest>=8.0.0",
+  "telethon>=1.35.0",
+  "streamlit>=1.30.0",
+  "python-dotenv>=1.0.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q"
