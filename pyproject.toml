@@ -19,3 +19,6 @@ dependencies = [
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.setuptools.packages.find]
+include = ["liquidsniper*"]
