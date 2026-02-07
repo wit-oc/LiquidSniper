@@ -1,35 +1,48 @@
-# Development Setup
+# Local Dev Setup
 
-## 1) Create and activate a virtual environment
+Use this setup before running tests/reviewing branches.
+
+## 1) Create virtual env
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-## 2) Install project dependencies
-
-```bash
 python -m pip install --upgrade pip
-python -m pip install -e .
 ```
 
-## 3) Verify scaffold
+## 2) Install dependencies
+
+Choose whichever is present in the branch:
+
+### If `pyproject.toml` is present
 
 ```bash
-python -c "import liquidsniper"
-python -m pytest
+pip install -e ".[dev]"
 ```
 
-## 4) Convenience targets
+### If requirements files are present
+
+```bash
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
+## 3) Validate environment
+
+```bash
+python -c "import liquidsniper; print('ok')"
+pytest -q
+```
+
+## 4) Optional helpers
+
+If `Makefile` exists:
 
 ```bash
 make test
-make run-ingestor
-make run-web
 ```
 
 ## Notes
 
-- No Telegram login or network calls are required for scaffold validation.
-- If your Python is externally managed (PEP 668), always install in `.venv`.
+- Keep `.venv/` local; it is gitignored.
+- If tests fail due to missing deps, reinstall after pulling latest branch changes.

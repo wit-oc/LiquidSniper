@@ -18,6 +18,13 @@ build/
 .DS_Store
 
 # Python
+.venv/
+venv/
 __pycache__/
 *.py[cod]
-.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/

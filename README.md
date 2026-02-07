@@ -145,6 +145,11 @@ We’ll start with a minimal schema and extend.
 
 ---
 
+## Developer workflow
+
+- Local environment setup: `docs/dev_setup.md`
+- Pre-merge quality gate: `docs/PRE_MERGE_CHECKLIST.md`
+
 ## License
 
 TBD
