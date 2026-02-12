@@ -29,5 +29,18 @@ Rationale:
 - Codex is great for high-volume code + tests.
 - Agent should own ops/security-sensitive glue and final integration.
 
+## Extended assignment (Hybrid pipeline)
+
+- Task 09 — **Agent** (analysis run contract + schema additions)
+- Task 10 — **Agent** (would-alert simulation mode)
+- Task 11 — **Agent** (TV artifact link model + shared mount contract)
+- Task 12 — **Codex CLI** (minimal diagnostic UI updates)
+- Task 13 — **Agent** (OpenClaw orchestration + rulebook/bootstrap + secrets policy)
+
 ## Execution order
 - `01_...` → `08_...`
+- `09_...` → `13_...` (backend-first hybrid confluence pipeline)
+
+## Initiative-runner note
+
+For this phase we are operating as a sequential initiative build (not necessarily one PR per task), with frequent commits/pushes and review checkpoints.
