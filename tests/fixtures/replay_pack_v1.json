@@ -1,0 +1,86 @@
+{
+  "name": "mvp-v1-replay-pack",
+  "cases": [
+    {
+      "id": "btc-high-confluence",
+      "event": {
+        "liquidity_size_usd": 820000,
+        "distance_pct": 0.9,
+        "age_seconds_min": 2400,
+        "cross_venue_agreement": 85
+      },
+      "context": {
+        "htf_regime": 82,
+        "sr_retest": 76,
+        "ltf_structure_shift": 73,
+        "volatility_regime": 66
+      },
+      "agent": {
+        "agent_confidence": 81,
+        "tv_status": "ok"
+      },
+      "expected": {
+        "zone_priority": 91.14,
+        "context_score": 76.0,
+        "pre_score": 84.33,
+        "agent_confidence": 81.0,
+        "final_score": 83.33,
+        "decision": "high_priority"
+      }
+    },
+    {
+      "id": "eth-watch-only-tv-missing",
+      "event": {
+        "liquidity_size_usd": 210000,
+        "distance_pct": 2.8,
+        "age_seconds_min": 15400,
+        "cross_venue_agreement": 62
+      },
+      "context": {
+        "htf_regime": 59,
+        "sr_retest": 61,
+        "ltf_structure_shift": 55,
+        "volatility_regime": 51
+      },
+      "agent": {
+        "agent_confidence": 68,
+        "tv_status": "failed"
+      },
+      "expected": {
+        "zone_priority": 60.01,
+        "context_score": 57.6,
+        "pre_score": 58.93,
+        "agent_confidence": 0.0,
+        "final_score": 41.25,
+        "decision": "watch_only"
+      }
+    },
+    {
+      "id": "doge-reject-low-quality",
+      "event": {
+        "liquidity_size_usd": 45000,
+        "distance_pct": 6.7,
+        "age_seconds_min": 98000,
+        "cross_venue_agreement": 24
+      },
+      "context": {
+        "htf_regime": 43,
+        "sr_retest": 38,
+        "ltf_structure_shift": 40,
+        "volatility_regime": 34
+      },
+      "agent": {
+        "agent_confidence": 57,
+        "tv_status": "ok"
+      },
+      "expected": {
+        "zone_priority": 23.74,
+        "context_score": 0.0,
+        "pre_score": 13.06,
+        "agent_confidence": 0.0,
+        "final_score": 9.14,
+        "decision": "reject"
+      }
+    }
+  ]
+}
