@@ -1,0 +1,6 @@
+{
+  "min_expectancy_r": 0.25,
+  "min_win_rate_pct": 55.0,
+  "max_drawdown_r": 1.2,
+  "max_p95_latency_seconds": 15.0
+}

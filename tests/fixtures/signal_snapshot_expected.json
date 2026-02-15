@@ -1,0 +1,12 @@
+{
+  "discord_contains": [
+    "LiquidSniper Signal — BTCUSDT",
+    "Decision: publish_candidate",
+    "Score: 74.2 (medium)",
+    "Side: long"
+  ],
+  "imessage_contains": [
+    "LiquidSniper BTCUSDT | publish_candidate | score 74.2 (medium) | long.",
+    "Chart: https://tradingview.com/chart/example"
+  ]
+}
