@@ -7,18 +7,18 @@ Proceed to guarded pilot only if every **Go Gate** item is checked. Any unchecke
 ## Go Gate
 
 - [ ] **Runtime compatibility is green**
-  - Requirement: analysis + diagnostic UI paths run on target Python runtime.
-  - Current status (2026-02-15): **FAIL** on Python 3.9 (`enum.StrEnum` import error).
-  - Evidence: `docs/INTEGRATION_SANITY_CHECK_2026-02-15.md`.
+  - Requirement: analysis + diagnostic UI paths run on target runtime (Python **3.11+** baseline).
+  - Current status (2026-02-15): baseline policy updated to Python 3.11+; full integration sanity rerun on 3.11+ still required for green gate.
+  - Evidence: `specs/08_testing_runbook.md`, `docs/INTEGRATION_SANITY_CHECK_2026-02-15.md`.
 
 - [ ] **Integration sanity test suite is green**
   - Requirement: parser, card engine, simulation mode, and diagnostic UI tests all pass.
   - Current status (2026-02-15): parser/card pass; simulation/UI fail.
   - Evidence: `docs/INTEGRATION_SANITY_CHECK_2026-02-15.md`.
 
-- [ ] **Packaging/runbook path is reproducible**
+- [x] **Packaging/runbook path is reproducible**
   - Requirement: containerized startup path is defined and validates via compose config.
-  - Current status (2026-02-15): **FAIL** (`docker-compose.yml` missing).
+  - Current status (2026-02-15): **PASS** (`docker-compose.yml` present; `docker compose -f docker-compose.yml config` passes).
   - Evidence: `docs/DOCKER_COMPOSE_VALIDATION_2026-02-15.md`, `specs/08_testing_runbook.md`.
 
 - [ ] **Baseline local quality gate passes**
@@ -36,6 +36,5 @@ Proceed to guarded pilot only if every **Go Gate** item is checked. Any unchecke
 ## Current Recommendation (2026-02-15)
 
 **NO-GO** until:
-1. Python 3.9 compatibility issue (`StrEnum`) is resolved or runtime baseline is raised and documented.
-2. `docker-compose.yml` (or replacement container orchestration artifact) exists and passes `docker compose ... config` validation.
-3. Full integration sanity suite is green on target runtime.
+1. Full integration sanity suite is rerun and green on Python 3.11+ baseline runtime.
+2. Guarded pilot controls are explicitly checked and operator-owned.

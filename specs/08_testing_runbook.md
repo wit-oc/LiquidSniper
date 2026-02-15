@@ -4,6 +4,12 @@
 
 Document how to run, verify, and troubleshoot Phase 1.
 
+## Runtime baseline (required)
+
+- Python **3.11+ only** for local/venv workflows.
+- Docker/Compose path is the canonical simulation rollout path.
+- Any references to Python 3.9/3.10 are legacy and non-supported for Phase 1 rollout.
+
 ## Setup steps
 
 1) Copy `.env.example` → `.env` and fill:
@@ -50,7 +56,8 @@ Document how to run, verify, and troubleshoot Phase 1.
 - Docker engine detected: `docker --version` passed (`29.1.5`).
 - Docker Compose detected: `docker compose version` passed (`v5.0.1`).
 - Compose file check now passes: `docker compose -f docker-compose.yml config` renders `liquidsniper-ingestor` + `liquidsniper-web` with shared `liquidsniper_data` volume.
-- Local validation gate currently passing: `./.venv/bin/pytest -q` → `44 passed`.
+- Local validation gate currently passing (Python 3.11+ baseline): `./.venv/bin/pytest -q` → `44 passed`.
+- Simulation rollout decision gate tracked in `docs/GO_NO_GO_CHECKLIST.md`.
 - Detailed command/output log: `docs/DOCKER_COMPOSE_VALIDATION_2026-02-15.md`.
 
 ## Acceptance criteria
