@@ -1,0 +1,24 @@
+{
+  "name": "liquidsniper",
+  "version": "1.0.0",
+  "description": "**LiquidSniper** is a signal-stream + analytics engine for liquidity-level alerts (starting with **Mobchart Liquidity Screener → Telegram notifications**).",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wit-oc/LiquidSniper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/wit-oc/LiquidSniper/issues"
+  },
+  "homepage": "https://github.com/wit-oc/LiquidSniper#readme"
+}
