@@ -26,3 +26,18 @@ These states are contract-tested in `tests/test_tradingview_adapter.py`.
 - `timestamp`
 
 Returns `(is_valid, error_code)` for deterministic handling.
+
+## Screenshot artifact mount contract (Task 11)
+
+Shared-mount defaults for backend + UI:
+- Backend writer root: `/data/artifacts`
+- UI reader root: `/artifacts`
+
+Environment overrides:
+- `TV_ARTIFACTS_WRITER_ROOT`
+- `TV_ARTIFACTS_UI_ROOT`
+
+`liquidsniper.core.tv_artifacts.query_ui_artifact_links(...)` returns a UI-ready per-run map for:
+- `15m`, `1h`, `4h`, `1D`, `1W`
+
+Backend paths under writer root are translated to UI hrefs by preserving relative suffixes.
