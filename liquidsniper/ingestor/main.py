@@ -17,6 +17,7 @@ from typing import Any
 
 from telethon import TelegramClient
 
+from liquidsniper.core.card_engine import record_event_confluence
 from liquidsniper.core.db import init_db
 from liquidsniper.core.parser_mobchart import parse_mobchart_message
 
@@ -62,7 +63,7 @@ def _insert_raw_message(conn: sqlite3.Connection, chat_id: int, message_id: int,
     return int(row[0])
 
 
-def _insert_signal_event(conn: sqlite3.Connection, parsed: dict[str, Any], raw_id: int, line_index: int) -> None:
+def _insert_signal_event(conn: sqlite3.Connection, parsed: dict[str, Any], raw_id: int, line_index: int) -> int:
     with conn:
         conn.execute(
             """
@@ -93,6 +94,11 @@ def _insert_signal_event(conn: sqlite3.Connection, parsed: dict[str, Any], raw_i
                 int(line_index),
             ),
         )
+        row = conn.execute(
+            "SELECT id FROM signal_events WHERE raw_message_id = ? AND line_index = ?;",
+            (raw_id, int(line_index)),
+        ).fetchone()
+    return int(row[0])
 
 
 async def ingest_once(source: str, limit: int, db_path: str, session_path: str) -> dict[str, int]:
@@ -106,6 +112,8 @@ async def ingest_once(source: str, limit: int, db_path: str, session_path: str) 
     parsed_count = 0
     parse_error_count = 0
     ignored_count = 0
+    persist_error_count = 0
+    confluence_count = 0
 
     async with TelegramClient(session_path, api_id, api_hash) as client:
         entity = await client.get_entity(source)
@@ -133,14 +141,30 @@ async def ingest_once(source: str, limit: int, db_path: str, session_path: str) 
                 if et == "parse_error":
                     parse_error_count += 1
                     continue
-                _insert_signal_event(conn, row, raw_id, int(row.get("line_index", i)))
-                parsed_count += 1
+
+                line_index = int(row.get("line_index", i))
+                try:
+                    event_id = _insert_signal_event(conn, row, raw_id, line_index)
+                    parsed_count += 1
+                except sqlite3.Error:
+                    persist_error_count += 1
+                    continue
+
+                try:
+                    row_for_card = dict(row)
+                    row_for_card["source_event_id"] = event_id
+                    record_event_confluence(conn, row_for_card)
+                    confluence_count += 1
+                except (sqlite3.Error, ValueError):
+                    persist_error_count += 1
 
     return {
         "raw_messages": raw_count,
         "parsed_events": parsed_count,
         "parse_errors": parse_error_count,
         "ignored_lines": ignored_count,
+        "confluences_written": confluence_count,
+        "persist_errors": persist_error_count,
     }
 
 
