@@ -1,0 +1,16 @@
+{
+  "watchlist": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT"
+  ],
+  "blofin_pairs": [
+    "BTCUSDT.P",
+    "ETHUSDT.P",
+    "SOLUSDT.P",
+    "XRPUSDT.P",
+    "DOGEUSDT.P",
+    "PAXGUSDT.P"
+  ]
+}

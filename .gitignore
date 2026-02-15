@@ -13,6 +13,7 @@ build/
 *.db
 *.log
 /data/
+/artifacts/
 
 # OS
 .DS_Store

@@ -27,6 +27,24 @@ SIDE_MAP = {
 }
 
 
+def is_probable_signal_line(line: str) -> bool:
+    """Heuristic pre-filter for noisy MobChart chat lines.
+
+    Keeps lines that look like actual signal payloads and skips promo/meta lines.
+    """
+    s = line.strip()
+    if not s:
+        return False
+    if s.startswith("http://") or s.startswith("https://"):
+        return False
+    if "$" not in s:
+        return False
+    if "🔴" not in s and "🟢" not in s:
+        return False
+    # Must look like a USDT symbol mention somewhere in the line.
+    return bool(re.search(r"\b[A-Z0-9]+USDT\b", s))
+
+
 class ParseError(ValueError):
     """Raised when a line cannot be parsed into a valid signal."""
 
@@ -127,6 +145,19 @@ def parse_mobchart_message(text: str) -> list[dict[str, Any]]:
             venue_ctx = p.group("venue")
             market_ctx = p.group("market")
             line = p.group("rest").strip()
+
+        if not is_probable_signal_line(line):
+            results.append(
+                {
+                    "event_type": "ignored_line",
+                    "venue": (venue_ctx or "unknown").lower(),
+                    "market_type": (market_ctx or "unknown").lower(),
+                    "raw_text": raw_line,
+                    "line_index": i,
+                    "reason": "not_probable_signal_line",
+                }
+            )
+            continue
 
         try:
             parsed = _parse_signal_line(

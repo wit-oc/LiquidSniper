@@ -105,6 +105,7 @@ async def ingest_once(source: str, limit: int, db_path: str, session_path: str) 
     raw_count = 0
     parsed_count = 0
     parse_error_count = 0
+    ignored_count = 0
 
     async with TelegramClient(session_path, api_id, api_hash) as client:
         entity = await client.get_entity(source)
@@ -125,7 +126,11 @@ async def ingest_once(source: str, limit: int, db_path: str, session_path: str) 
 
             parsed_rows = parse_mobchart_message(text)
             for i, row in enumerate(parsed_rows):
-                if row.get("event_type") == "parse_error":
+                et = row.get("event_type")
+                if et == "ignored_line":
+                    ignored_count += 1
+                    continue
+                if et == "parse_error":
                     parse_error_count += 1
                     continue
                 _insert_signal_event(conn, row, raw_id, int(row.get("line_index", i)))
@@ -135,6 +140,7 @@ async def ingest_once(source: str, limit: int, db_path: str, session_path: str) 
         "raw_messages": raw_count,
         "parsed_events": parsed_count,
         "parse_errors": parse_error_count,
+        "ignored_lines": ignored_count,
     }
 
 
