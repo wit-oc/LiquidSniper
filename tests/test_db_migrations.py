@@ -17,6 +17,9 @@ EXPECTED_TABLES = {
     "cards",
     "confluences",
     "trades",
+    "analysis_runs",
+    "candidate_decisions",
+    "screenshot_artifacts",
 }
 
 
@@ -126,3 +129,76 @@ def test_signal_event_unique_raw_line_guard(tmp_path: Path) -> None:
                 row,
             )
     conn.close()
+
+
+def test_analysis_run_and_decision_write_read_flow(tmp_path: Path) -> None:
+    """A run can persist one decision and an optional screenshot artifact."""
+    conn = init_db(str(tmp_path / "liquidsniper.sqlite"))
+
+    conn.execute(
+        """
+        INSERT INTO analysis_runs(
+            created_ts, symbol, side, zone_priority_score, context_score, pre_score,
+            agent_confidence_score, final_score, score_version, rulebook_ref, run_mode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """,
+        (
+            "2026-02-15T13:00:00+00:00",
+            "BTCUSDT",
+            "bid",
+            55.0,
+            65.0,
+            59.5,
+            72.0,
+            63.25,
+            "v0",
+            "rulebook://default/v1",
+            "simulation",
+        ),
+    )
+    run_id = conn.execute("SELECT id FROM analysis_runs LIMIT 1;").fetchone()[0]
+
+    conn.execute(
+        """
+        INSERT INTO candidate_decisions(
+            analysis_run_id, created_ts, decision, rationale, would_alert
+        ) VALUES (?, ?, ?, ?, ?);
+        """,
+        (
+            run_id,
+            "2026-02-15T13:00:02+00:00",
+            "watch_only",
+            "pre_score below publish threshold",
+            0,
+        ),
+    )
+
+    conn.execute(
+        """
+        INSERT INTO screenshot_artifacts(
+            analysis_run_id, timeframe, captured_ts, source_chart_url, artifact_path, artifact_hash
+        ) VALUES (?, ?, ?, ?, ?, ?);
+        """,
+        (
+            run_id,
+            "1h",
+            "2026-02-15T13:00:01+00:00",
+            "https://www.tradingview.com/chart/example",
+            "/data/artifacts/btcusdt-1h.png",
+            "sha256:abc123",
+        ),
+    )
+
+    joined = conn.execute(
+        """
+        SELECT r.symbol, d.decision, a.timeframe
+        FROM analysis_runs r
+        JOIN candidate_decisions d ON d.analysis_run_id = r.id
+        LEFT JOIN screenshot_artifacts a ON a.analysis_run_id = r.id
+        WHERE r.id = ?;
+        """,
+        (run_id,),
+    ).fetchone()
+
+    conn.close()
+    assert joined == ("BTCUSDT", "watch_only", "1h")
