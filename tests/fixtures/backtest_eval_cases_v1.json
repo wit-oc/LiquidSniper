@@ -1,0 +1,12 @@
+{
+  "cases": [
+    {"id": "c1", "outcome_r": 1.4, "latency_seconds": 6.2},
+    {"id": "c2", "outcome_r": -0.8, "latency_seconds": 9.1},
+    {"id": "c3", "outcome_r": 0.7, "latency_seconds": 10.4},
+    {"id": "c4", "outcome_r": -0.6, "latency_seconds": 12.6},
+    {"id": "c5", "outcome_r": 1.1, "latency_seconds": 7.3},
+    {"id": "c6", "outcome_r": -0.2, "latency_seconds": 14.0},
+    {"id": "c7", "outcome_r": 0.4, "latency_seconds": 8.9},
+    {"id": "c8", "outcome_r": 0.9, "latency_seconds": 11.2}
+  ]
+}
