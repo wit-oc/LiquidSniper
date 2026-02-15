@@ -12,7 +12,7 @@ from typing import Any
 PREFIX_RE = re.compile(r"^(?P<venue>[A-Za-z0-9_-]+)\s+(?P<market>SPOT|FUTURES):\s*(?P<rest>.*)$")
 LINE_RE = re.compile(
     r"^(?P<strength>\S+)\s+"
-    r"(?P<symbol>[A-Z0-9]+)\s+"
+    r"(?P<symbol>[A-Z0-9-]+)\s+"
     r"\$(?P<price>[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?)\s+"
     r"\$(?P<size>[0-9]+(?:\.[0-9]+)?[KMB]?)\s+"
     r"(?P<distance>[0-9]+(?:\.[0-9]+)?)%\s+"
@@ -42,7 +42,7 @@ def is_probable_signal_line(line: str) -> bool:
     if "🔴" not in s and "🟢" not in s:
         return False
     # Must look like a USDT symbol mention somewhere in the line.
-    return bool(re.search(r"\b[A-Z0-9]+USDT\b", s))
+    return bool(re.search(r"\b[A-Z0-9-]+(?:USDT|USD)(?:-SWAP)?\b", s))
 
 
 class ParseError(ValueError):
@@ -83,6 +83,19 @@ def parse_age_min_seconds(age_raw: str) -> int:
     raise ParseError(f"invalid age: {age_raw}")
 
 
+def _normalize_symbol(symbol_raw: str) -> str:
+    s = (symbol_raw or "").upper().strip()
+    s = s.replace("-USDT-SWAP", "USDT")
+    s = s.replace("-USD-SWAP", "USD")
+    s = s.replace("-USDT", "USDT")
+    s = s.replace("-USD", "USD")
+    s = s.replace("-", "")
+    # Heuristic: normalize USD quotes to USDT for chart/watchlist correlation.
+    if s.endswith("USD") and not s.endswith("USDT"):
+        s = s + "T"
+    return s
+
+
 def _parse_signal_line(
     line: str,
     *,
@@ -95,7 +108,7 @@ def _parse_signal_line(
         raise ParseError("line format mismatch")
 
     strength = m.group("strength")
-    symbol = m.group("symbol")
+    symbol = _normalize_symbol(m.group("symbol"))
     price = float(m.group("price"))
     size_usd = parse_size_usd(m.group("size"))
     distance_pct = float(m.group("distance"))

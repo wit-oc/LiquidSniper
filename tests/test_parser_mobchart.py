@@ -37,6 +37,13 @@ def test_parse_scientific_notation_price() -> None:
     assert row["distance_pct"] == 0.0
 
 
+def test_okx_swap_symbol_normalizes_to_usdt() -> None:
+    text = "Okx FUTURES: 🌒 SOL-USDT-SWAP  $190.1  $216.54K 1.8% 🔴 2h 21m"
+    row = parse_mobchart_message(text)[0]
+    assert row["event_type"] == "liquidity_screener_alert"
+    assert row["symbol"] == "SOLUSDT"
+
+
 def test_parse_multiline_batch_with_context_inheritance() -> None:
     text = "\n".join(
         [
