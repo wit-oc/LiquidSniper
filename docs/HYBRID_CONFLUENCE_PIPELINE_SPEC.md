@@ -81,6 +81,30 @@ Guardrail:
 - Mark `publish_candidate` if `final_score >= 70`
 - Mark `high_priority` if `final_score >= 80`
 
+## 4b) Runbook confluence gate (current override)
+
+Current v1 runbook policy (stub) overrides score-only promotion:
+
+Primary required (both):
+- support/resistance first retest
+- market structure alignment (BoS/CHoCH)
+
+Secondary priority order:
+1. fib
+2. trendline
+3. liquidity alert
+4. vwap
+5. ema200
+
+Decision tiering with primary satisfied:
+- 0–1 secondary hits => `watch_only`
+- 2–3 secondary hits => `publish_candidate`
+- 4–5 secondary hits => `high_priority`
+
+Explicitly excluded from decision core (annotation-only):
+- order blocks
+- supply zones
+
 ## 5) Screenshot artifacts in UI + messages
 
 Store per analysis run:

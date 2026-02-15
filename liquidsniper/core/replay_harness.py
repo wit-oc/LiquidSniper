@@ -84,6 +84,39 @@ def _agent_confidence(agent: dict[str, Any] | None) -> float:
     return _round2(base)
 
 
+def _runbook_decision(confluence: dict[str, Any]) -> tuple[str, int, bool]:
+    """Apply runbook v1 confluence policy.
+
+    Primary required:
+    - support/resistance first retest
+    - BoS/CHoCH alignment
+
+    Secondary ranking (count-based tiering):
+    - fib
+    - trendline
+    - liquidity_alert
+    - vwap
+    - ema200
+
+    Low-confidence items (order blocks / supply zones) are intentionally ignored.
+    """
+    primary = confluence.get("primary") or {}
+    secondary = confluence.get("secondary") or {}
+
+    has_primary = bool(primary.get("sr_first_retest")) and bool(primary.get("bos_choch"))
+
+    secondary_order = ["fib", "trendline", "liquidity_alert", "vwap", "ema200"]
+    secondary_hits = sum(1 for k in secondary_order if bool(secondary.get(k)))
+
+    if not has_primary:
+        return "reject", secondary_hits, has_primary
+    if secondary_hits >= 4:
+        return "high_priority", secondary_hits, has_primary
+    if secondary_hits >= 2:
+        return "publish_candidate", secondary_hits, has_primary
+    return "watch_only", secondary_hits, has_primary
+
+
 def score_case(case: dict[str, Any], thresholds: Thresholds | None = None) -> dict[str, Any]:
     t = thresholds or Thresholds()
     event = dict(case.get("event") or {})
@@ -99,14 +132,19 @@ def score_case(case: dict[str, Any], thresholds: Thresholds | None = None) -> di
 
     final_score = _round2(0.70 * pre_score + 0.30 * agent_confidence)
 
-    if final_score >= t.high_priority:
-        decision = "high_priority"
-    elif final_score >= t.publish_candidate:
-        decision = "publish_candidate"
-    elif pre_score >= t.zone_to_context:
-        decision = "watch_only"
+    if "confluence" in case:
+        decision, secondary_hits, has_primary = _runbook_decision(dict(case.get("confluence") or {}))
     else:
-        decision = "reject"
+        has_primary = True
+        secondary_hits = 0
+        if final_score >= t.high_priority:
+            decision = "high_priority"
+        elif final_score >= t.publish_candidate:
+            decision = "publish_candidate"
+        elif pre_score >= t.zone_to_context:
+            decision = "watch_only"
+        else:
+            decision = "reject"
 
     return {
         "id": case.get("id"),
@@ -116,6 +154,8 @@ def score_case(case: dict[str, Any], thresholds: Thresholds | None = None) -> di
         "agent_confidence": agent_confidence,
         "final_score": final_score,
         "decision": decision,
+        "runbook_primary_ok": has_primary,
+        "runbook_secondary_hits": secondary_hits,
     }
 
 
@@ -136,7 +176,16 @@ def run_fixture_pack(path: str | Path) -> dict[str, Any]:
             continue
 
         mismatch: dict[str, Any] = {}
-        for k in ("zone_priority", "context_score", "pre_score", "agent_confidence", "final_score", "decision"):
+        for k in (
+            "zone_priority",
+            "context_score",
+            "pre_score",
+            "agent_confidence",
+            "final_score",
+            "decision",
+            "runbook_primary_ok",
+            "runbook_secondary_hits",
+        ):
             if k not in expected:
                 continue
             if out.get(k) != expected.get(k):
