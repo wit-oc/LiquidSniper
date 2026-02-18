@@ -63,6 +63,17 @@ For this sequence, MVP paper means:
 - Tasks 14–18 (HTF-anchor contract through packaging decision).
 - Adversarial gate artifacts + profile-parity evidence.
 
+## Dependency default/stub matrix (paper-MVP fail-closed baseline)
+
+| Dependency area | Default/stub status | Fail-closed behavior | Owner to unblock |
+|---|---|---|---|
+| Blofin account + API credentials | **Stubbed / absent by default** | No account binding, no credential loading, no order path activation. Paper/sim only. | Redact (operator) |
+| Exchange egress posture (Surfshark static/dedicated) | **Unverified by default** | Treat egress as non-compliant for promotion; block any transition beyond paper-mode validation. | Redact (operator) |
+| On-chain venue allowlist (chains/protocols) | **Disabled by default** | No on-chain routing assumptions promoted to executable scope; simulation remains constrained to documented placeholders. | Redact (operator) |
+| Promotion/sign-off authority | **Required and unresolved by default** | No progression beyond paper evidence package without explicit human sign-off checkpoint. | Redact (operator) |
+
+This matrix is the canonical baseline for sequence execution in this document and is intentionally fail-closed until operator-owned inputs are explicitly provided.
+
 ---
 
 ## 4) Re-sequenced canonical order (to avoid losing out-of-sequence items)
