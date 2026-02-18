@@ -4,6 +4,8 @@
 
 Proceed to guarded pilot only if every **Go Gate** item is checked. Any unchecked **Go Gate** item is an automatic **No-Go**.
 
+**Fail-closed progression rule:** if any operator dependency stub is unresolved (Blofin credentials not provisioned, egress unverified, on-chain allowlist unresolved, or operator sign-off absent), progression is locked to paper/simulation only.
+
 ## Go Gate
 
 - [ ] **Runtime compatibility is green**
@@ -31,9 +33,21 @@ Proceed to guarded pilot only if every **Go Gate** item is checked. Any unchecke
   - Current status (2026-02-18): pending Tasks 14–17 (`tasks/14_...` to `tasks/17_...`).
   - Evidence target: `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md` + adversarial gate artifacts.
 
+- [ ] **Operator dependency stubs are verified or explicitly blocking progression**
+  - Requirement: fail-closed defaults/stubs remain intact and unresolved dependencies are treated as hard blockers.
+  - Verification checklist:
+    - [ ] `.env.example` still enforces paper/sim defaults and disabled live paths.
+    - [ ] `docs/OPERATOR_DEPENDENCY_STUBS_V1.md` stage gates are acknowledged by operator owner.
+    - [ ] Blofin credential state is either absent/disabled (paper) or formally approved for next stage.
+    - [ ] Egress posture is marked verified before any non-paper progression.
+    - [ ] On-chain allowlist scope is explicitly approved before enabling any on-chain path.
+    - [ ] Operator sign-off artifact exists for any stage transition.
+  - Evidence: `LiquidSniper/.env.example`, `docs/OPERATOR_DEPENDENCY_STUBS_V1.md`, operator sign-off note/artifact.
+
 ## Guarded Pilot Controls (must be true before live capital/risk)
 
 - [ ] Pilot is explicitly in simulation/paper mode for first run window.
+- [ ] No progression beyond paper/simulation occurs while any operator dependency remains unresolved.
 - [ ] Blofin API egress isolation is confirmed (static/dedicated egress preferred; no shared/rotating VPN requirement bypass).
 - [ ] Main-account and bot-account network/API credentials are segregated (no egress reuse for main account sessions).
 - [ ] Operator rollback path is documented (disable ingestion and stop processing quickly).
