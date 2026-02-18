@@ -3,6 +3,7 @@
 Status legend: [Now] [Next] [Later] [Blocked] [Done]
 
 ## [Now]
+- [ ] Follow canonical execution order in `docs/MVP_PAPER_SEQUENCE_V1.md`
 - [x] Cleanup + integration pass: reconcile `WORK_ITEMS.md` with completed Tasks 09–13
 - [ ] Validate end-to-end pipeline wiring (ingestor -> card/confluence -> analysis run -> diagnostic UI)
 - [ ] Task 14: Land HTF-anchor strategy rulebook contract (`docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md`, runbook + schema payload shape)

@@ -33,6 +33,7 @@ Status tags:
 
 - [x] **[Done]** Added `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md` to map proposal -> LiquidSniper docs/tasks/dependencies.
 - [x] **[Done]** Upgraded `docs/TRADING_STRATEGY_RUNBOOK_V1.md` to v1.1 with HTF-anchor model and deterministic payload requirements.
+- [x] **[Done]** Added canonical paper-MVP sequencing doc: `docs/MVP_PAPER_SEQUENCE_V1.md`.
 - [ ] **[Now]** Task 14 — HTF-anchor rulebook contract (profile schema + regime permission integration).
 - [ ] **[Now]** Task 15 — map lecture-derived scoring buckets into decision payload fields (`score_total`, bucket breakdown, penalties).
 - [ ] **[Next]** Task 16 — dependency threading + strategy/policy/execution non-bypass boundaries.
