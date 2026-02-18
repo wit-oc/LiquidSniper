@@ -32,6 +32,7 @@ For this sequence, MVP paper means:
 
 - `docs/HYBRID_CONFLUENCE_PIPELINE_SPEC.md`
 - `docs/PHASE2_CONFLUENCE_RESEARCH_SPEC.md`
+- `docs/DATA_FEED_STRATEGY_V1.md`
 - `docs/OPENCLAW_ORCHESTRATION.md`
 - `docs/TRADINGVIEW_ADAPTER_CONTRACT.md`
 - `docs/SIGNAL_DELIVERY_AND_DRYRUN.md`
@@ -46,6 +47,7 @@ For this sequence, MVP paper means:
 
 - `tasks/09_analysis_run_contract.md` ... `tasks/13_openclaw_skill_orchestration.md`
 - `tasks/14_htf_anchor_rulebook_contract.md` ... `tasks/18_execution_core_packaging_boundary.md`
+- `tasks/19_market_data_provider_contract.md` ... `tasks/26_feed_benchmark_and_gate_evidence.md`
 
 ---
 
@@ -60,7 +62,9 @@ For this sequence, MVP paper means:
 ### Open work that still blocks paper-MVP certification
 
 - Integration/runtime gate re-validation on current baseline.
-- Tasks 14–18 (HTF-anchor contract through packaging decision).
+- Canonical OHLCV feed baseline tasks (Tasks 19–22).
+- Strategy/governance tasks on top of canonical feed (Tasks 14–18).
+- Feed reliability + benchmark evidence tasks (Tasks 23–26).
 - Adversarial gate artifacts + profile-parity evidence.
 
 ## Dependency default/stub matrix (paper-MVP fail-closed baseline)
@@ -88,58 +92,60 @@ Why first: avoids building strategy logic on unstable runtime assumptions.
 
 ---
 
-## Phase 1 — Strategy contract lock (Task 14)
+## Phase 1 — Canonical feed baseline (Tasks 19–22)
 
-4. Formalize HTF-anchor profile schema and rulebook contract.
-5. Add profile validation and replay fixture requirements (at least 1D-anchor + 1H-anchor cases).
+4. Implement market-data provider contract + candle schema (Task 19).
+5. Implement CCXT OHLCV backfill + incremental scheduler (Task 20).
+6. Implement candle quality gates + aggregation policy (Task 21).
+7. Integrate strategy path to canonical candles; keep trigger feed contextual only (Task 22).
 
-Output: deterministic profile contract and invalid-combo rejection behavior.
-
----
-
-## Phase 2 — Score mapping lock (Task 15)
-
-6. Map lecture-derived bucket scoring into canonical decision payload fields.
-7. Add deterministic reason-code transitions and migration notes from current runbook policy.
-
-Output: replay-safe decision object and score traceability.
+Output: strategy-grade OHLCV baseline independent of Telegram trigger availability.
 
 ---
 
-## Phase 3 — Boundary + dependency hardening (Task 16)
+## Phase 2 — Strategy contract + score lock (Tasks 14–15)
 
-8. Finalize strategy/policy/execution non-bypass contract.
-9. Finalize Blofin egress isolation contract (static/dedicated preferred).
-10. Ensure audit payload includes `trace_id`, `policy_version`, `rulebook_ref`, and egress context.
+8. Formalize and wire HTF-anchor profile schema/rulebook contract (Task 14).
+9. Map lecture-derived bucket scoring into deterministic decision payload fields (Task 15).
 
-Output: enforceable dependency and network-risk boundary.
-
----
-
-## Phase 4 — Two-pass adversarial validation (Task 17)
-
-11. Pass 1 (strategy/microstructure): profile drift, cost tails, trigger inflation.
-12. Pass 2 (systems/governance): policy pinning, replay parity, override drift, boundary checks.
-13. Attach machine-readable pass/fail artifacts to gate review.
-
-Output: promotion blocker/allow evidence.
+Output: deterministic profile and scoring model grounded in canonical feed data.
 
 ---
 
-## Phase 5 — Packaging boundary decision (Task 18)
+## Phase 3 — Dependency + feed hardening (Tasks 16, 23, 24)
 
-14. Make explicit integrated-vs-separate execution-core decision with fork triggers.
-15. Record decision in docs/tracker and tie to gating outcomes.
+10. Finalize strategy/policy/execution non-bypass contract (Task 16).
+11. Add feed rate-limit budgets + circuit breakers + health events (Task 23).
+12. Finalize trigger-feed decoupling and rationale traceability (Task 24).
+13. Ensure audit payload includes `trace_id`, `policy_version`, `rulebook_ref`, and egress context.
 
-Output: architecture decision record with future fork criteria.
+Output: enforceable dependency and reliability boundary with fail-closed behavior.
+
+---
+
+## Phase 4 — Adversarial + evidence gates (Tasks 17, 26)
+
+14. Run two-pass adversarial validation (strategy/microstructure + systems/governance) (Task 17).
+15. Produce feed benchmark and replay evidence artifact for gate review (Task 26).
+
+Output: promotion blocker/allow evidence package grounded in feed and strategy behavior.
+
+---
+
+## Phase 5 — Packaging boundary + conditional fallback (Tasks 18, 25)
+
+16. Make explicit integrated-vs-separate execution-core decision with fork triggers (Task 18).
+17. Implement native Blofin adapter fallback only if CCXT gap assessment requires it (Task 25).
+
+Output: architecture decision record plus conditional venue-specific fallback path.
 
 ---
 
 ## Phase 6 — MVP paper certification run
 
-16. Run paper-mode window with no live execution.
-17. Evaluate against feasibility + go/no-go gates (data quality, determinism, expectancy realism, adversarial pass status).
-18. Produce recommendation: **GO paper continuation / HOLD / NO-GO**.
+18. Run paper-mode window with no live execution.
+19. Evaluate against feasibility + go/no-go gates (data quality, determinism, expectancy realism, adversarial pass status).
+20. Produce recommendation: **GO paper continuation / HOLD / NO-GO**.
 
 Output: auditable paper-MVP verdict package.
 
@@ -169,9 +175,10 @@ Without these, I can still do docs/tests/schemas, but cannot close final pilot g
 
 ## 6) Immediate next step (single clearest move)
 
-Start with **Phase 0 + Task 14** in one focused lane:
+Start with **Phase 0 + Phase 1 (Tasks 19 -> 22)** in one focused lane:
 - close runtime gate ambiguity,
-- then lock HTF-anchor contract,
-- then proceed sequentially to Tasks 15 -> 16 -> 17 -> 18.
+- land canonical OHLCV feed baseline,
+- then lock strategy contract/scoring (Tasks 14 -> 15),
+- then proceed through governance/reliability gates.
 
-This order minimizes rework and keeps strategy, risk, and operational controls aligned.
+This order prevents trigger-only drift and keeps strategy implementation tied to actual candle-based market structure inputs.

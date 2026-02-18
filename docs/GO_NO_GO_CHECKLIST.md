@@ -28,6 +28,11 @@ Proceed to guarded pilot only if every **Go Gate** item is checked. Any unchecke
   - Current status (2026-02-15): **PASS** (`./.venv/bin/pytest -q` → 44 passed).
   - Evidence: `docs/DOCKER_COMPOSE_VALIDATION_2026-02-15.md`.
 
+- [ ] **Canonical OHLCV feed baseline is green**
+  - Requirement: canonical candle feed coverage/quality gates pass for required symbols/timeframes (`1m`,`5m`,`15m`,`1H`,`4H`,`1D`,`1W`) and strategy path is not trigger-feed dependent.
+  - Current status (2026-02-18): pending Tasks 19–22 (`tasks/19_...` to `tasks/22_...`).
+  - Evidence target: `docs/DATA_FEED_STRATEGY_V1.md` + feed health artifacts.
+
 - [ ] **HTF-anchor profile parity + adversarial gates are green**
   - Requirement: at least two anchor profiles (e.g., 1D-anchor and 1H-anchor) pass replay parity checks and two-pass adversarial validation gates.
   - Current status (2026-02-18): pending Tasks 14–17 (`tasks/14_...` to `tasks/17_...`).
