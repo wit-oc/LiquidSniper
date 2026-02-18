@@ -34,7 +34,9 @@ Status tags:
 - [x] **[Done]** Added `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md` to map proposal -> LiquidSniper docs/tasks/dependencies.
 - [x] **[Done]** Upgraded `docs/TRADING_STRATEGY_RUNBOOK_V1.md` to v1.1 with HTF-anchor model and deterministic payload requirements.
 - [x] **[Done]** Added canonical paper-MVP sequencing doc: `docs/MVP_PAPER_SEQUENCE_V1.md`.
-- [ ] **[Now]** Task 14 — HTF-anchor rulebook contract (profile schema + regime permission integration).
+- [x] **[Done]** Phase 0 dependency default/stub handoff landed: `.env.example` fail-closed placeholders, `docs/OPERATOR_DEPENDENCY_STUBS_V1.md`, and go/no-go stub verification gates.
+- [x] **[Done]** Task 14 scaffold contract created: `docs/HTF_ANCHOR_PROFILE_CONTRACT_V1.md` (1D+1H default profiles, deterministic validation constraints).
+- [ ] **[Now]** Task 14 implementation kickoff — wire rulebook/schema + regime permission integration against the scaffold contract.
 - [ ] **[Now]** Task 15 — map lecture-derived scoring buckets into decision payload fields (`score_total`, bucket breakdown, penalties).
 - [ ] **[Next]** Task 16 — dependency threading + strategy/policy/execution non-bypass boundaries.
 - [ ] **[Next]** Task 17 — two-pass adversarial validation harness and gate checks.

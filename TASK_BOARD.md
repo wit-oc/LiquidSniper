@@ -6,7 +6,7 @@ Status legend: [Now] [Next] [Later] [Blocked] [Done]
 - [ ] Follow canonical execution order in `docs/MVP_PAPER_SEQUENCE_V1.md`
 - [x] Cleanup + integration pass: reconcile `WORK_ITEMS.md` with completed Tasks 09–13
 - [ ] Validate end-to-end pipeline wiring (ingestor -> card/confluence -> analysis run -> diagnostic UI)
-- [ ] Task 14: Land HTF-anchor strategy rulebook contract (`docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md`, runbook + schema payload shape)
+- [ ] Task 14: Execute HTF-anchor strategy rulebook contract using `docs/HTF_ANCHOR_PROFILE_CONTRACT_V1.md` scaffold (1D+1H default profiles, regime permissions, deterministic validation)
 - [ ] Task 15: Align lecture-derived strategy scoring to deterministic decision payload fields
 
 ## [Next]
@@ -26,3 +26,4 @@ Status legend: [Now] [Next] [Later] [Blocked] [Done]
 
 ## [Done]
 - [x] Hybrid pipeline tasks T4–T8 completed via initiative runner (2026-02-15)
+- [x] Phase 0 dependency default/stub baseline landed (T1–T5): canonical sequence matrix, `.env.example` fail-closed placeholders, operator dependency stubs, go/no-go gate updates, and Task 14 scaffold contract (2026-02-18)
