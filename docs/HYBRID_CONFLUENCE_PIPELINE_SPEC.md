@@ -105,6 +105,21 @@ Explicitly excluded from decision core (annotation-only):
 - order blocks
 - supply zones
 
+### 4c) HTF-anchor profile contract (new baseline)
+
+The confluence policy must be tagged by an anchor profile to make timeframe portability explicit and auditable.
+
+Required fields per run:
+- `anchor_profile_id` (`swing|intraday|scalp`)
+- `htf_anchor_tf`
+- `itf_tf`
+- `ltf_trigger_tfs`
+
+Assumption posture:
+- strategy constructs are conditionally fractal across anchors,
+- but costs, noise, and execution microstructure are not scale-invariant,
+- therefore each anchor profile must maintain profile-specific risk/viability thresholds.
+
 ## 5) Screenshot artifacts in UI + messages
 
 Store per analysis run:

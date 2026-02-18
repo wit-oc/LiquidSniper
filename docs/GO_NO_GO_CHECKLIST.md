@@ -26,6 +26,11 @@ Proceed to guarded pilot only if every **Go Gate** item is checked. Any unchecke
   - Current status (2026-02-15): **PASS** (`./.venv/bin/pytest -q` → 44 passed).
   - Evidence: `docs/DOCKER_COMPOSE_VALIDATION_2026-02-15.md`.
 
+- [ ] **HTF-anchor profile parity + adversarial gates are green**
+  - Requirement: at least two anchor profiles (e.g., 1D-anchor and 1H-anchor) pass replay parity checks and two-pass adversarial validation gates.
+  - Current status (2026-02-18): pending Tasks 14–17 (`tasks/14_...` to `tasks/17_...`).
+  - Evidence target: `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md` + adversarial gate artifacts.
+
 ## Guarded Pilot Controls (must be true before live capital/risk)
 
 - [ ] Pilot is explicitly in simulation/paper mode for first run window.

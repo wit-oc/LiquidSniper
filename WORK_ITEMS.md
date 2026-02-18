@@ -15,6 +15,35 @@ Status tags:
 
 ---
 
+## Integration reconciliation snapshot (2026-02-15)
+
+- [x] **[Done]** Task 09 — analysis run contract + pipeline skeleton
+- [x] **[Done]** Task 10 — would-alert simulation mode
+- [x] **[Done]** Task 11 — TradingView artifact linking + mount contract
+- [x] **[Done]** Task 12 — minimal diagnostic UI updates
+- [x] **[Done]** Task 13 — OpenClaw orchestration + rulebook/bootstrap + secrets flow
+- [x] **[Done]** Task 05 — Telegram ingestion wiring integration hardening
+- [x] **[Done]** Task 06 — Streamlit UI cleanup against diagnostic + card views
+- [x] **[Done]** Task 07 — Docker/compose verification with shared artifact mount
+- [x] **[Done]** Task 08 — runbook/validation gate update for simulation rollout
+
+---
+
+## Strategy automation alignment snapshot (2026-02-18)
+
+- [x] **[Done]** Added `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md` to map proposal -> LiquidSniper docs/tasks/dependencies.
+- [x] **[Done]** Upgraded `docs/TRADING_STRATEGY_RUNBOOK_V1.md` to v1.1 with HTF-anchor model and deterministic payload requirements.
+- [ ] **[Now]** Task 14 — HTF-anchor rulebook contract (profile schema + regime permission integration).
+- [ ] **[Now]** Task 15 — map lecture-derived scoring buckets into decision payload fields (`score_total`, bucket breakdown, penalties).
+- [ ] **[Next]** Task 16 — dependency threading + strategy/policy/execution non-bypass boundaries.
+- [ ] **[Next]** Task 17 — two-pass adversarial validation harness and gate checks.
+- [ ] **[Next]** Task 18 — packaging boundary decision (integrated module vs separate execution core).
+
+---
+
+> Note: Sections `0)`-`4)` below are retained as legacy Phase-1 planning detail and may contain stale checkbox state.  
+> Canonical active sequencing is now the two snapshots above (`Integration reconciliation` and `Strategy automation alignment`).
+
 ## 0) Decisions (must lock early)
 
 - [ ] **[Next]** Choose storage for MVP: **SQLite** vs JSONL (recommend SQLite for UI + edits; still can export JSONL)

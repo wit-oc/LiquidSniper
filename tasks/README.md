@@ -37,9 +37,18 @@ Rationale:
 - Task 12 — **Codex CLI** (minimal diagnostic UI updates)
 - Task 13 — **Agent** (OpenClaw orchestration + rulebook/bootstrap + secrets policy)
 
+## Strategy automation alignment assignment
+
+- Task 14 — **Agent** (HTF-anchor rulebook contract + profile constraints)
+- Task 15 — **Agent** (strategy score mapping + deterministic reason-code alignment)
+- Task 16 — **Agent** (dependency threading + non-bypass boundary contract)
+- Task 17 — **Agent** (two-pass adversarial validation gates)
+- Task 18 — **Agent** (integrated vs separate execution-core packaging decision)
+
 ## Execution order
 - `01_...` → `08_...`
 - `09_...` → `13_...` (backend-first hybrid confluence pipeline)
+- `14_...` → `18_...` (strategy automation alignment + governance hardening)
 
 ## Initiative-runner note
 
