@@ -126,6 +126,29 @@ If the strategy thesis does not require order-book alignment, treat order-book f
 
 This avoids forcing strategy invalidation when order-book data is unavailable while still allowing future quality lift experiments.
 
+## 5.4 Egress isolation control (Blofin API experimentation)
+
+For Blofin API plumbing and early automation testing, network egress must be treated as an explicit risk boundary.
+
+### Preferred egress hierarchy
+
+1. **Best:** separate bot host + static/dedicated egress IP.
+2. **Good now:** Mac mini + Surfshark **Static IP** + split-tunnel bot traffic only.
+3. **Avoid:** rotating/shared VPN exits for API experimentation.
+
+### Mandatory controls
+
+- Use a dedicated Blofin test account and never share credentials/keys with the main trading account.
+- Keep egress separation strict: do not use bot egress for main account interactive sessions.
+- Use trade-only API keys (no withdrawal) and IP allowlisting when supported.
+- Enforce endpoint allowlist + deterministic request-rate guardrails in adapters.
+- Emit egress context in audit artifacts (egress profile id, IP mode: `static|shared|direct`) for incident review.
+- Trigger containment (disable adapter path + key) on anti-abuse/risk response anomalies.
+
+### Stage-gate implication
+
+No progression beyond read-only/paper API integration if static/dedicated egress posture is not confirmed.
+
 ---
 
 ## 6) Integrated vs forked architecture decision

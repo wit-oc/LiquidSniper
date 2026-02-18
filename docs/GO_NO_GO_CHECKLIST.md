@@ -34,6 +34,8 @@ Proceed to guarded pilot only if every **Go Gate** item is checked. Any unchecke
 ## Guarded Pilot Controls (must be true before live capital/risk)
 
 - [ ] Pilot is explicitly in simulation/paper mode for first run window.
+- [ ] Blofin API egress isolation is confirmed (static/dedicated egress preferred; no shared/rotating VPN requirement bypass).
+- [ ] Main-account and bot-account network/API credentials are segregated (no egress reuse for main account sessions).
 - [ ] Operator rollback path is documented (disable ingestion and stop processing quickly).
 - [ ] Log capture and daily review cadence are defined for pilot period.
 - [ ] Any runtime exceptions trigger immediate pilot pause pending review.
