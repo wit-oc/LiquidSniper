@@ -20,6 +20,9 @@ EXPECTED_TABLES = {
     "analysis_runs",
     "candidate_decisions",
     "screenshot_artifacts",
+    "market_candles",
+    "feed_checkpoints",
+    "feed_health_events",
 }
 
 

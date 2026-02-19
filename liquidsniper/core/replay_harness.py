@@ -21,6 +21,18 @@ class Thresholds:
     high_priority: float = 80.0
 
 
+REQUIRED_CANDLE_WINDOWS = ("1m", "5m", "15m", "1h", "4h", "1d", "1w")
+ANCHOR_PROFILE_MAP: dict[str, dict[str, Any]] = {
+    "S": {"htf_anchor_tf": "1D", "itf_tf": "4H", "ltf_trigger_tfs": ["1H", "15m"]},
+    "I": {"htf_anchor_tf": "4H", "itf_tf": "1H", "ltf_trigger_tfs": ["15m", "5m"]},
+    "C": {"htf_anchor_tf": "1H", "itf_tf": "15m", "ltf_trigger_tfs": ["5m", "1m"]},
+}
+
+TF_RANK = {"1m": 1, "5m": 2, "15m": 3, "1h": 4, "4h": 5, "1d": 6, "1w": 7}
+
+DECISION_TIER_RANK = {"reject": 0, "watch_only": 1, "publish_candidate": 2, "high_priority": 3}
+
+
 def _clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> float:
     return max(lo, min(hi, v))
 
@@ -75,6 +87,41 @@ def score_context(context: dict[str, Any] | None) -> float:
     return _round2(0.35 * htf + 0.30 * sr + 0.20 * ltf + 0.15 * vol)
 
 
+def _normalize_tf(tf: str) -> str:
+    return str(tf or "").strip().lower()
+
+
+def evaluate_canonical_candle_windows(canonical_candles: dict[str, Any] | None) -> tuple[bool, list[str]]:
+    """Return availability gate for canonical candle windows.
+
+    Missing/stale windows are fail-closed for strategy promotion.
+    If canonical metadata is omitted (legacy fixtures), this gate is bypassed.
+    """
+    if canonical_candles is None:
+        return True, []
+
+    c = canonical_candles
+
+    raw_available = c.get("available_timeframes") or []
+    available = {_normalize_tf(tf) for tf in raw_available}
+
+    raw_stale = c.get("stale_timeframes") or []
+    stale = {_normalize_tf(tf) for tf in raw_stale}
+
+    required = {_normalize_tf(tf) for tf in (c.get("required_timeframes") or REQUIRED_CANDLE_WINDOWS)}
+
+    missing = sorted(tf for tf in required if tf not in available)
+    stale_hit = sorted(tf for tf in required if tf in stale)
+
+    reasons: list[str] = []
+    if missing:
+        reasons.append(f"missing canonical windows: {','.join(missing)}")
+    if stale_hit:
+        reasons.append(f"stale canonical windows: {','.join(stale_hit)}")
+
+    return len(reasons) == 0, reasons
+
+
 def _agent_confidence(agent: dict[str, Any] | None) -> float:
     a = agent or {}
     base = _clamp(float(a.get("agent_confidence") or 50.0))
@@ -82,6 +129,55 @@ def _agent_confidence(agent: dict[str, Any] | None) -> float:
     if tv_status in {"unavailable", "auth_required", "failed"}:
         base = max(0.0, base - 15.0)
     return _round2(base)
+
+
+def _normalize_tfs(raw: list[str] | tuple[str, ...] | None) -> list[str]:
+    return [_normalize_tf(tf) for tf in (raw or [])]
+
+
+def _apply_task14_15_contract(case: dict[str, Any], decision: str) -> tuple[str, list[str], str]:
+    reason_codes: list[str] = []
+
+    profile = str(case.get("anchor_profile_id") or "").strip()
+    profile_spec = ANCHOR_PROFILE_MAP.get(profile)
+    if profile_spec is None:
+        reason_codes.append("invalid_profile_id")
+
+    htf = str(case.get("htf_anchor_tf") or "").strip()
+    itf = str(case.get("itf_tf") or "").strip()
+    ltf = case.get("ltf_trigger_tfs") or []
+
+    if profile_spec is not None:
+        if (
+            htf != profile_spec["htf_anchor_tf"]
+            or itf != profile_spec["itf_tf"]
+            or list(ltf) != list(profile_spec["ltf_trigger_tfs"])
+        ):
+            reason_codes.append("profile_tf_mismatch")
+
+    htf_rank = TF_RANK.get(_normalize_tf(htf), 0)
+    itf_rank = TF_RANK.get(_normalize_tf(itf), 0)
+    ltf_ranks = [TF_RANK.get(_normalize_tf(tf), 0) for tf in ltf]
+    if htf_rank == 0 or itf_rank == 0 or any(r == 0 for r in ltf_ranks) or not (htf_rank > itf_rank > max(ltf_ranks, default=0)):
+        reason_codes.append("invalid_tf_hierarchy")
+
+    regime_permission = str(case.get("regime_permission") or "").strip().lower()
+    regime_reason_codes = case.get("regime_reason_codes") or []
+    if regime_permission not in {"allow", "degrade", "deny"} or not regime_reason_codes:
+        reason_codes.append("missing_regime_gate")
+
+    if reason_codes:
+        return "reject", reason_codes, regime_permission
+
+    if regime_permission == "deny":
+        decision = "watch_only"
+        reason_codes.append("regime_deny_watch_only")
+    elif regime_permission == "degrade" and DECISION_TIER_RANK.get(decision, 0) > DECISION_TIER_RANK["publish_candidate"]:
+        decision = "publish_candidate"
+        reason_codes.append("regime_degrade_cap")
+
+    reason_codes.append("task14_15_contract_ok")
+    return decision, reason_codes, regime_permission
 
 
 def _runbook_decision(confluence: dict[str, Any]) -> tuple[str, int, bool]:
@@ -119,10 +215,26 @@ def _runbook_decision(confluence: dict[str, Any]) -> tuple[str, int, bool]:
 
 def score_case(case: dict[str, Any], thresholds: Thresholds | None = None) -> dict[str, Any]:
     t = thresholds or Thresholds()
-    event = dict(case.get("event") or {})
+    feed_health = dict(case.get("feed_health") or {})
 
+    # Canonical candles are the decision baseline (Task 22).
+    canonical_ready, canonical_reasons = evaluate_canonical_candle_windows(case.get("canonical_candles"))
+    feed_state = str(feed_health.get("state") or "ok").strip().lower()
+    feed_reason_codes = [str(x) for x in (feed_health.get("reason_codes") or [])]
+    feed_promotion_blocked = feed_state in {"degraded", "tripped", "resync_required"}
+
+    event = dict(case.get("event") or {})
     zone_priority = score_zone_priority(event)
-    context_score = score_context(case.get("context")) if zone_priority >= t.zone_to_context else 0.0
+
+    # Canonical structural context is primary; trigger context is overlay-only.
+    canonical_context_score = score_context(case.get("canonical_context") or case.get("context"))
+    trigger_overlay = _clamp(float((case.get("trigger_context") or {}).get("overlay_boost") or 0.0), -10.0, 10.0)
+
+    if canonical_ready and zone_priority >= t.zone_to_context:
+        context_score = _round2(_clamp(canonical_context_score + trigger_overlay))
+    else:
+        context_score = 0.0
+
     pre_score = _round2(0.55 * zone_priority + 0.45 * context_score)
 
     if pre_score >= t.pre_to_agent:
@@ -146,6 +258,29 @@ def score_case(case: dict[str, Any], thresholds: Thresholds | None = None) -> di
         else:
             decision = "reject"
 
+    if not canonical_ready:
+        decision = "reject"
+
+    if feed_promotion_blocked and decision in {"publish_candidate", "high_priority"}:
+        decision = "watch_only"
+
+    decision_reason_codes: list[str] = []
+    regime_permission = "allow"
+    if "anchor_profile_id" in case:
+        decision, decision_reason_codes, regime_permission = _apply_task14_15_contract(case, decision)
+
+    score_total = _round2(final_score / 10.0)
+    score_gate_passed = score_total >= 6.0
+    if "anchor_profile_id" in case and not score_gate_passed and decision != "reject":
+        decision = "watch_only"
+        decision_reason_codes.append("score_gate_below_6_0")
+
+    if feed_promotion_blocked:
+        decision_reason_codes.append("feed_health_degraded")
+    decision_reason_codes.extend(f"feed_health:{code}" for code in feed_reason_codes)
+
+    trigger_context = dict(case.get("trigger_context") or {})
+
     return {
         "id": case.get("id"),
         "zone_priority": zone_priority,
@@ -153,9 +288,25 @@ def score_case(case: dict[str, Any], thresholds: Thresholds | None = None) -> di
         "pre_score": pre_score,
         "agent_confidence": agent_confidence,
         "final_score": final_score,
+        "score_total": score_total,
+        "score_gate_passed": score_gate_passed,
         "decision": decision,
+        "decision_tier": decision,
+        "decision_reason_codes": decision_reason_codes,
+        "regime_permission": regime_permission,
         "runbook_primary_ok": has_primary,
         "runbook_secondary_hits": secondary_hits,
+        "canonical_ready": canonical_ready,
+        "canonical_gate_reasons": canonical_reasons,
+        "anchor_profile_id": case.get("anchor_profile_id"),
+        "htf_anchor_tf": case.get("htf_anchor_tf"),
+        "rulebook_ref": case.get("rulebook_ref"),
+        "policy_version": case.get("policy_version"),
+        "feed_state": feed_state,
+        "feed_reason_codes": feed_reason_codes,
+        "canonical_trace_id": (case.get("canonical_candles") or {}).get("trace_id"),
+        "trigger_trace_id": trigger_context.get("trace_id"),
+        "trigger_influence": _round2(trigger_overlay),
     }
 
 
@@ -185,6 +336,8 @@ def run_fixture_pack(path: str | Path) -> dict[str, Any]:
             "decision",
             "runbook_primary_ok",
             "runbook_secondary_hits",
+            "canonical_ready",
+            "canonical_gate_reasons",
         ):
             if k not in expected:
                 continue
