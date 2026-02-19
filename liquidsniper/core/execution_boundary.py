@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
+
+from .policy_gate import PolicyGateValidationError, validate_trade_intent
 
 
 _REQUIRED_AUDIT_FIELDS = ("trace_id", "policy_version", "rulebook_ref")
@@ -40,6 +42,45 @@ class ExecutionBoundary:
 
         proposal_id = f"prop_{self._next_id:06d}"
         self._next_id += 1
+
+        mode = str(proposal.get("mode") or "paper")
+        if mode == "paper":
+            trade_intent_payload = proposal.get("trade_intent")
+            if not isinstance(trade_intent_payload, dict):
+                rec = {
+                    "proposal": dict(proposal),
+                    "approved": False,
+                    "executed": False,
+                    "reason_codes": ("TRADE_INTENT_REQUIRED",),
+                }
+                self._proposals[proposal_id] = rec
+                return {
+                    "proposal_id": proposal_id,
+                    "decision": "rejected",
+                    "reason_codes": rec["reason_codes"],
+                    "trace_id": proposal.get("trace_id"),
+                    "policy_version": proposal.get("policy_version"),
+                }
+            try:
+                normalized_trade_intent = validate_trade_intent(trade_intent_payload).normalized
+            except PolicyGateValidationError as exc:
+                rec = {
+                    "proposal": dict(proposal),
+                    "approved": False,
+                    "executed": False,
+                    "reason_codes": (f"TRADE_INTENT_{exc.reason_code}",),
+                }
+                self._proposals[proposal_id] = rec
+                return {
+                    "proposal_id": proposal_id,
+                    "decision": "rejected",
+                    "reason_codes": rec["reason_codes"],
+                    "trace_id": proposal.get("trace_id"),
+                    "policy_version": proposal.get("policy_version"),
+                }
+
+            proposal = dict(proposal)
+            proposal["trade_intent"] = normalized_trade_intent
 
         if policy is None:
             rec = {
@@ -137,3 +178,25 @@ class ExecutionBoundary:
             "rulebook_ref": proposal["rulebook_ref"],
             "execution_mode": proposal.get("mode") or "paper",
         }
+
+    def execute_with_adapter(
+        self,
+        proposal_id: str,
+        adapter: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Execute only after gate pass; never call adapter on blocked/rejected proposals."""
+        gate = self.execute_approved(proposal_id)
+        if gate.get("decision") != "executed":
+            return gate
+
+        rec = self._proposals.get(proposal_id)
+        if rec is None:
+            return {
+                "decision": "blocked",
+                "reason_codes": ("PROPOSAL_NOT_FOUND",),
+            }
+
+        adapter_result = adapter(dict(rec["proposal"]))
+        out = dict(gate)
+        out["adapter_result"] = adapter_result
+        return out

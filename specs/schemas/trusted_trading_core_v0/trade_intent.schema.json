@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liquidsniper.local/schemas/trusted_trading_core_v0/trade_intent.schema.json",
+  "title": "TradeIntent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "intent_id",
+    "ts",
+    "strategy_id",
+    "mode",
+    "venue",
+    "symbol",
+    "side",
+    "order_type",
+    "limit_price",
+    "size_notional_usd",
+    "time_in_force",
+    "max_slippage_bps",
+    "thesis",
+    "idempotency_key"
+  ],
+  "properties": {
+    "intent_id": { "type": "string", "format": "uuid" },
+    "ts": { "type": "string", "format": "date-time" },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "mode": { "enum": ["paper", "live"] },
+    "venue": { "enum": ["blofin", "onchain"] },
+    "symbol": { "type": "string", "minLength": 1 },
+    "side": { "enum": ["buy", "sell"] },
+    "order_type": { "enum": ["market", "limit"] },
+    "limit_price": { "type": ["number", "string"], "minimum": 0 },
+    "size_notional_usd": { "type": ["number", "string"], "exclusiveMinimum": 0 },
+    "time_in_force": { "enum": ["GTC", "IOC", "FOK"] },
+    "max_slippage_bps": { "type": "integer", "minimum": 0 },
+    "thesis": { "type": "string", "minLength": 1 },
+    "idempotency_key": { "type": "string", "minLength": 1 }
+  }
+}

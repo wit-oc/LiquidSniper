@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liquidsniper.local/schemas/trusted_trading_core_v0/policy_decision.schema.json",
+  "title": "PolicyDecision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["intent_id", "approved", "reasons", "policy_snapshot_id", "risk_metrics"],
+  "properties": {
+    "intent_id": { "type": "string", "format": "uuid" },
+    "approved": { "type": "boolean" },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "policy_snapshot_id": { "type": "string", "minLength": 1 },
+    "risk_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["post_trade_exposure_usd", "projected_daily_loss_usd"],
+      "properties": {
+        "post_trade_exposure_usd": { "type": ["number", "string"], "minimum": 0 },
+        "projected_daily_loss_usd": { "type": ["number", "string"], "minimum": 0 }
+      }
+    }
+  }
+}

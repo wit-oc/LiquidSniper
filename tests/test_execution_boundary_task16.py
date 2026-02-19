@@ -1,6 +1,27 @@
 from liquidsniper.core.execution_boundary import ExecutionBoundary, PolicyDecision
 
 
+def _trade_intent(**overrides):
+    base = {
+        "intent_id": "8e8947f4-e1f7-4d6a-b5fa-362db4f8b735",
+        "ts": "2026-02-19T15:00:00Z",
+        "strategy_id": "htf-confluence-v1",
+        "mode": "paper",
+        "venue": "blofin",
+        "symbol": "ETHUSDT",
+        "side": "buy",
+        "order_type": "limit",
+        "limit_price": "2750.5",
+        "size_notional_usd": "120",
+        "time_in_force": "GTC",
+        "max_slippage_bps": 15,
+        "thesis": "POI_RETEST_CONFIRMED",
+        "idempotency_key": "trace-001",
+    }
+    base.update(overrides)
+    return base
+
+
 def _proposal(**overrides):
     base = {
         "trace_id": "run_123",
@@ -9,6 +30,7 @@ def _proposal(**overrides):
         "symbol": "ETHUSDT",
         "side": "long",
         "mode": "paper",
+        "trade_intent": _trade_intent(),
     }
     base.update(overrides)
     return base
@@ -61,6 +83,28 @@ def test_approved_proposal_executes_and_carries_audit_fields():
     assert executed["trace_id"] == "run_123"
     assert executed["policy_version"] == "v1"
     assert executed["rulebook_ref"] == "TRADING_STRATEGY_RUNBOOK_V1"
+
+
+def test_invalid_trade_intent_rejects_before_adapter_invocation():
+    boundary = ExecutionBoundary()
+    adapter_called = False
+
+    def _adapter(_: dict):
+        nonlocal adapter_called
+        adapter_called = True
+        return {"status": "submitted"}
+
+    proposed = boundary.propose_trade(
+        _proposal(trade_intent=_trade_intent(size_notional_usd="0")),
+        PolicyDecision(accepted=True, trace_id="run_123", policy_version="v1"),
+    )
+    out = boundary.execute_with_adapter(proposed["proposal_id"], _adapter)
+
+    assert proposed["decision"] == "rejected"
+    assert proposed["reason_codes"] == ("TRADE_INTENT_NON_POSITIVE",)
+    assert out["decision"] == "blocked"
+    assert out["reason_codes"] == ("PROPOSAL_NOT_APPROVED",)
+    assert adapter_called is False
 
 
 def test_live_mode_is_blocked_even_when_policy_approved():
