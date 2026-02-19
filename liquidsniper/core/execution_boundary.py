@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .paper_artifacts import persist_run_artifact
 from .policy_gate import PolicyGateValidationError, validate_trade_intent
 
 
@@ -141,7 +142,8 @@ class ExecutionBoundary:
             }
 
         proposal = rec["proposal"]
-        if str(proposal.get("mode") or "paper") == "live":
+        mode = str(proposal.get("mode") or "paper")
+        if mode != "paper":
             return {
                 "proposal_id": proposal_id,
                 "decision": "blocked",
@@ -199,4 +201,9 @@ class ExecutionBoundary:
         adapter_result = adapter(dict(rec["proposal"]))
         out = dict(gate)
         out["adapter_result"] = adapter_result
+
+        if str(rec["proposal"].get("mode") or "paper") == "paper" and out.get("decision") == "executed":
+            _, artifact_path = persist_run_artifact(rec["proposal"], out)
+            out["paper_run_artifact_path"] = str(artifact_path)
+
         return out

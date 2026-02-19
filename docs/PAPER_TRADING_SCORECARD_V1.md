@@ -105,3 +105,103 @@ Minimum for considering live-discussion readiness (not activation):
 - No critical hard-failure reason codes
 - Benchmark and adversarial gates passing
 - Stable operational discipline and reproducible artifacts
+
+## 9) Activation runbook (paper-only)
+
+All commands below are intentionally paper-only and write artifacts under `artifacts/paper_mvp/`.
+
+### 9.1 One paper execution cycle (writes per-run artifact)
+
+```bash
+python3 - <<'PY'
+from datetime import datetime, timezone
+from uuid import uuid4
+from liquidsniper.core.execution_boundary import ExecutionBoundary, PolicyDecision
+
+boundary = ExecutionBoundary()
+trace_id = "manual-2026-02-19T00:00:00Z"
+intent_id = str(uuid4())
+ts = datetime.now(timezone.utc).isoformat()
+proposal = {
+    "trace_id": trace_id,
+    "policy_version": "v1",
+    "rulebook_ref": "TRADING_STRATEGY_PLAYBOOK_V1",
+    "mode": "paper",
+    "symbol": "ETHUSDT",
+    "direction": "long",
+    "entry": 2012.5,
+    "stop_loss_initial": 1978.0,
+    "tp_levels": [2060.0, 2125.0, 2190.0],
+    "trade_intent": {
+        "intent_id": intent_id,
+        "ts": ts,
+        "strategy_id": "paper-mvp-v1",
+        "mode": "paper",
+        "venue": "blofin",
+        "symbol": "ETHUSDT",
+        "side": "buy",
+        "order_type": "limit",
+        "limit_price": "2012.5",
+        "size_notional_usd": "1000",
+        "time_in_force": "GTC",
+        "max_slippage_bps": 25,
+        "thesis": "HTF-aligned pullback entry",
+        "idempotency_key": f"paper-{intent_id}",
+    },
+}
+policy = PolicyDecision(True, (), trace_id, "v1")
+out = boundary.propose_trade(proposal, policy)
+print(boundary.execute_with_adapter(out["proposal_id"], lambda _: {"status": "paper_fill", "intent_id": intent_id}))
+PY
+```
+
+Expected: `decision='executed'` and `paper_run_artifact_path='artifacts/paper_mvp/runs/<trace_id>.json'`.
+
+### 9.2 Generate daily scorecard from accumulated run artifacts
+
+```bash
+python3 - <<'PY'
+from liquidsniper.core.paper_artifacts import persist_daily_scorecard
+payload, path = persist_daily_scorecard(trading_day="2026-02-19")
+print(path)
+print(payload)
+PY
+```
+
+### 9.3 Generate weekly rollup from accumulated run artifacts
+
+```bash
+python3 - <<'PY'
+from liquidsniper.core.paper_artifacts import persist_weekly_rollup
+payload, path = persist_weekly_rollup(trading_week="2026-W08")
+print(path)
+print(payload)
+PY
+```
+
+### 9.4 Optional: continuous paper loop (operator shell)
+
+```bash
+while true; do
+  # run your paper decisioning/execution cycle(s) here
+  python3 -m pytest -q tests/test_execution_boundary_task16.py || break
+  sleep 60
+done
+```
+
+Use your existing scheduler/orchestrator to replace the placeholder cycle with your real proposal+policy path.
+
+## 10) Operator output format (copy/paste)
+
+Use this message format when posting scorecards:
+
+```markdown
+Paper Trading Daily (YYYY-MM-DD)
+- Runs: <n> | Accepted: <n> | Executed: <n> | Rejected: <n>
+- Expectancy: <x.xx R> | Win rate: <x%> | Profit factor: <x.xx>
+- Risk discipline: breaches=<n> | drawdown=<x%> | cluster cap breaches=<n>
+- Feed health: freshness=<x%> gap_rate=<x%> rate_limit_rate=<x%>
+- Top reject reasons: <code1>(n), <code2>(n), <code3>(n)
+- Gate posture: GO|HOLD|NO_GO — <one-line reason>
+- Artifacts: run_dir=artifacts/paper_mvp/runs daily=artifacts/paper_mvp/daily/<YYYY-MM-DD>.json weekly=artifacts/paper_mvp/weekly/<YYYY-Www>.json
+```

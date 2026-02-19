@@ -1,3 +1,5 @@
+import json
+
 from liquidsniper.core.execution_boundary import ExecutionBoundary, PolicyDecision
 
 
@@ -118,3 +120,75 @@ def test_live_mode_is_blocked_even_when_policy_approved():
 
     assert out["decision"] == "blocked"
     assert out["reason_codes"] == ("MODE_NOT_ALLOWED",)
+
+
+def test_non_paper_mode_is_blocked_even_if_not_live():
+    boundary = ExecutionBoundary()
+
+    proposed = boundary.propose_trade(
+        _proposal(mode="dry_run"),
+        PolicyDecision(accepted=True, trace_id="run_123", policy_version="v1"),
+    )
+    out = boundary.execute_approved(proposed["proposal_id"])
+
+    assert out["decision"] == "blocked"
+    assert out["reason_codes"] == ("MODE_NOT_ALLOWED",)
+
+
+def test_execute_with_adapter_does_not_call_adapter_in_live_mode():
+    boundary = ExecutionBoundary()
+    adapter_called = False
+
+    def _adapter(_: dict):
+        nonlocal adapter_called
+        adapter_called = True
+        return {"status": "submitted"}
+
+    proposed = boundary.propose_trade(
+        _proposal(mode="live"),
+        PolicyDecision(accepted=True, trace_id="run_123", policy_version="v1"),
+    )
+    out = boundary.execute_with_adapter(proposed["proposal_id"], _adapter)
+
+    assert out["decision"] == "blocked"
+    assert out["reason_codes"] == ("MODE_NOT_ALLOWED",)
+    assert adapter_called is False
+    assert "paper_run_artifact_path" not in out
+
+
+def test_execute_with_adapter_persists_paper_run_artifact(tmp_path, monkeypatch):
+    boundary = ExecutionBoundary()
+    monkeypatch.setenv("LS_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+
+    proposed = boundary.propose_trade(
+        _proposal(
+            decision="high_priority",
+            trade_intent=_trade_intent(limit_price="2012.5"),
+            stop_loss=1978.0,
+            tp_levels=[2060.0, 2125.0, 2190.0],
+            tp_events=[{"level": 2060.0, "hit_ts": "2026-02-19T05:10:00Z"}],
+            exit_reason="tp",
+            pnl_r=0.8,
+            pnl_pct=0.34,
+        ),
+        PolicyDecision(accepted=True, trace_id="run_123", policy_version="v1"),
+    )
+
+    out = boundary.execute_with_adapter(
+        proposed["proposal_id"],
+        lambda _: {"status": "paper_fill"},
+    )
+
+    assert out["decision"] == "executed"
+    artifact_path = tmp_path / "artifacts" / "paper_mvp" / "runs" / "run_123.json"
+    assert out["paper_run_artifact_path"] == str(artifact_path)
+    assert artifact_path.exists()
+
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert payload["run_id"] == "run_123"
+    assert payload["entry"] == 2012.5
+    assert payload["stop_loss_initial"] == 1978.0
+    assert payload["tp_levels"] == [2060.0, 2125.0, 2190.0]
+    assert payload["tp_events"][0]["level"] == 2060.0
+    assert payload["exit_reason"] == "tp"
+    assert payload["pnl_r"] == 0.8
