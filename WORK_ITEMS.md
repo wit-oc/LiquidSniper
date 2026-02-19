@@ -38,6 +38,7 @@ Status tags:
 
 - [x] **[Done]** Added `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md` (proposal -> LiquidSniper mapping)
 - [x] **[Done]** Upgraded `docs/TRADING_STRATEGY_RUNBOOK_V1.md` to v1.1 (HTF-anchor + deterministic payload)
+- [x] **[Done]** Added `docs/TRADING_STRATEGY_GLOSSARY_V1.md` (canonical strategy terminology + payload definitions)
 - [x] **[Done]** Added canonical paper sequence: `docs/MVP_PAPER_SEQUENCE_V1.md`
 - [x] **[Done]** Landed fail-closed dependency stubs (`.env.example`, `docs/OPERATOR_DEPENDENCY_STUBS_V1.md`, go/no-go stub gates)
 - [x] **[Done]** Added Task 14 scaffold contract: `docs/HTF_ANCHOR_PROFILE_CONTRACT_V1.md`

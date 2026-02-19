@@ -17,6 +17,8 @@ This runbook is for:
 
 This runbook is **not** permission to auto-execute live trades.
 
+Companion terminology reference: `docs/TRADING_STRATEGY_GLOSSARY_V1.md`.
+
 ---
 
 ## 2) Core strategy thesis
