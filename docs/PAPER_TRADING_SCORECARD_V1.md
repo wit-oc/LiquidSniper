@@ -114,11 +114,16 @@ All commands below are intentionally paper-only and write artifacts under `artif
 
 ```bash
 python3 - <<'PY'
+from datetime import datetime, timezone
+from uuid import uuid4
 from liquidsniper.core.execution_boundary import ExecutionBoundary, PolicyDecision
 
 boundary = ExecutionBoundary()
+trace_id = "manual-2026-02-19T00:00:00Z"
+intent_id = str(uuid4())
+ts = datetime.now(timezone.utc).isoformat()
 proposal = {
-    "trace_id": "manual-2026-02-19T00:00:00Z",
+    "trace_id": trace_id,
     "policy_version": "v1",
     "rulebook_ref": "TRADING_STRATEGY_PLAYBOOK_V1",
     "mode": "paper",
@@ -128,31 +133,25 @@ proposal = {
     "stop_loss_initial": 1978.0,
     "tp_levels": [2060.0, 2125.0, 2190.0],
     "trade_intent": {
+        "intent_id": intent_id,
+        "ts": ts,
+        "strategy_id": "paper-mvp-v1",
+        "mode": "paper",
+        "venue": "blofin",
         "symbol": "ETHUSDT",
         "side": "buy",
-        "mode": "paper",
-        "risk_pct": "1.0",
-        "stop_loss": "1978.0",
-        "take_profit": "2060.0",
-        "projected_daily_loss_usd": "150",
-        "max_daily_loss_usd": "500",
-        "projected_cluster_loss_usd": "120",
-        "max_cluster_loss_usd": "300",
-        "slippage_bps": "8",
-        "max_slippage_bps": "25",
-        "policy_version": "v1",
-        "trace_id": "manual-2026-02-19T00:00:00Z",
-        "rulebook_ref": "TRADING_STRATEGY_PLAYBOOK_V1",
+        "order_type": "limit",
+        "limit_price": "2012.5",
+        "size_notional_usd": "1000",
+        "time_in_force": "GTC",
+        "max_slippage_bps": 25,
+        "thesis": "HTF-aligned pullback entry",
+        "idempotency_key": f"paper-{intent_id}",
     },
 }
-policy = PolicyDecision(
-    accepted=True,
-    reason_codes=(),
-    trace_id=proposal["trace_id"],
-    policy_version=proposal["policy_version"],
-)
+policy = PolicyDecision(True, (), trace_id, "v1")
 out = boundary.propose_trade(proposal, policy)
-print(boundary.execute_with_adapter(out["proposal_id"], lambda _: {"status": "paper_fill"}))
+print(boundary.execute_with_adapter(out["proposal_id"], lambda _: {"status": "paper_fill", "intent_id": intent_id}))
 PY
 ```
 
