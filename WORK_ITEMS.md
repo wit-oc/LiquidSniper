@@ -42,6 +42,7 @@ Status tags:
 - [x] **[Done]** Landed fail-closed dependency stubs (`.env.example`, `docs/OPERATOR_DEPENDENCY_STUBS_V1.md`, go/no-go stub gates)
 - [x] **[Done]** Added Task 14 scaffold contract: `docs/HTF_ANCHOR_PROFILE_CONTRACT_V1.md`
 - [ ] **[Now]** Task 14 implementation — wire rulebook/schema + regime permission integration
+- [x] **[Done]** Drafted execution-core command contract (`docs/EXECUTION_CORE_COMMAND_CONTRACT_V1.md`) defining sub-agent safe interface and hard-reject reason-code model
 - [ ] **[Next]** Task 15 — score mapping into deterministic payload fields
 - [ ] **[Next]** Task 16 — dependency threading + non-bypass boundaries
 - [ ] **[Next]** Task 17 — adversarial validation gates

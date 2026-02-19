@@ -42,6 +42,7 @@ For this sequence, MVP paper means:
 
 - `docs/TRADING_STRATEGY_RUNBOOK_V1.md`
 - `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md`
+- `docs/EXECUTION_CORE_COMMAND_CONTRACT_V1.md`
 
 ## D) Task contracts
 

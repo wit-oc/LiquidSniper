@@ -213,7 +213,8 @@ Until then: **single repo, strict module boundaries, policy non-bypass enforceme
 2. Land Task 14 to formalize HTF-anchor and profile schema on top of canonical feed inputs.
 3. Land Task 15 to map strategy bucket scoring into canonical decision payloads.
 4. Land Task 16 (+ Tasks 23–24) to enforce dependency/rate-limit/non-bypass boundaries.
-5. Land Task 17 (+ Task 26 evidence pack) to codify adversarial + feed-readiness gate criteria.
-6. Land Task 18, and only implement Task 25 if CCXT gap analysis requires native Blofin fallback.
+5. Land `docs/EXECUTION_CORE_COMMAND_CONTRACT_V1.md` as the agent/core interface contract (`propose-trade` -> policy firewall -> `execute-approved`).
+6. Land Task 17 (+ Task 26 evidence pack) to codify adversarial + feed-readiness gate criteria.
+7. Land Task 18, and only implement Task 25 if CCXT gap analysis requires native Blofin fallback.
 
 This keeps strategy-first iteration and risk-first operations coupled correctly, while avoiding premature architectural fragmentation.
