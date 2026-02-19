@@ -100,10 +100,16 @@ def query_diagnostic_cards(
 
 
 def _render_card_list(cards: list[DiagnosticCard]) -> None:
-    st.subheader("Inbox")
+    st.subheader("Diagnostic inbox")
     if not cards:
         st.info("No analysis runs matched current filters.")
         return
+
+    total = len(cards)
+    would_alert_count = sum(1 for card in cards if card.would_alert)
+    st.caption(
+        f"Showing {total} run(s) · would-alert candidates: {would_alert_count}"
+    )
 
     for card in cards:
         badge = "! " if card.would_alert else ""
@@ -145,7 +151,9 @@ def _render_card_detail(conn: sqlite3.Connection, cards: list[DiagnosticCard]) -
 
     st.markdown("**Screenshot links**")
     links = query_ui_artifact_links(conn, analysis_run_id=selected.analysis_run_id)
-    for timeframe, href in links.items():
+    ordered_timeframes = ("15m", "1h", "4h", "1D", "1W")
+    for timeframe in ordered_timeframes:
+        href = links.get(timeframe)
         if href:
             st.markdown(f"- {timeframe}: [{href}]({href})")
         else:
