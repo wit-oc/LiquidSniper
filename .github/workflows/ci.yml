@@ -27,6 +27,12 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+      - name: Metric drift gate (fixture baseline)
+        run: |
+          python tools/check_metric_drift.py \
+            --summary tests/fixtures/metric_summary_pass_v1.json \
+            --baseline tests/fixtures/metric_baseline_v1.json
+
       - name: Run Bandit
         run: bandit -q -r liquidsniper
 

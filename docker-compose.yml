@@ -1,0 +1,51 @@
+services:
+  liquidsniper-ingestor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: liquidsniper-ingestor
+    restart: unless-stopped
+    environment:
+      LIQUIDSNIPER_TELEGRAM_API_ID: ${LIQUIDSNIPER_TELEGRAM_API_ID}
+      LIQUIDSNIPER_TELEGRAM_API_HASH: ${LIQUIDSNIPER_TELEGRAM_API_HASH}
+      MOBCHART_BOT_USERNAME: ${MOBCHART_BOT_USERNAME:-@MobChartBot}
+    command:
+      - python
+      - -m
+      - liquidsniper.ingestor.main
+      - --source
+      - ${MOBCHART_BOT_USERNAME:-@MobChartBot}
+      - --limit
+      - "100"
+      - --db
+      - /data/liquidsniper.sqlite
+      - --session
+      - /data/telethon.session
+    volumes:
+      - liquidsniper_data:/data
+
+  liquidsniper-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: liquidsniper-web
+    restart: unless-stopped
+    environment:
+      LIQUIDSNIPER_DB_PATH: /data/liquidsniper.sqlite
+      LS_ARTIFACT_ROOT: /data/artifacts
+    command:
+      - streamlit
+      - run
+      - liquidsniper/web/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - liquidsniper_data:/data
+    depends_on:
+      - liquidsniper-ingestor
+
+volumes:
+  liquidsniper_data:
+    name: liquidsniper_data

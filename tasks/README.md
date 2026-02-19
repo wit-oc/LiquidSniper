@@ -37,9 +37,31 @@ Rationale:
 - Task 12 — **Codex CLI** (minimal diagnostic UI updates)
 - Task 13 — **Agent** (OpenClaw orchestration + rulebook/bootstrap + secrets policy)
 
+## Strategy automation alignment assignment
+
+- Task 14 — **Agent** (HTF-anchor rulebook contract + profile constraints)
+- Task 15 — **Agent** (strategy score mapping + deterministic reason-code alignment)
+- Task 16 — **Agent** (dependency threading + non-bypass boundary contract)
+- Task 17 — **Agent** (two-pass adversarial validation gates)
+- Task 18 — **Agent** (integrated vs separate execution-core packaging decision)
+
+## Data feed strategy assignment (canonical OHLCV baseline)
+
+- Task 19 — **Agent** (market-data provider contract + candle schema)
+- Task 20 — **Agent** (CCXT OHLCV backfill + incremental scheduler)
+- Task 21 — **Agent** (candle quality gates + aggregation policy)
+- Task 22 — **Agent** (strategy feed integration: candles primary, trigger contextual)
+- Task 23 — **Agent** (rate-limit budgets + circuit breakers + feed health)
+- Task 24 — **Agent** (trigger-feed decoupling + rationale traceability)
+- Task 25 — **Agent** (native Blofin adapter fallback, conditional)
+- Task 26 — **Agent** (feed benchmark + gate evidence pack)
+
 ## Execution order
 - `01_...` → `08_...`
 - `09_...` → `13_...` (backend-first hybrid confluence pipeline)
+- `19_...` → `22_...` (canonical strategy feed baseline)
+- `14_...` → `18_...` (strategy + governance hardening on top of feed baseline)
+- `23_...` → `26_...` (feed reliability hardening + benchmark evidence)
 
 ## Initiative-runner note
 

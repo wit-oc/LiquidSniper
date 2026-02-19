@@ -37,6 +37,13 @@ def test_parse_scientific_notation_price() -> None:
     assert row["distance_pct"] == 0.0
 
 
+def test_okx_swap_symbol_normalizes_to_usdt() -> None:
+    text = "Okx FUTURES: 🌒 SOL-USDT-SWAP  $190.1  $216.54K 1.8% 🔴 2h 21m"
+    row = parse_mobchart_message(text)[0]
+    assert row["event_type"] == "liquidity_screener_alert"
+    assert row["symbol"] == "SOLUSDT"
+
+
 def test_parse_multiline_batch_with_context_inheritance() -> None:
     text = "\n".join(
         [
@@ -75,8 +82,16 @@ def test_parsing_helpers_age_formats() -> None:
     assert parse_age_min_seconds("4h 6m") == 4 * 3600 + 6 * 60
 
 
+def test_non_signal_line_is_ignored() -> None:
+    text = "Binance SPOT: Welcome to MobChart — premium links in bio"
+    rows = parse_mobchart_message(text)
+    assert len(rows) == 1
+    assert rows[0]["event_type"] == "ignored_line"
+
+
 def test_malformed_line_returns_parse_error_and_no_crash() -> None:
-    text = "Binance SPOT: THIS IS NOT A VALID MOBCHART LINE"
+    # malformed-but-probable line (contains symbol/$/side marker) should count as parse_error
+    text = "Binance SPOT: BADUSDT $oops $100K 1.0% 🔴 ???"
     rows = parse_mobchart_message(text)
 
     assert len(rows) == 1

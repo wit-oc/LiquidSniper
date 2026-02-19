@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://liquidsniper.local/schemas/trusted_trading_core_v0/execution_result.schema.json",
+  "title": "ExecutionResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "intent_id",
+    "venue_order_id",
+    "status",
+    "filled_qty",
+    "avg_fill_price",
+    "fees_usd",
+    "tx_hash",
+    "error_code",
+    "ts"
+  ],
+  "properties": {
+    "intent_id": { "type": "string", "format": "uuid" },
+    "venue_order_id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["accepted", "rejected", "filled", "partial", "failed"] },
+    "filled_qty": { "type": ["number", "string"], "minimum": 0 },
+    "avg_fill_price": { "type": ["number", "string"], "minimum": 0 },
+    "fees_usd": { "type": ["number", "string"], "minimum": 0 },
+    "tx_hash": { "type": ["string", "null"] },
+    "error_code": { "type": ["string", "null"] },
+    "ts": { "type": "string", "format": "date-time" }
+  }
+}

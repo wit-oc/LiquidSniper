@@ -81,6 +81,45 @@ Guardrail:
 - Mark `publish_candidate` if `final_score >= 70`
 - Mark `high_priority` if `final_score >= 80`
 
+## 4b) Runbook confluence gate (current override)
+
+Current v1 runbook policy (stub) overrides score-only promotion:
+
+Primary required (both):
+- support/resistance first retest
+- market structure alignment (BoS/CHoCH)
+
+Secondary priority order:
+1. fib
+2. trendline
+3. liquidity alert
+4. vwap
+5. ema200
+
+Decision tiering with primary satisfied:
+- 0–1 secondary hits => `watch_only`
+- 2–3 secondary hits => `publish_candidate`
+- 4–5 secondary hits => `high_priority`
+
+Explicitly excluded from decision core (annotation-only):
+- order blocks
+- supply zones
+
+### 4c) HTF-anchor profile contract (new baseline)
+
+The confluence policy must be tagged by an anchor profile to make timeframe portability explicit and auditable.
+
+Required fields per run:
+- `anchor_profile_id` (`swing|intraday|scalp`)
+- `htf_anchor_tf`
+- `itf_tf`
+- `ltf_trigger_tfs`
+
+Assumption posture:
+- strategy constructs are conditionally fractal across anchors,
+- but costs, noise, and execution microstructure are not scale-invariant,
+- therefore each anchor profile must maintain profile-specific risk/viability thresholds.
+
 ## 5) Screenshot artifacts in UI + messages
 
 Store per analysis run:

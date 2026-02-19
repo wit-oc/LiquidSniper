@@ -122,6 +122,44 @@ At end of timebox, choose one:
 
 ---
 
+## MVP v1 scorecard (today's execution baseline)
+
+This is the concrete first-pass scorecard we use while implementing MVP tasks.
+
+### Required metrics (must be computable)
+
+- **Signal quality proxy**
+  - Hit-rate proxy at configured horizon(s)
+  - Expectancy per signal after fees/slippage assumptions
+- **Risk profile**
+  - Max drawdown proxy (paper-trade replay)
+  - MAE/MFE distribution snapshots
+- **Operational quality**
+  - End-to-end latency: alert ingest -> scored signal -> outbound payload
+  - Parsing success rate and adapter status coverage
+
+### Initial acceptance thresholds (v1)
+
+These are intentionally pragmatic for a first pass; tighten after first 1-2 replay cycles.
+
+- Parsing success rate: **>= 90%**
+- Adapter status contract coverage (`ok|unavailable|auth_required|failed`): **100% path-tested**
+- End-to-end p95 latency: **<= 15s** in local dry-run harness
+- Replay determinism: same fixture run produces identical scores/payloads: **100%**
+- Expectancy: **not materially negative** after configured fees/slippage on replay set
+  - (if negative beyond tolerance, trigger immediate threshold/feature review)
+
+### Kill criteria (v1-fast)
+
+Stop or pivot this MVP lane if any persist after 2 fix iterations:
+
+- replay harness cannot be made deterministic,
+- adapter contract/state handling remains flaky,
+- expectancy stays clearly negative under realistic assumptions,
+- latency/error profile makes reliable delivery impractical.
+
+---
+
 ## Reporting template (weekly)
 
 Required sections:

@@ -12,6 +12,14 @@ No image analysis for v0.
 Everything should be computed from OHLCV + alert stream + (optional) perp metadata.
 Visual concepts (market structure, S/R, trendlines) are represented by explicit, reproducible rules.
 
+## Anchor-timeframe assumption (fractal with constraints)
+
+This framework assumes strategy constructs can be re-anchored across HTFs (e.g., `1D` -> `1H`) if strict constraints are respected:
+- preserve HTF/ITF/LTF hierarchy,
+- recalibrate costs and viability per anchor profile,
+- tighten risk thresholds for lower anchors,
+- require profile-specific replay validation before promotion.
+
 ---
 
 ## 1) Research question
