@@ -33,6 +33,19 @@ Purpose: deterministic tracking of paper-trading success/failure for LiquidSnipe
   "canonical_trace_id": "string",
   "trigger_trace_id": "string|null",
   "trigger_influence": 3.2,
+  "entry": 2012.5,
+  "stop_loss_initial": 1978.0,
+  "tp_levels": [2060.0, 2125.0, 2190.0],
+  "tp_plan": [
+    {"level": 2060.0, "size_pct": 0.4},
+    {"level": 2125.0, "size_pct": 0.35},
+    {"level": 2190.0, "size_pct": 0.25}
+  ],
+  "stop_policy": {
+    "move_to_break_even_on_tp1": true,
+    "break_even_price": 2012.5,
+    "post_tp1_trailing": "disabled_by_default"
+  },
   "risk_pct_requested": 2.0,
   "risk_pct_allowed": 2.0,
   "proposal_decision": "accepted|rejected",
@@ -47,7 +60,14 @@ Purpose: deterministic tracking of paper-trading success/failure for LiquidSnipe
 }
 ```
 
-## 4) Success / failure definitions
+## 4) Trade management policy (required)
+
+- Every paper trade must include **multiple TP levels** (`tp_levels` + `tp_plan`).
+- On first TP hit, stop loss must move to **break even** (`move_to_break_even_on_tp1=true`).
+- After TP1, no further automatic stop movement is required by default.
+- Early/urgent exit after TP1 is allowed only when fresh data/regime evidence invalidates thesis (`exit_reason=policy`).
+
+## 5) Success / failure definitions
 
 ### Hard failure (auto HOLD/NO_GO)
 - Any non-bypass break (`NON_BYPASS_FAILED`)
@@ -60,13 +80,13 @@ Purpose: deterministic tracking of paper-trading success/failure for LiquidSnipe
 - Positive expectancy over review window (with sufficient sample)
 - Loss behavior remains inside policy caps and drawdown constraints
 
-## 5) Review cadence
+## 6) Review cadence
 
 - **Per run:** record deterministic run artifact
 - **Daily:** summarize hit rate, expectancy (R), reject-rate by reason code, feed health
 - **Weekly:** promotion posture: `GO | HOLD | NO_GO` with top 3 blockers/opportunities
 
-## 6) Operator-facing summary format (daily)
+## 7) Operator-facing summary format (daily)
 
 ```markdown
 Paper Trading Daily (YYYY-MM-DD)
@@ -78,7 +98,7 @@ Paper Trading Daily (YYYY-MM-DD)
 - Gate posture: GO|HOLD|NO_GO — <one-line reason>
 ```
 
-## 7) Initial promotion guideline
+## 8) Initial promotion guideline
 
 Minimum for considering live-discussion readiness (not activation):
 - 3–7 day paper window complete
