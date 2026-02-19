@@ -43,20 +43,15 @@ def query_diagnostic_cards(
     limit: int = 200,
 ) -> list[DiagnosticCard]:
     """Return candidate decision cards with debug filters."""
-    where: list[str] = ["r.final_score >= ?"]
     params: list[object] = [float(min_final_score)]
-
-    if would_alert_only:
-        where.append("d.would_alert = 1")
 
     normalized_status = status.strip().lower()
     if normalized_status != "all":
-        where.append("d.decision = ?")
         params.append(normalized_status)
 
     params.append(int(limit))
 
-    sql = f"""
+    sql = """
         SELECT
             r.id,
             r.created_ts,
@@ -73,10 +68,15 @@ def query_diagnostic_cards(
             COALESCE(d.rationale, '')
         FROM analysis_runs r
         JOIN candidate_decisions d ON d.analysis_run_id = r.id
-        WHERE {' AND '.join(where)}
-        ORDER BY r.created_ts DESC, r.id DESC
-        LIMIT ?;
+        WHERE r.final_score >= ?
     """
+
+    if would_alert_only:
+        sql += "\n AND d.would_alert = 1"
+    if normalized_status != "all":
+        sql += "\n AND d.decision = ?"
+
+    sql += "\n ORDER BY r.created_ts DESC, r.id DESC\n LIMIT ?;"
 
     rows = conn.execute(sql, params).fetchall()
     return [

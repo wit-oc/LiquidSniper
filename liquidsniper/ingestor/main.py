@@ -10,7 +10,7 @@ import argparse
 import asyncio
 import os
 import sqlite3
-import subprocess
+import subprocess  # nosec B404
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,8 +27,8 @@ def _utc_now_iso() -> str:
 
 
 def _keychain_get(service: str, account: str = "openclaw") -> str | None:
-    p = subprocess.run(
-        ["security", "find-generic-password", "-a", account, "-s", service, "-w"],
+    p = subprocess.run(  # nosec B603
+        ["/usr/bin/security", "find-generic-password", "-a", account, "-s", service, "-w"],
         capture_output=True,
         text=True,
         check=False,
