@@ -9,6 +9,7 @@ def test_load_profile_policy_defaults(monkeypatch):
     assert policy.profile_id == "I"
     assert policy.htf_anchor_tf == "4H"
     assert policy.daily_max_trades > 0
+    assert policy.daily_max_loss_usd > 0
 
 
 def test_evaluate_gates_blocks_profile_conditions(monkeypatch):
@@ -41,6 +42,7 @@ def test_evaluate_gates_blocks_throttle_conditions(monkeypatch):
     monkeypatch.setenv("LIQUIDSNIPER_PROFILE_ID", "I")
     monkeypatch.setenv("LIQUIDSNIPER_COOLDOWN_SECONDS", "600")
     monkeypatch.setenv("LIQUIDSNIPER_DAILY_MAX_TRADES", "1")
+    monkeypatch.setenv("LIQUIDSNIPER_MAX_DAILY_LOSS_USD", "500")
     monkeypatch.setenv("LIQUIDSNIPER_ENFORCE_ONE_OPEN_POSITION", "true")
     monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "false")
     monkeypatch.setenv("LIQUIDSNIPER_MIN_SECONDARY_HITS", "0")
@@ -52,6 +54,7 @@ def test_evaluate_gates_blocks_throttle_conditions(monkeypatch):
         last_entry_ts="2026-02-20T14:30:00+00:00",
         trades_open=1,
         executed_today=1,
+        realized_pnl_today_usd=-600.0,
         seen_idempotency_keys=["dup-key"],
     )
 
@@ -69,6 +72,7 @@ def test_evaluate_gates_blocks_throttle_conditions(monkeypatch):
     )
 
     assert out.accepted is False
+    assert out.reason_codes[0] == "RISK_DAILY_LOSS_CAP_BREACH"
     assert "IDEMPOTENCY_DUPLICATE" in out.reason_codes
     assert "DAILY_CAP_REACHED" in out.reason_codes
     assert "OPEN_POSITION_LOCKED" in out.reason_codes

@@ -12,6 +12,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
   - `LIQUIDSNIPER_PROFILE_ID=I` (`S|I|C`)
   - `LIQUIDSNIPER_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,SUIUSDT`
 - Gate policy/tuning knobs (profile-parameterized defaults; override only with evidence):
+  - `LIQUIDSNIPER_MAX_DAILY_LOSS_USD=500` (**first hard-stop check**; trading halts when daily loss breaches this cap)
   - `LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE=true`
   - `LIQUIDSNIPER_HTF_CHOP_MAX=50`
   - `LIQUIDSNIPER_MIN_SECONDARY_HITS=2`
@@ -60,6 +61,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
   - `make paper-scorecard-once`
 - If bankroll-related blocks appear (`BANKROLL_EXHAUSTED`), reduce risk sizing or increase `LIQUIDSNIPER_PAPER_BANKROLL_USD` in `.env.paper` for paper simulations.
 - If gate rejects spike, inspect `decision_reason_codes` and tune one knob at a time:
+  - `RISK_DAILY_LOSS_CAP_BREACH` -> **hard stop triggered first**; halt remains until next trading day (or cap reset) to avoid trading into adverse regime
   - `CANDLE_NOT_CLOSED` -> verify scheduler timing / candle-close source
   - `HTF_CHOP_BLOCKED` -> profile too strict for regime; reassess `LIQUIDSNIPER_HTF_CHOP_MAX`
   - `CONFLUENCE_TOO_WEAK` -> confluence matcher drift or `LIQUIDSNIPER_MIN_SECONDARY_HITS` too high

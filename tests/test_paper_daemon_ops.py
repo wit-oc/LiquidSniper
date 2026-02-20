@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -97,4 +96,57 @@ def test_run_cycle_persists_idempotency_and_blocks_duplicate(monkeypatch, tmp_pa
     state_path = artifact_root / "paper_mvp" / "state" / "execution_throttle_state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["executed_today"] == 1
+    assert "realized_pnl_today_usd" in state
     assert len(state["seen_idempotency_keys"]) == 1
+
+
+def test_daily_loss_circuit_breaker_halts_remaining_trades(monkeypatch, tmp_path):
+    health = tmp_path / "paper.health.json"
+    artifact_root = tmp_path / "artifacts"
+
+    monkeypatch.setenv("LS_ARTIFACT_ROOT", str(artifact_root))
+    monkeypatch.setenv("LIQUIDSNIPER_PROFILE_ID", "I")
+    monkeypatch.setenv("LIQUIDSNIPER_POLICY_VERSION", "v1")
+    monkeypatch.setenv("LIQUIDSNIPER_SYMBOLS", "BTCUSDT,ETHUSDT")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_MAX", "100")
+    monkeypatch.setenv("LIQUIDSNIPER_MIN_SECONDARY_HITS", "0")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_BOS_CHOCH", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_COOLDOWN_SECONDS", "0")
+    monkeypatch.setenv("LIQUIDSNIPER_DAILY_MAX_TRADES", "100")
+    monkeypatch.setenv("LIQUIDSNIPER_ENFORCE_ONE_OPEN_POSITION", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_MAX_DAILY_LOSS_USD", "5")
+
+    def fixed_snapshot(*args, **kwargs):
+        return {
+            "candle_ts": "2026-02-20T14:30:00+00:00",
+            "candle_closed": True,
+            "htf_chop": 25.0,
+            "sr_first_retest": True,
+            "bos_choch": True,
+            "secondary_hits": 3,
+        }
+
+    monkeypatch.setattr(paper_daemon, "_build_market_snapshot", fixed_snapshot)
+
+    original_build_proposal = paper_daemon._build_proposal
+
+    def negative_pnl_proposal(*args, **kwargs):
+        proposal, policy = original_build_proposal(*args, **kwargs)
+        proposal["pnl_usd"] = -10.0
+        return proposal, policy
+
+    monkeypatch.setattr(paper_daemon, "_build_proposal", negative_pnl_proposal)
+
+    boundary = ExecutionBoundary(starting_bankroll_usd=2000)
+    paper_daemon.run_cycle(loop_seconds=3, health_path=health, cycle_count=1, boundary=boundary)
+
+    payload = json.loads(health.read_text(encoding="utf-8"))
+    assert payload["cycle_stats"]["attempted"] == 2
+    assert payload["cycle_stats"]["executed"] == 1
+    assert payload["cycle_stats"]["blocked"] == 1
+
+    state_path = artifact_root / "paper_mvp" / "state" / "execution_throttle_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["realized_pnl_today_usd"] == -10.0

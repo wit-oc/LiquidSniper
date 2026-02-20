@@ -37,6 +37,13 @@ def _score_seed(text: str) -> bytes:
     return hashlib.sha256(text.encode("utf-8")).digest()
 
 
+def _as_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _write_health(
     path: Path,
     *,
@@ -221,6 +228,10 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
             state.last_entry_ts = now.isoformat()
             state.trades_open = 1
             state.seen_idempotency_keys = (state.seen_idempotency_keys + [idempotency_key])[-2000:]
+
+            adapter_result = result.get("adapter_result") if isinstance(result.get("adapter_result"), dict) else {}
+            realized_trade_pnl = _as_float(adapter_result.get("pnl_usd"), _as_float(proposal.get("pnl_usd"), 0.0))
+            state.realized_pnl_today_usd = round(state.realized_pnl_today_usd + realized_trade_pnl, 8)
         else:
             blocked += 1
 

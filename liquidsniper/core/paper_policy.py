@@ -61,6 +61,7 @@ class ProfilePolicy:
     min_secondary_confluence_hits: int
     cooldown_seconds: int
     daily_max_trades: int
+    daily_max_loss_usd: float
     enforce_one_open_position: bool
     policy_version: str
 
@@ -74,6 +75,7 @@ class ThrottleState:
     last_entry_ts: str | None
     trades_open: int
     executed_today: int
+    realized_pnl_today_usd: float
     seen_idempotency_keys: list[str]
 
     @classmethod
@@ -83,6 +85,7 @@ class ThrottleState:
             last_entry_ts=None,
             trades_open=0,
             executed_today=0,
+            realized_pnl_today_usd=0.0,
             seen_idempotency_keys=[],
         )
 
@@ -138,6 +141,10 @@ def load_profile_policy() -> ProfilePolicy:
     if cooldown_seconds < 0:
         raise RuntimeError("LIQUIDSNIPER_COOLDOWN_SECONDS must be >= 0")
 
+    daily_max_loss_usd = _float_env("LIQUIDSNIPER_MAX_DAILY_LOSS_USD", 500.0)
+    if daily_max_loss_usd <= 0:
+        raise RuntimeError("LIQUIDSNIPER_MAX_DAILY_LOSS_USD must be > 0")
+
     return ProfilePolicy(
         profile_id=profile_id,
         htf_anchor_tf=str(spec["htf_anchor_tf"]),
@@ -150,6 +157,7 @@ def load_profile_policy() -> ProfilePolicy:
         min_secondary_confluence_hits=min_secondary,
         cooldown_seconds=cooldown_seconds,
         daily_max_trades=daily_max_trades,
+        daily_max_loss_usd=daily_max_loss_usd,
         enforce_one_open_position=_bool_env("LIQUIDSNIPER_ENFORCE_ONE_OPEN_POSITION", True),
         policy_version=os.getenv("LIQUIDSNIPER_POLICY_VERSION", "v1").strip() or "v1",
     )
@@ -166,6 +174,7 @@ def load_throttle_state(path: Path, now: datetime) -> ThrottleState:
         last_entry_ts=raw.get("last_entry_ts"),
         trades_open=max(0, int(raw.get("trades_open") or 0)),
         executed_today=max(0, int(raw.get("executed_today") or 0)),
+        realized_pnl_today_usd=float(raw.get("realized_pnl_today_usd") or 0.0),
         seen_idempotency_keys=[str(x) for x in (raw.get("seen_idempotency_keys") or []) if str(x)],
     )
     if state.trading_day != trading_day:
@@ -200,7 +209,15 @@ def evaluate_gates(
     bos_choch: bool,
     secondary_hits: int,
 ) -> GateDecision:
+    daily_loss_usd = max(0.0, -float(state.realized_pnl_today_usd))
+
     checks: dict[str, Any] = {
+        "daily_loss_circuit": {
+            "max_loss_usd": policy.daily_max_loss_usd,
+            "actual_loss_usd": round(daily_loss_usd, 4),
+            "remaining_buffer_usd": round(max(0.0, policy.daily_max_loss_usd - daily_loss_usd), 4),
+            "ok": daily_loss_usd <= policy.daily_max_loss_usd,
+        },
         "candle_close": {"required": policy.require_candle_close, "ok": (candle_closed or not policy.require_candle_close), "candle_ts": candle_ts},
         "htf_chop": {"max": policy.htf_chop_max, "actual": round(float(htf_chop), 4), "ok": float(htf_chop) <= policy.htf_chop_max},
         "sr_first_retest": {"required": policy.require_sr_first_retest, "actual": bool(sr_first_retest), "ok": (bool(sr_first_retest) or not policy.require_sr_first_retest)},
@@ -233,6 +250,8 @@ def evaluate_gates(
     checks["throttle"] = throttle
 
     reasons: list[str] = []
+    if not checks["daily_loss_circuit"]["ok"]:
+        reasons.append("RISK_DAILY_LOSS_CAP_BREACH")
     if not checks["candle_close"]["ok"]:
         reasons.append("CANDLE_NOT_CLOSED")
     if not checks["htf_chop"]["ok"]:
