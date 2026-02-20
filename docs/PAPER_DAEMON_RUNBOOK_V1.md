@@ -54,11 +54,36 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
 - Weekly rollup:
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner cat /var/lib/liquidsniper/artifacts/paper_mvp/weekly/$(date -u +%G-W%V).json`
 
+## Debug UI/API (optional profile)
+- Enable debug service only when needed:
+  - `docker compose -f docker-compose.paper.yml --env-file .env.paper --profile debug-ui up -d paper-debug-ui`
+- Open UI locally:
+  - `http://127.0.0.1:${LIQUIDSNIPER_DEBUG_PORT:-8787}/ui`
+- API base:
+  - `http://127.0.0.1:${LIQUIDSNIPER_DEBUG_PORT:-8787}/api/v1/debug`
+- Snapshot export endpoint:
+  - `GET /api/v1/debug/snapshot?strategy=<scalp|intraday|swing>&run_id=<id>&test_id=<id>&limit=200`
+- Auth guard (configure one):
+  - Bearer token: set `LIQUIDSNIPER_DEBUG_TOKEN`, then send `Authorization: Bearer <token>`
+  - Basic auth: set `LIQUIDSNIPER_DEBUG_USER` + `LIQUIDSNIPER_DEBUG_PASS`
+
+## Operator validation checklist (debug v1)
+- [ ] `paper-debug-ui` starts only when `--profile debug-ui` is passed.
+- [ ] Service port is localhost-only (`127.0.0.1:*`).
+- [ ] `POST /api/v1/debug/orders` returns `405 READ_ONLY_MODE`.
+- [ ] `GET /api/v1/debug/strategies` returns strategy summary cards.
+- [ ] `GET /api/v1/debug/orders` and `/positions` render data in UI tables.
+- [ ] `GET /api/v1/debug/events` shows gate/reject/feed reason codes.
+- [ ] UI snapshot export downloads JSON successfully.
+
 ## Troubleshooting
 - If `paper-runner` unhealthy: check logs
   - `make paper-daemon-logs`
 - If scorecards are stale: rerun worker
   - `make paper-scorecard-once`
+- If debug UI returns `401 UNAUTHORIZED`, verify token/basic-auth env values in `.env.paper` and request headers.
+- If debug UI is blank, verify artifacts exist:
+  - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner ls -1 /var/lib/liquidsniper/artifacts/paper_mvp/runs | tail`
 - If bankroll-related blocks appear (`BANKROLL_EXHAUSTED`), reduce risk sizing or increase `LIQUIDSNIPER_PAPER_BANKROLL_USD` in `.env.paper` for paper simulations.
 - If gate rejects spike, inspect `decision_reason_codes` and tune one knob at a time:
   - `RISK_DAILY_LOSS_CAP_BREACH` -> **hard stop triggered first**; halt remains until next trading day (or cap reset) to avoid trading into adverse regime
