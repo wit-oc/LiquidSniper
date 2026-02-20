@@ -13,6 +13,7 @@ from .paper_artifacts import persist_run_artifact
 from .policy_gate import PolicyGateValidationError, validate_trade_intent
 from .mode_guard import guard_parallel_mode
 from .risk_breaker import apply_pnl, evaluate_drawdown, load_state, persist_state, utc_day
+from .rollout_controls import emergency_stop_enabled
 
 
 _REQUIRED_AUDIT_FIELDS = ("trace_id", "policy_version", "rulebook_ref")
@@ -259,6 +260,12 @@ class ExecutionBoundary:
                 return {
                     "decision": "blocked",
                     "reason_codes": ("PROPOSAL_NOT_FOUND",),
+                }
+            if emergency_stop_enabled():
+                return {
+                    "proposal_id": proposal_id,
+                    "decision": "blocked",
+                    "reason_codes": ("EMERGENCY_STOP_ACTIVE",),
                 }
 
             proposal = dict(rec["proposal"])
