@@ -221,7 +221,7 @@ def build_app() -> Callable[..., list[bytes]]:
         if not _authorized(environ):
             return _json_response(start_response, "401 Unauthorized", {"error": "UNAUTHORIZED", "read_only": True})
 
-        if path == "/" or path == "/index.html":
+        if path in {"/", "/ui", "/index.html"}:
             html = _INDEX_HTML.encode("utf-8")
             start_response("200 OK", [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(html)))])
             return [html]
