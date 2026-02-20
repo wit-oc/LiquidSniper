@@ -8,7 +8,7 @@ from liquidsniper.ops import paper_daemon
 
 def test_paper_daemon_rejects_non_paper_mode(monkeypatch):
     monkeypatch.setenv("LIQUIDSNIPER_MODE", "live")
-    with pytest.raises(RuntimeError, match="only supports"):
+    with pytest.raises(RuntimeError, match="MODE_GUARD_PAPER_DAEMON_REQUIRES_PAPER"):
         paper_daemon.main()
 
 

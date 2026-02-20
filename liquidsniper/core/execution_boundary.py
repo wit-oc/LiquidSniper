@@ -9,6 +9,7 @@ import os
 from .bankroll import BankrollState
 from .paper_artifacts import persist_run_artifact
 from .policy_gate import PolicyGateValidationError, validate_trade_intent
+from .mode_guard import guard_parallel_mode
 
 
 _REQUIRED_AUDIT_FIELDS = ("trace_id", "policy_version", "rulebook_ref")
@@ -75,6 +76,22 @@ class ExecutionBoundary:
         self._next_id += 1
 
         mode = str(proposal.get("mode") or "paper")
+        guard = guard_parallel_mode(mode=mode, payload=proposal)
+        if not guard.allowed:
+            rec = {
+                "proposal": dict(proposal),
+                "approved": False,
+                "executed": False,
+                "reason_codes": (guard.reason_code,),
+            }
+            self._proposals[proposal_id] = rec
+            return {
+                "proposal_id": proposal_id,
+                "decision": "rejected",
+                "reason_codes": rec["reason_codes"],
+                "trace_id": proposal.get("trace_id"),
+                "policy_version": proposal.get("policy_version"),
+            }
         if mode == "paper":
             trade_intent_payload = proposal.get("trade_intent")
             if not isinstance(trade_intent_payload, dict):

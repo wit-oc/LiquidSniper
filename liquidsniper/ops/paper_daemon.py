@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from liquidsniper.core.execution_boundary import ExecutionBoundary, PolicyDecision
+from liquidsniper.core.mode_guard import enforce_startup_mode
 from liquidsniper.core.paper_policy import (
     ProfilePolicy,
     ThrottleState,
@@ -249,8 +250,10 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
 
 def main() -> None:
     mode = os.getenv("LIQUIDSNIPER_MODE", "paper").strip().lower()
+    parallel_enabled = os.getenv("LIQUIDSNIPER_PAPER_PARALLEL", "false").strip().lower() in {"1", "true", "yes"}
+    enforce_startup_mode(parallel_enabled=parallel_enabled, mode=mode)
     if mode != "paper":
-        raise RuntimeError("paper_daemon only supports LIQUIDSNIPER_MODE=paper")
+        raise RuntimeError("MODE_GUARD_PAPER_DAEMON_REQUIRES_PAPER")
 
     loop_seconds = int(os.getenv("LIQUIDSNIPER_LOOP_SECONDS", "60"))
     run_once = os.getenv("LIQUIDSNIPER_RUN_ONCE", "false").strip().lower() in {"1", "true", "yes"}
