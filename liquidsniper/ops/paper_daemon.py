@@ -4,11 +4,15 @@ import hashlib
 import json
 import os
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
 from liquidsniper.core.execution_boundary import ExecutionBoundary, PolicyDecision
+from liquidsniper.core.paper_artifacts import persist_run_artifact
 from liquidsniper.core.mode_guard import enforce_startup_mode
 from liquidsniper.core.paper_policy import (
     ProfilePolicy,
@@ -45,6 +49,74 @@ def _as_float(value: object, default: float = 0.0) -> float:
         return default
 
 
+class MarketDataUnavailable(RuntimeError):
+    pass
+
+
+def _interval_for(tf: str) -> str:
+    token = tf.strip().lower()
+    mapping = {
+        "1m": "1m",
+        "5m": "5m",
+        "15m": "15m",
+        "1h": "1h",
+        "4h": "4h",
+        "1d": "1d",
+    }
+    if token not in mapping:
+        raise ValueError(f"unsupported timeframe: {tf}")
+    return mapping[token]
+
+
+def _ema(values: list[float], period: int) -> float:
+    if not values:
+        return 0.0
+    if period <= 1:
+        return values[-1]
+    alpha = 2.0 / (period + 1.0)
+    ema_val = values[0]
+    for v in values[1:]:
+        ema_val = alpha * v + (1.0 - alpha) * ema_val
+    return float(ema_val)
+
+
+def _fetch_klines(symbol: str, interval: str, *, limit: int = 120) -> list[dict[str, object]]:
+    qs = urllib.parse.urlencode({"symbol": symbol.upper(), "interval": interval, "limit": int(limit)})
+    base = os.getenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://data-api.binance.vision").rstrip("/")
+    url = f"{base}/api/v3/klines?{qs}"
+    req = urllib.request.Request(url, headers={"User-Agent": "LiquidSniper/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            if int(getattr(resp, "status", 200)) != 200:
+                raise MarketDataUnavailable(f"BINANCE_HTTP_{getattr(resp, 'status', 'ERR')}")
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise MarketDataUnavailable(f"BINANCE_FETCH_FAILED:{symbol}:{interval}") from exc
+
+    if not isinstance(payload, list) or len(payload) < 60:
+        raise MarketDataUnavailable(f"BINANCE_INSUFFICIENT_CANDLES:{symbol}:{interval}")
+
+    out: list[dict[str, object]] = []
+    for row in payload:
+        if not isinstance(row, list) or len(row) < 7:
+            continue
+        out.append(
+            {
+                "open_time": datetime.fromtimestamp(int(row[0]) / 1000, tz=timezone.utc),
+                "open": float(row[1]),
+                "high": float(row[2]),
+                "low": float(row[3]),
+                "close": float(row[4]),
+                "volume": float(row[5]),
+                "close_time": datetime.fromtimestamp(int(row[6]) / 1000, tz=timezone.utc),
+            }
+        )
+
+    if len(out) < 60:
+        raise MarketDataUnavailable(f"BINANCE_PARSED_CANDLES_INSUFFICIENT:{symbol}:{interval}")
+    return out
+
+
 def _write_health(
     path: Path,
     *,
@@ -77,24 +149,93 @@ def _floor_candle_ts(now: datetime, tf_minutes: int) -> str:
 
 
 def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, policy: ProfilePolicy) -> dict[str, object]:
-    seed = _score_seed(f"snapshot:{symbol}:{now.isoformat()}:{cycle_count}:{policy.profile_id}")
-    tf_minutes = 5 if policy.profile_id in {"I", "C"} else 15
-    candle_ts = _floor_candle_ts(now, tf_minutes)
+    data_source = os.getenv("LIQUIDSNIPER_DATA_SOURCE", "binance").strip().lower()
+    if data_source == "mock":
+        seed = _score_seed(f"snapshot:{symbol}:{now.isoformat()}:{cycle_count}:{policy.profile_id}")
+        tf_minutes = 5 if policy.profile_id in {"I", "C"} else 15
+        candle_ts = _floor_candle_ts(now, tf_minutes)
+        side = "buy" if (seed[5] % 2 == 0) else "sell"
+        return {
+            "side": side,
+            "entry": round(100 + (seed[3] / 255.0) * 200, 4),
+            "candle_ts": candle_ts,
+            "candle_closed": (seed[0] % 10) < 8,
+            "htf_chop": round(35 + (seed[1] / 255.0) * 35, 2),
+            "sr_first_retest": (seed[2] % 10) < 8,
+            "bos_choch": (seed[3] % 10) < 8,
+            "secondary_hits": int(seed[4] % 5),
+            "data_source": "mock",
+        }
 
-    # Deterministic pseudo-market features. Candle-close is probabilistic but stable per input seed.
-    candle_closed = (seed[0] % 10) < 8
-    htf_chop = round(35 + (seed[1] / 255.0) * 35, 2)
-    sr_first_retest = (seed[2] % 10) < 8
-    bos_choch = (seed[3] % 10) < 8
-    secondary_hits = int(seed[4] % 5)
+    i15 = _interval_for("15m")
+    i1h = _interval_for("1h")
+    i4h = _interval_for("4h")
+
+    c15 = _fetch_klines(symbol, i15, limit=120)
+    c1h = _fetch_klines(symbol, i1h, limit=120)
+    c4h = _fetch_klines(symbol, i4h, limit=120)
+
+    last15 = c15[-1]
+    close15 = float(last15["close"])
+    candle_ts = str(last15["close_time"].isoformat())
+    candle_closed = now >= last15["close_time"]
+
+    closes15 = [float(c["close"]) for c in c15]
+    closes1h = [float(c["close"]) for c in c1h]
+    closes4h = [float(c["close"]) for c in c4h]
+
+    ema20_1h = _ema(closes1h[-60:], 20)
+    ema50_1h = _ema(closes1h[-60:], 50)
+    ema20_4h = _ema(closes4h[-60:], 20)
+    ema50_4h = _ema(closes4h[-60:], 50)
+
+    if ema20_1h > ema50_1h and ema20_4h > ema50_4h:
+        side = "buy"
+    elif ema20_1h < ema50_1h and ema20_4h < ema50_4h:
+        side = "sell"
+    else:
+        side = "buy"
+
+    # Chop proxy: path inefficiency on 1H closes (higher => choppier).
+    path = sum(abs(closes1h[i] - closes1h[i - 1]) for i in range(1, len(closes1h[-32:])))
+    net = abs(closes1h[-1] - closes1h[-32]) if len(closes1h) >= 32 else abs(closes1h[-1] - closes1h[0])
+    htf_chop = 100.0 if net <= 1e-9 else min(100.0, (path / net) * 25.0)
+
+    highs1h = [float(c["high"]) for c in c1h]
+    lows1h = [float(c["low"]) for c in c1h]
+    if side == "buy":
+        level = max(highs1h[-30:-3])
+        sr_first_retest = abs(close15 - level) / max(level, 1e-9) <= 0.0045
+        bos_choch = close15 > max(float(c["high"]) for c in c15[-16:-1])
+    else:
+        level = min(lows1h[-30:-3])
+        sr_first_retest = abs(close15 - level) / max(level, 1e-9) <= 0.0045
+        bos_choch = close15 < min(float(c["low"]) for c in c15[-16:-1])
+
+    ema20_15 = _ema(closes15[-60:], 20)
+    ema50_15 = _ema(closes15[-60:], 50)
+    secondary_hits = 0
+    if side == "buy":
+        secondary_hits += int(close15 > ema20_15)
+        secondary_hits += int(close15 > ema50_15)
+        secondary_hits += int(closes1h[-1] > ema20_1h)
+        secondary_hits += int(closes4h[-1] > ema20_4h)
+    else:
+        secondary_hits += int(close15 < ema20_15)
+        secondary_hits += int(close15 < ema50_15)
+        secondary_hits += int(closes1h[-1] < ema20_1h)
+        secondary_hits += int(closes4h[-1] < ema20_4h)
 
     return {
+        "side": side,
+        "entry": round(close15, 6),
         "candle_ts": candle_ts,
         "candle_closed": candle_closed,
-        "htf_chop": htf_chop,
-        "sr_first_retest": sr_first_retest,
-        "bos_choch": bos_choch,
-        "secondary_hits": secondary_hits,
+        "htf_chop": round(float(htf_chop), 4),
+        "sr_first_retest": bool(sr_first_retest),
+        "bos_choch": bool(bos_choch),
+        "secondary_hits": int(secondary_hits),
+        "data_source": "binance",
     }
 
 
@@ -110,13 +251,20 @@ def _build_proposal(
 ) -> tuple[dict[str, object], PolicyDecision]:
     now_iso = now.isoformat()
     seed = _score_seed(f"{symbol}:{market_snapshot['candle_ts']}:{cycle_count}:{profile_policy.profile_id}")
-    score = round(5.4 + (seed[0] / 255.0) * 4.2, 2)
-    side = "buy" if (seed[1] % 2 == 0) else "sell"
+    side = str(market_snapshot.get("side") or "buy")
+    entry = _as_float(market_snapshot.get("entry"), 0.0)
+    if entry <= 0:
+        raise MarketDataUnavailable(f"INVALID_ENTRY_PRICE:{symbol}")
+
+    # Score is market-feature-derived with a small deterministic tie-breaker.
+    secondary_hits = int(market_snapshot.get("secondary_hits") or 0)
+    htf_chop = float(market_snapshot.get("htf_chop") or 100.0)
+    score = round(max(0.0, min(10.0, 6.0 + (secondary_hits * 0.7) - max(0.0, (htf_chop - 35.0) / 25.0) + (seed[0] / 2550.0))), 2)
+
     risk_usd = float(os.getenv("LIQUIDSNIPER_RISK_USD_PER_TRADE", "25"))
     pnl_usd = round(((seed[2] - 128) / 128.0) * risk_usd * 0.20, 2)
 
     trace_id = f"paper-{now_iso.replace(':', '').replace('-', '')}-{symbol.lower()}"
-    entry = round(100 + (seed[3] / 255.0) * 200, 4)
     idempotency_key = f"paper-{profile_policy.profile_id}-{symbol}-{market_snapshot['candle_ts']}"
     intent_id = str(uuid5(NAMESPACE_URL, idempotency_key))
 
@@ -189,7 +337,31 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
 
     for symbol in _symbols():
         attempted += 1
-        snapshot = _build_market_snapshot(symbol, now=now, cycle_count=cycle_count, policy=profile_policy)
+
+        try:
+            snapshot = _build_market_snapshot(symbol, now=now, cycle_count=cycle_count, policy=profile_policy)
+        except MarketDataUnavailable as exc:
+            blocked += 1
+            trace_id = f"paper-{now.isoformat().replace(':', '').replace('-', '')}-{symbol.lower()}"
+            reject_proposal = {
+                "trace_id": trace_id,
+                "policy_version": profile_policy.policy_version,
+                "rulebook_ref": "TRADING_STRATEGY_PLAYBOOK_V1",
+                "mode": "paper",
+                "symbol": symbol,
+                "direction": "buy",
+                "entry": None,
+                "stop_loss_initial": None,
+                "tp_levels": [],
+                "tp_plan": [],
+                "candle_timestamp": None,
+                "gate_checks": {"data": {"ok": False, "reason": str(exc)}},
+                "policy_snapshot": profile_policy.snapshot(),
+                "decision_reason_codes": ["DATA_UNAVAILABLE"],
+            }
+            persist_run_artifact(reject_proposal, {"decision": "blocked", "reason_codes": ["DATA_UNAVAILABLE"]})
+            continue
+
         idempotency_key = f"paper-{profile_policy.profile_id}-{symbol}-{snapshot['candle_ts']}"
 
         gate = evaluate_gates(
@@ -219,6 +391,7 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
         decision = out.get("decision")
         if decision != "accepted":
             blocked += 1
+            persist_run_artifact(proposal, {"decision": "blocked", "reason_codes": list(out.get("reason_codes") or gate.reason_codes)})
             continue
 
         result = boundary.execute_with_adapter(
@@ -237,6 +410,7 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
             state.realized_pnl_today_usd = round(state.realized_pnl_today_usd + realized_trade_pnl, 8)
         else:
             blocked += 1
+            persist_run_artifact(proposal, result)
 
     persist_throttle_state(state_path, state)
 

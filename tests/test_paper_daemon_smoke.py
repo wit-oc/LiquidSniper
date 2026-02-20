@@ -22,6 +22,8 @@ def test_smoke_trade_frequency_and_expected_rejects(monkeypatch, tmp_path):
     def scripted_snapshot(symbol: str, *, cycle_count: int, **kwargs):
         pass_gate = (cycle_count % 2 == 0) and (symbol == "BTCUSDT")
         return {
+            "side": "buy",
+            "entry": 50000.0,
             "candle_ts": f"2026-02-20T14:{(cycle_count % 12) * 5:02d}:00+00:00",
             "candle_closed": pass_gate,
             "htf_chop": 30.0 if pass_gate else 65.0,
@@ -37,8 +39,14 @@ def test_smoke_trade_frequency_and_expected_rejects(monkeypatch, tmp_path):
         paper_daemon.run_cycle(loop_seconds=60, health_path=health, cycle_count=cycle, boundary=boundary)
 
     run_files = list((artifact_root / "paper_mvp" / "runs").glob("*.json"))
+    executed_files = 0
+    for path in run_files:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("execution_decision") == "executed":
+            executed_files += 1
+
     attempted = 8 * 2
-    execution_rate = len(run_files) / attempted
+    execution_rate = executed_files / attempted
 
     assert 0.1 <= execution_rate <= 0.6
     # At least one rejection should have occurred from strict gate profile.

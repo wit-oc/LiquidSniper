@@ -26,6 +26,7 @@ def test_paper_daemon_writes_health_and_run_artifacts_in_run_once(monkeypatch, t
     monkeypatch.setenv("LIQUIDSNIPER_POLICY_VERSION", "v1")
     monkeypatch.setenv("LIQUIDSNIPER_SYMBOLS", "BTCUSDT")
     monkeypatch.setenv("LIQUIDSNIPER_PAPER_BANKROLL_USD", "2000")
+    monkeypatch.setenv("LIQUIDSNIPER_DATA_SOURCE", "mock")
 
     # Permissive gates for deterministic acceptance.
     monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "false")
@@ -75,6 +76,8 @@ def test_run_cycle_persists_idempotency_and_blocks_duplicate(monkeypatch, tmp_pa
 
     def fixed_snapshot(*args, **kwargs):
         return {
+            "side": "buy",
+            "entry": 50000.0,
             "candle_ts": "2026-02-20T14:30:00+00:00",
             "candle_closed": True,
             "htf_chop": 25.0,
@@ -120,6 +123,8 @@ def test_daily_loss_circuit_breaker_halts_remaining_trades(monkeypatch, tmp_path
 
     def fixed_snapshot(*args, **kwargs):
         return {
+            "side": "buy",
+            "entry": 50000.0,
             "candle_ts": "2026-02-20T14:30:00+00:00",
             "candle_closed": True,
             "htf_chop": 25.0,
