@@ -1,7 +1,9 @@
 import json
+from pathlib import Path
 
 import pytest
 
+from liquidsniper.core.execution_boundary import ExecutionBoundary
 from liquidsniper.ops import paper_daemon
 
 
@@ -21,8 +23,20 @@ def test_paper_daemon_writes_health_and_run_artifacts_in_run_once(monkeypatch, t
     monkeypatch.setenv("LIQUIDSNIPER_HEALTH_PATH", str(health))
     monkeypatch.setenv("LS_ARTIFACT_ROOT", str(artifact_root))
     monkeypatch.setenv("LIQUIDSNIPER_PROFILE_MODE", "intraday_only")
-    monkeypatch.setenv("LIQUIDSNIPER_SYMBOLS", "BTCUSDT,ETHUSDT")
+    monkeypatch.setenv("LIQUIDSNIPER_PROFILE_ID", "I")
+    monkeypatch.setenv("LIQUIDSNIPER_POLICY_VERSION", "v1")
+    monkeypatch.setenv("LIQUIDSNIPER_SYMBOLS", "BTCUSDT")
     monkeypatch.setenv("LIQUIDSNIPER_PAPER_BANKROLL_USD", "2000")
+
+    # Permissive gates for deterministic acceptance.
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_MAX", "100")
+    monkeypatch.setenv("LIQUIDSNIPER_MIN_SECONDARY_HITS", "0")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_BOS_CHOCH", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_COOLDOWN_SECONDS", "0")
+    monkeypatch.setenv("LIQUIDSNIPER_DAILY_MAX_TRADES", "100")
+    monkeypatch.setenv("LIQUIDSNIPER_ENFORCE_ONE_OPEN_POSITION", "false")
 
     paper_daemon.main()
 
@@ -30,10 +44,57 @@ def test_paper_daemon_writes_health_and_run_artifacts_in_run_once(monkeypatch, t
     assert payload["service"] == "paper-runner"
     assert payload["status"] == "ok"
     assert payload["cycle_count"] == 1
-    assert payload["cycle_stats"]["attempted"] == 2
-    assert payload["cycle_stats"]["executed"] >= 1
+    assert payload["cycle_stats"]["attempted"] == 1
+    assert payload["cycle_stats"]["executed"] == 1
 
     runs_dir = artifact_root / "paper_mvp" / "runs"
     assert runs_dir.exists()
     run_files = list(runs_dir.glob("*.json"))
-    assert len(run_files) >= 1
+    assert len(run_files) == 1
+
+    run_payload = json.loads(run_files[0].read_text(encoding="utf-8"))
+    assert isinstance(run_payload["gate_checks"], dict)
+    assert isinstance(run_payload["policy_snapshot"], dict)
+    assert isinstance(run_payload["candle_timestamp"], str)
+
+
+def test_run_cycle_persists_idempotency_and_blocks_duplicate(monkeypatch, tmp_path):
+    health = tmp_path / "paper.health.json"
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setenv("LS_ARTIFACT_ROOT", str(artifact_root))
+    monkeypatch.setenv("LIQUIDSNIPER_PROFILE_ID", "I")
+    monkeypatch.setenv("LIQUIDSNIPER_POLICY_VERSION", "v1")
+    monkeypatch.setenv("LIQUIDSNIPER_SYMBOLS", "BTCUSDT")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_MAX", "100")
+    monkeypatch.setenv("LIQUIDSNIPER_MIN_SECONDARY_HITS", "0")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_BOS_CHOCH", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_COOLDOWN_SECONDS", "0")
+    monkeypatch.setenv("LIQUIDSNIPER_DAILY_MAX_TRADES", "100")
+    monkeypatch.setenv("LIQUIDSNIPER_ENFORCE_ONE_OPEN_POSITION", "false")
+
+    def fixed_snapshot(*args, **kwargs):
+        return {
+            "candle_ts": "2026-02-20T14:30:00+00:00",
+            "candle_closed": True,
+            "htf_chop": 25.0,
+            "sr_first_retest": True,
+            "bos_choch": True,
+            "secondary_hits": 3,
+        }
+
+    monkeypatch.setattr(paper_daemon, "_build_market_snapshot", fixed_snapshot)
+
+    boundary = ExecutionBoundary(starting_bankroll_usd=2000)
+    paper_daemon.run_cycle(loop_seconds=3, health_path=health, cycle_count=1, boundary=boundary)
+    paper_daemon.run_cycle(loop_seconds=3, health_path=health, cycle_count=2, boundary=boundary)
+
+    payload = json.loads(health.read_text(encoding="utf-8"))
+    assert payload["cycle_stats"]["attempted"] == 1
+    assert payload["cycle_stats"]["blocked"] == 1
+
+    state_path = artifact_root / "paper_mvp" / "state" / "execution_throttle_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["executed_today"] == 1
+    assert len(state["seen_idempotency_keys"]) == 1
