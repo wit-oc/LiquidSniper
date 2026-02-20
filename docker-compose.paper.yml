@@ -1,0 +1,31 @@
+version: '3.9'
+
+services:
+  paper-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python3", "-m", "liquidsniper.ops.paper_daemon"]
+    env_file:
+      - .env.paper
+    environment:
+      - LIQUIDSNIPER_MODE=paper
+    volumes:
+      - liquidsniper_data:/var/lib/liquidsniper
+    restart: unless-stopped
+
+  scorecard-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python3", "-m", "liquidsniper.ops.scorecard_worker"]
+    env_file:
+      - .env.paper
+    environment:
+      - LIQUIDSNIPER_MODE=paper
+    volumes:
+      - liquidsniper_data:/var/lib/liquidsniper
+    restart: unless-stopped
+
+volumes:
+  liquidsniper_data:
