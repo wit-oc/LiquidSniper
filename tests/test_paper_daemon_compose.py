@@ -7,6 +7,7 @@ def test_compose_paper_contains_services_and_volume() -> None:
     assert "paper-runner:" in text
     assert "scorecard-worker:" in text
     assert "LIQUIDSNIPER_MODE=paper" in text
+    assert "healthcheck:" in text
     assert "liquidsniper_data:" in text
 
 

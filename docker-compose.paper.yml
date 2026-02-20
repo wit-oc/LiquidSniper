@@ -10,8 +10,14 @@ services:
       - .env.paper
     environment:
       - LIQUIDSNIPER_MODE=paper
+      - LIQUIDSNIPER_HEALTH_PATH=/var/lib/liquidsniper/logs/paper_runner.health.json
     volumes:
       - liquidsniper_data:/var/lib/liquidsniper
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import pathlib,sys; sys.exit(0 if pathlib.Path('/var/lib/liquidsniper/logs/paper_runner.health.json').exists() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   scorecard-worker:
@@ -23,8 +29,14 @@ services:
       - .env.paper
     environment:
       - LIQUIDSNIPER_MODE=paper
+      - LIQUIDSNIPER_SCORECARD_HEALTH_PATH=/var/lib/liquidsniper/logs/scorecard_worker.health.json
     volumes:
       - liquidsniper_data:/var/lib/liquidsniper
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import pathlib,sys; sys.exit(0 if pathlib.Path('/var/lib/liquidsniper/logs/scorecard_worker.health.json').exists() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
 volumes:
