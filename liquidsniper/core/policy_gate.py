@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import os
 from typing import Any
 from uuid import UUID
 
@@ -37,6 +38,8 @@ TRADE_INTENT_ENUMS = {
 EXECUTION_RESULT_ENUMS = {
     "status": {"accepted", "rejected", "filled", "partial", "failed"},
 }
+
+PAPER_STRATEGIES = {"scalp", "intraday", "swing"}
 
 
 @dataclass(frozen=True)
@@ -94,7 +97,7 @@ def validate_trade_intent(payload: dict[str, Any]) -> ValidationResult:
     normalized = {
         "intent_id": _parse_uuid(_require(payload, "intent_id", str), "intent_id"),
         "ts": _parse_iso8601(_require(payload, "ts", str), "ts"),
-        "strategy_id": _require(payload, "strategy_id", str).strip(),
+        "strategy_id": _require(payload, "strategy_id", str).strip().lower(),
         "mode": _enum(_require(payload, "mode", str), "mode", TRADE_INTENT_ENUMS["mode"]),
         "venue": _enum(_require(payload, "venue", str), "venue", TRADE_INTENT_ENUMS["venue"]),
         "symbol": _require(payload, "symbol", str).strip(),
@@ -114,6 +117,14 @@ def validate_trade_intent(payload: dict[str, Any]) -> ValidationResult:
         raise PolicyGateValidationError("NEGATIVE_VALUE", "limit_price must be >= 0")
     if normalized["max_slippage_bps"] < 0:
         raise PolicyGateValidationError("NEGATIVE_VALUE", "max_slippage_bps must be >= 0")
+    if not normalized["strategy_id"]:
+        raise PolicyGateValidationError("STRATEGY_REQUIRED", "strategy_id is required")
+    if normalized["mode"] == "paper" and normalized["strategy_id"] not in PAPER_STRATEGIES:
+        allow_fallback = os.getenv("LIQUIDSNIPER_ALLOW_LEGACY_STRATEGY_FALLBACK", "false").strip().lower() in {"1", "true", "yes"}
+        if allow_fallback:
+            normalized["strategy_id"] = "intraday"
+        else:
+            raise PolicyGateValidationError("INVALID_STRATEGY", "paper mode requires scalp|intraday|swing strategy")
 
     return ValidationResult(valid=True, normalized=normalized)
 

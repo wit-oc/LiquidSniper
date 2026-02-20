@@ -3,6 +3,7 @@
 Status legend: [Now] [Next] [Later] [Blocked] [Done]
 
 ## [Now]
+- [ ] Execute full-scope plan in `docs/PAPER_MULTISTRATEGY_DELIVERY_PLAN_V1.md` (P0 safety + paper-only parallel lanes)
 - [ ] Follow canonical execution order in `docs/MVP_PAPER_SEQUENCE_V1.md`
 - [ ] Task 19: Lock market-data provider contract + canonical candle schema (`docs/DATA_FEED_STRATEGY_V1.md`)
 - [ ] Task 20: Implement CCXT OHLCV backfill + incremental candle-close scheduler

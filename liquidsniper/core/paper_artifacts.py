@@ -101,6 +101,7 @@ def build_run_artifact(proposal: dict[str, Any], execution_result: dict[str, Any
         "run_id": run_id,
         "timestamp": timestamp,
         "symbol": merged.get("symbol"),
+        "strategy": merged.get("strategy") or trade_intent.get("strategy") or trade_intent.get("strategy_id"),
         "direction": merged.get("side"),
         "anchor_profile_id": merged.get("anchor_profile_id"),
         "htf_anchor_tf": merged.get("htf_anchor_tf"),
@@ -108,6 +109,9 @@ def build_run_artifact(proposal: dict[str, Any], execution_result: dict[str, Any
         "score_gate_passed": bool(merged.get("score_gate_passed", False)),
         "decision_tier": merged.get("decision_tier") or merged.get("decision"),
         "decision_reason_codes": list(merged.get("decision_reason_codes") or execution_result.get("reason_codes") or []),
+        "gate_checks": merged.get("gate_checks") if isinstance(merged.get("gate_checks"), dict) else {},
+        "policy_snapshot": merged.get("policy_snapshot") if isinstance(merged.get("policy_snapshot"), dict) else {},
+        "candle_timestamp": merged.get("candle_timestamp"),
         "feed_state": merged.get("feed_state"),
         "feed_reason_codes": list(merged.get("feed_reason_codes") or []),
         "canonical_trace_id": merged.get("canonical_trace_id") or run_id,
@@ -124,6 +128,7 @@ def build_run_artifact(proposal: dict[str, Any], execution_result: dict[str, Any
         },
         "risk_pct_requested": _f(merged.get("risk_pct_requested") or merged.get("risk_pct")),
         "risk_pct_allowed": _f(merged.get("risk_pct_allowed") or merged.get("risk_pct")),
+        "risk_usd": _f(merged.get("risk_usd")),
         "proposal_decision": "accepted" if execution_result.get("decision") in {"executed", "noop"} else "rejected",
         "execution_decision": execution_result.get("decision") or "noop",
         "tp_events": list(merged.get("tp_events") or []),
@@ -134,6 +139,7 @@ def build_run_artifact(proposal: dict[str, Any], execution_result: dict[str, Any
         "exit_reason": merged.get("exit_reason"),
         "policy_version": proposal.get("policy_version"),
         "rulebook_ref": proposal.get("rulebook_ref"),
+        "bankroll": execution_result.get("bankroll") if isinstance(execution_result.get("bankroll"), dict) else None,
     }
 
 
@@ -174,6 +180,7 @@ def _load_run_payloads_for_day(*, trading_day: str, artifact_root: Path) -> list
 
 
 def build_daily_scorecard(*, trading_day: str, runs: list[dict[str, Any]]) -> dict[str, Any]:
+    runs = sorted(runs, key=lambda row: str(row.get("timestamp") or ""))
     total_runs = len(runs)
     accepted = sum(1 for row in runs if row.get("proposal_decision") == "accepted")
     executed = sum(1 for row in runs if row.get("execution_decision") == "executed")
@@ -227,6 +234,22 @@ def build_daily_scorecard(*, trading_day: str, runs: list[dict[str, Any]]) -> di
         for code, count in sorted(reject_counter.items(), key=lambda item: (-item[1], item[0]))[:3]
     ]
 
+    bankroll_rows = [row.get("bankroll") for row in runs if isinstance(row.get("bankroll"), dict)]
+    bankroll_summary = None
+    if bankroll_rows:
+        first = bankroll_rows[0]
+        last = bankroll_rows[-1]
+        start_available = _f(first.get("available_usd"))
+        end_available = _f(last.get("available_usd"))
+        bankroll_summary = {
+            "starting_equity_usd": _f(last.get("starting_equity_usd") or first.get("starting_equity_usd")),
+            "available_start_usd": start_available,
+            "available_end_usd": end_available,
+            "available_delta_usd": round((end_available - start_available), 8) if start_available is not None and end_available is not None else None,
+            "reserved_risk_end_usd": _f(last.get("reserved_risk_usd")),
+            "realized_pnl_end_usd": _f(last.get("realized_pnl_usd")),
+        }
+
     return {
         "date": trading_day,
         "runs_total": total_runs,
@@ -245,6 +268,7 @@ def build_daily_scorecard(*, trading_day: str, runs: list[dict[str, Any]]) -> di
             "feed_state_distribution": dict(sorted(feed_state_counter.items())),
             "feed_reason_distribution": dict(sorted(feed_reason_counter.items())),
         },
+        "bankroll": bankroll_summary,
     }
 
 
@@ -330,6 +354,7 @@ def _weekly_posture(*, total_runs: int, executed: int, expectancy_r: float | Non
 
 
 def build_weekly_rollup(*, trading_week: str, runs: list[dict[str, Any]]) -> dict[str, Any]:
+    runs = sorted(runs, key=lambda row: str(row.get("timestamp") or ""))
     total_runs = len(runs)
     accepted = sum(1 for row in runs if row.get("proposal_decision") == "accepted")
     executed = sum(1 for row in runs if row.get("execution_decision") == "executed")
@@ -392,6 +417,22 @@ def build_weekly_rollup(*, trading_week: str, runs: list[dict[str, Any]]) -> dic
         reason_codes=reason_codes,
     )
 
+    bankroll_rows = [row.get("bankroll") for row in runs if isinstance(row.get("bankroll"), dict)]
+    bankroll_summary = None
+    if bankroll_rows:
+        first = bankroll_rows[0]
+        last = bankroll_rows[-1]
+        start_available = _f(first.get("available_usd"))
+        end_available = _f(last.get("available_usd"))
+        bankroll_summary = {
+            "starting_equity_usd": _f(last.get("starting_equity_usd") or first.get("starting_equity_usd")),
+            "available_start_usd": start_available,
+            "available_end_usd": end_available,
+            "available_delta_usd": round((end_available - start_available), 8) if start_available is not None and end_available is not None else None,
+            "reserved_risk_end_usd": _f(last.get("reserved_risk_usd")),
+            "realized_pnl_end_usd": _f(last.get("realized_pnl_usd")),
+        }
+
     return {
         "week": trading_week,
         "runs_total": total_runs,
@@ -410,6 +451,7 @@ def build_weekly_rollup(*, trading_week: str, runs: list[dict[str, Any]]) -> dic
             "feed_reason_distribution": dict(sorted(feed_reason_counter.items())),
         },
         "posture": posture,
+        "bankroll": bankroll_summary,
     }
 
 

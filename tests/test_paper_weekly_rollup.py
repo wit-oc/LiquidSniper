@@ -60,6 +60,29 @@ def test_build_weekly_rollup_aggregates_and_computes_hold_posture_for_small_samp
     assert "SAMPLE_TOO_SMALL" in blocker_codes
 
 
+def test_build_weekly_rollup_includes_bankroll_summary_when_present():
+    out = build_weekly_rollup(
+        trading_week=WEEK,
+        runs=[
+            _run(
+                run_id="run-1",
+                timestamp="2026-02-17T10:00:00Z",
+                bankroll={"starting_equity_usd": 1000, "available_usd": 1005, "reserved_risk_usd": 0, "realized_pnl_usd": 5},
+            ),
+            _run(
+                run_id="run-2",
+                timestamp="2026-02-18T10:00:00Z",
+                bankroll={"starting_equity_usd": 1000, "available_usd": 990, "reserved_risk_usd": 5, "realized_pnl_usd": -10},
+            ),
+        ],
+    )
+
+    assert out["bankroll"]["starting_equity_usd"] == 1000.0
+    assert out["bankroll"]["available_start_usd"] == 1005.0
+    assert out["bankroll"]["available_end_usd"] == 990.0
+    assert out["bankroll"]["available_delta_usd"] == -15.0
+
+
 def test_persist_weekly_rollup_reads_runs_for_week_and_writes_json(tmp_path: Path):
     runs_dir = tmp_path / "paper_mvp" / "runs"
     runs_dir.mkdir(parents=True)

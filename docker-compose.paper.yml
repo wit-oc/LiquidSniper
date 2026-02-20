@@ -1,0 +1,63 @@
+services:
+  paper-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python3", "-m", "liquidsniper.ops.paper_daemon"]
+    env_file:
+      - .env.paper
+    environment:
+      - LIQUIDSNIPER_MODE=paper
+      - LIQUIDSNIPER_HEALTH_PATH=/var/lib/liquidsniper/logs/paper_runner.health.json
+    volumes:
+      - liquidsniper_data:/var/lib/liquidsniper
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import pathlib,sys; sys.exit(0 if pathlib.Path('/var/lib/liquidsniper/logs/paper_runner.health.json').exists() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  scorecard-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python3", "-m", "liquidsniper.ops.scorecard_worker"]
+    env_file:
+      - .env.paper
+    environment:
+      - LIQUIDSNIPER_MODE=paper
+      - LIQUIDSNIPER_SCORECARD_HEALTH_PATH=/var/lib/liquidsniper/logs/scorecard_worker.health.json
+    volumes:
+      - liquidsniper_data:/var/lib/liquidsniper
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import pathlib,sys; sys.exit(0 if pathlib.Path('/var/lib/liquidsniper/logs/scorecard_worker.health.json').exists() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: "no"
+
+  paper-debug-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python3", "-m", "liquidsniper.debug.server"]
+    env_file:
+      - .env.paper
+    environment:
+      - LIQUIDSNIPER_MODE=paper
+      - LIQUIDSNIPER_DEBUG_HOST=0.0.0.0
+      - LIQUIDSNIPER_DEBUG_PORT=8787
+    ports:
+      - "127.0.0.1:${LIQUIDSNIPER_DEBUG_PORT:-8787}:8787"
+    volumes:
+      - liquidsniper_data:/var/lib/liquidsniper:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    profiles:
+      - debug-ui
+    restart: unless-stopped
+
+volumes:
+  liquidsniper_data:
