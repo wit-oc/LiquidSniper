@@ -49,7 +49,7 @@ services:
       - LIQUIDSNIPER_DEBUG_HOST=0.0.0.0
       - LIQUIDSNIPER_DEBUG_PORT=8787
     ports:
-      - "127.0.0.1:${LIQUIDSNIPER_DEBUG_PORT:-8787}:8787"
+      - "${LIQUIDSNIPER_DEBUG_BIND:-0.0.0.0}:${LIQUIDSNIPER_DEBUG_PORT:-8787}:8787"
     volumes:
       - liquidsniper_data:/var/lib/liquidsniper:ro
     read_only: true
