@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable
+import os
 
+from .bankroll import BankrollState
 from .paper_artifacts import persist_run_artifact
 from .policy_gate import PolicyGateValidationError, validate_trade_intent
 
@@ -27,9 +29,37 @@ class ExecutionBoundary:
     decision before execution is allowed.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, starting_bankroll_usd: float | None = None) -> None:
         self._proposals: dict[str, dict[str, Any]] = {}
         self._next_id = 1
+        configured = starting_bankroll_usd
+        if configured is None:
+            configured = float(os.getenv("LIQUIDSNIPER_PAPER_BANKROLL_USD", "10000"))
+        self._bankroll = BankrollState(float(configured))
+
+    def _paper_risk_usd(self, proposal: dict[str, Any]) -> float:
+        direct = proposal.get("risk_usd")
+        trade_intent = proposal.get("trade_intent") if isinstance(proposal.get("trade_intent"), dict) else {}
+        if direct is None:
+            direct = trade_intent.get("risk_usd")
+        if direct is None:
+            return 0.0
+        try:
+            risk = float(direct)
+        except (TypeError, ValueError):
+            return 0.0
+        return max(0.0, risk)
+
+    def _paper_pnl_usd(self, proposal: dict[str, Any], adapter_result: dict[str, Any]) -> float:
+        raw = adapter_result.get("pnl_usd")
+        if raw is None:
+            raw = proposal.get("pnl_usd")
+        if raw is None:
+            return 0.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 0.0
 
     def propose_trade(self, proposal: dict[str, Any], policy: PolicyDecision | None) -> dict[str, Any]:
         missing = [k for k in _REQUIRED_AUDIT_FIELDS if not str(proposal.get(k) or "").strip()]
@@ -198,12 +228,34 @@ class ExecutionBoundary:
                 "reason_codes": ("PROPOSAL_NOT_FOUND",),
             }
 
-        adapter_result = adapter(dict(rec["proposal"]))
+        proposal = dict(rec["proposal"])
+        is_paper = str(proposal.get("mode") or "paper") == "paper"
+        reserved_risk = 0.0
+
+        if is_paper:
+            reserved_risk = self._paper_risk_usd(proposal)
+            if reserved_risk > 0 and not self._bankroll.reserve_risk(reserved_risk):
+                return {
+                    "proposal_id": proposal_id,
+                    "decision": "blocked",
+                    "reason_codes": ("BANKROLL_EXHAUSTED",),
+                    "trace_id": proposal.get("trace_id"),
+                    "policy_version": proposal.get("policy_version"),
+                    "bankroll": self._bankroll.snapshot().__dict__,
+                }
+
+        adapter_result = adapter(proposal)
         out = dict(gate)
         out["adapter_result"] = adapter_result
 
-        if str(rec["proposal"].get("mode") or "paper") == "paper" and out.get("decision") == "executed":
-            _, artifact_path = persist_run_artifact(rec["proposal"], out)
+        if is_paper:
+            if reserved_risk > 0:
+                self._bankroll.release_reserved(reserved_risk)
+            self._bankroll.realize_pnl(self._paper_pnl_usd(proposal, adapter_result))
+            out["bankroll"] = self._bankroll.snapshot().__dict__
+
+        if is_paper and out.get("decision") == "executed":
+            _, artifact_path = persist_run_artifact(proposal, out)
             out["paper_run_artifact_path"] = str(artifact_path)
 
         return out

@@ -157,7 +157,7 @@ def test_execute_with_adapter_does_not_call_adapter_in_live_mode():
 
 
 def test_execute_with_adapter_persists_paper_run_artifact(tmp_path, monkeypatch):
-    boundary = ExecutionBoundary()
+    boundary = ExecutionBoundary(starting_bankroll_usd=1000)
     monkeypatch.setenv("LS_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
 
     proposed = boundary.propose_trade(
@@ -168,6 +168,7 @@ def test_execute_with_adapter_persists_paper_run_artifact(tmp_path, monkeypatch)
             tp_levels=[2060.0, 2125.0, 2190.0],
             tp_events=[{"level": 2060.0, "hit_ts": "2026-02-19T05:10:00Z"}],
             exit_reason="tp",
+            risk_usd=50,
             pnl_r=0.8,
             pnl_pct=0.34,
         ),
@@ -176,7 +177,7 @@ def test_execute_with_adapter_persists_paper_run_artifact(tmp_path, monkeypatch)
 
     out = boundary.execute_with_adapter(
         proposed["proposal_id"],
-        lambda _: {"status": "paper_fill"},
+        lambda _: {"status": "paper_fill", "pnl_usd": 15.0},
     )
 
     assert out["decision"] == "executed"
@@ -192,3 +193,22 @@ def test_execute_with_adapter_persists_paper_run_artifact(tmp_path, monkeypatch)
     assert payload["tp_events"][0]["level"] == 2060.0
     assert payload["exit_reason"] == "tp"
     assert payload["pnl_r"] == 0.8
+    assert payload["risk_usd"] == 50.0
+    assert payload["bankroll"]["starting_equity_usd"] == 1000.0
+    assert payload["bankroll"]["available_usd"] == 1015.0
+    assert payload["bankroll"]["reserved_risk_usd"] == 0.0
+
+
+def test_execute_with_adapter_blocks_when_bankroll_cannot_reserve_risk():
+    boundary = ExecutionBoundary(starting_bankroll_usd=25)
+
+    proposed = boundary.propose_trade(
+        _proposal(risk_usd=100),
+        PolicyDecision(accepted=True, trace_id="run_123", policy_version="v1"),
+    )
+
+    out = boundary.execute_with_adapter(proposed["proposal_id"], lambda _: {"status": "paper_fill", "pnl_usd": 1.0})
+
+    assert out["decision"] == "blocked"
+    assert out["reason_codes"] == ("BANKROLL_EXHAUSTED",)
+    assert out["bankroll"]["available_usd"] == 25.0

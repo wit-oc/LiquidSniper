@@ -57,6 +57,27 @@ def test_build_daily_scorecard_aggregates_expectancy_rejects_and_feed_health():
     assert feed["feed_state_distribution"] == {"degraded": 1, "ok": 1, "tripped": 1}
 
 
+def test_build_daily_scorecard_includes_bankroll_summary_when_present():
+    runs = [
+        _run(
+            run_id="run-1",
+            timestamp=f"{DAY}T10:00:00Z",
+            bankroll={"starting_equity_usd": 1000, "available_usd": 980, "reserved_risk_usd": 10, "realized_pnl_usd": -20},
+        ),
+        _run(
+            run_id="run-2",
+            timestamp=f"{DAY}T12:00:00Z",
+            bankroll={"starting_equity_usd": 1000, "available_usd": 995, "reserved_risk_usd": 0, "realized_pnl_usd": -5},
+        ),
+    ]
+
+    out = build_daily_scorecard(trading_day=DAY, runs=runs)
+    assert out["bankroll"]["starting_equity_usd"] == 1000.0
+    assert out["bankroll"]["available_start_usd"] == 980.0
+    assert out["bankroll"]["available_end_usd"] == 995.0
+    assert out["bankroll"]["available_delta_usd"] == 15.0
+
+
 def test_persist_daily_scorecard_reads_runs_for_day_and_writes_json(tmp_path: Path):
     runs_dir = tmp_path / "paper_mvp" / "runs"
     runs_dir.mkdir(parents=True)
