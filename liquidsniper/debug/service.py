@@ -56,7 +56,27 @@ def _load_runs() -> list[dict[str, Any]]:
     return out
 
 
+def _load_breaker_state() -> dict[str, Any]:
+    path = _artifact_root() / "paper_mvp" / "state" / "global_drawdown_breaker_state.json"
+    if not path.exists():
+        return {"tripped": False, "trip_reason": "", "state": "missing"}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"tripped": True, "trip_reason": "GLOBAL_DRAWDOWN_STATE_UNREADABLE", "state": "corrupt"}
+    return {
+        "tripped": bool(payload.get("tripped", False)),
+        "trip_reason": str(payload.get("trip_reason", "")),
+        "drawdown_usd": payload.get("realized_pnl_usd", 0) * -1 if payload.get("realized_pnl_usd", 0) < 0 else 0,
+        "trading_day": payload.get("trading_day"),
+        "state": "ok",
+    }
+
+
 def _strategy_for_run(run: dict[str, Any]) -> tuple[str, str]:
+    explicit = str(run.get("strategy") or "").strip().lower()
+    if explicit in {"scalp", "intraday", "swing"}:
+        return explicit, str(run.get("anchor_profile_id") or explicit[:1]).upper()
     profile_id = str(run.get("anchor_profile_id") or "I").upper()
     return STRATEGY_BY_PROFILE.get(profile_id, "intraday"), profile_id
 
@@ -150,10 +170,13 @@ def _build_events(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             out.append({**base, "event_type": "decision_reason", "code": code})
         for code in run.get("feed_reason_codes") or []:
             out.append({**base, "event_type": "feed_reason", "code": code})
+        breaker = run.get("global_breaker") if isinstance(run.get("global_breaker"), dict) else {}
+        if breaker.get("tripped"):
+            out.append({**base, "event_type": "breaker_transition", "code": breaker.get("trip_reason") or "GLOBAL_DRAWDOWN_TRIPPED"})
     return out
 
 
-def _build_strategy_summaries(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_strategy_summaries(runs: list[dict[str, Any]], breaker: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     buckets: dict[str, dict[str, Any]] = defaultdict(lambda: {
         "strategy": "",
         "profile_id": "",
@@ -162,6 +185,8 @@ def _build_strategy_summaries(runs: list[dict[str, Any]]) -> list[dict[str, Any]
         "rejected_total": 0,
         "open_positions": 0,
         "latest_run_ts": None,
+        "global_breaker_tripped": bool((breaker or {}).get("tripped", False)),
+        "global_breaker_reason": (breaker or {}).get("trip_reason", ""),
     })
     open_positions = _build_positions(runs)
     open_by_strategy: dict[str, int] = defaultdict(int)
@@ -231,6 +256,7 @@ def build_app() -> Callable[..., list[bytes]]:
 
         filters = _parse_filters(str(environ.get("QUERY_STRING") or ""))
         runs = _apply_filters(_load_runs(), filters)
+        breaker = _load_breaker_state()
 
         if path == "/api/v1/debug/orders":
             data = _build_orders(runs)
@@ -239,13 +265,14 @@ def build_app() -> Callable[..., list[bytes]]:
         elif path == "/api/v1/debug/events":
             data = _build_events(runs)
         elif path == "/api/v1/debug/strategies":
-            data = _build_strategy_summaries(runs)
+            data = _build_strategy_summaries(runs, breaker)
         elif path == "/api/v1/debug/snapshot":
             data = {
-                "strategies": _build_strategy_summaries(runs),
+                "strategies": _build_strategy_summaries(runs, breaker),
                 "orders": _build_orders(runs),
                 "positions": _build_positions(runs),
                 "events": _build_events(runs),
+                "breaker": breaker,
             }
         else:
             return _json_response(start_response, "404 Not Found", {"error": "NOT_FOUND"})

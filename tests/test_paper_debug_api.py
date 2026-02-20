@@ -31,6 +31,7 @@ def _write_run(path: Path, **kw):
         "run_id": kw.get("run_id", "r1"),
         "timestamp": kw.get("timestamp", "2026-02-20T00:00:00+00:00"),
         "anchor_profile_id": kw.get("anchor_profile_id", "I"),
+        "strategy": kw.get("strategy"),
         "symbol": kw.get("symbol", "BTCUSDT"),
         "direction": kw.get("direction", "buy"),
         "decision_tier": kw.get("decision_tier", "publish_candidate"),
@@ -40,6 +41,7 @@ def _write_run(path: Path, **kw):
         "decision_reason_codes": kw.get("decision_reason_codes", []),
         "feed_reason_codes": kw.get("feed_reason_codes", []),
         "exit_reason": kw.get("exit_reason"),
+        "global_breaker": kw.get("global_breaker"),
     }
     if "test_id" in kw:
         payload["test_id"] = kw["test_id"]
@@ -72,6 +74,31 @@ def test_snapshot_and_filters(monkeypatch, tmp_path: Path):
     assert status2.startswith("200")
     assert len(payload2["data"]) == 1
     assert payload2["data"][0]["code"] == "HTF_CHOP_EXCEEDED"
+
+
+def test_snapshot_includes_breaker_visibility(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "paper_mvp" / "runs"
+    state = tmp_path / "paper_mvp" / "state"
+    runs.mkdir(parents=True)
+    state.mkdir(parents=True)
+    _write_run(
+        runs / "trip.json",
+        run_id="trip",
+        strategy="intraday",
+        global_breaker={"tripped": True, "trip_reason": "GLOBAL_DRAWDOWN_TRIPPED_ABSOLUTE"},
+    )
+    (state / "global_drawdown_breaker_state.json").write_text(
+        json.dumps({"tripped": True, "trip_reason": "GLOBAL_DRAWDOWN_TRIPPED_ABSOLUTE", "trading_day": "2026-02-20"}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("LS_ARTIFACT_ROOT", str(tmp_path))
+    app = build_app()
+    status, payload = _call(app, "/api/v1/debug/snapshot")
+    assert status.startswith("200")
+    assert payload["data"]["breaker"]["tripped"] is True
+    events = payload["data"]["events"]
+    assert any(e["event_type"] == "breaker_transition" for e in events)
 
 
 def test_read_only_guard(monkeypatch, tmp_path: Path):
