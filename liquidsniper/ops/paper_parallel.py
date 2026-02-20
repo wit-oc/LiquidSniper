@@ -18,6 +18,7 @@ class LaneResult:
     executed: int
     blocked: int
     throttle_state_path: str
+    reject_source: str = ""
 
 
 class PaperParallelOrchestrator:
@@ -34,6 +35,9 @@ class PaperParallelOrchestrator:
         mode: str,
         enabled_strategies: list[str],
         lane_runner: Callable[[str, Path], tuple[int, int, int]],
+        lane_budget_usd: dict[str, float] | None = None,
+        lane_used_usd: dict[str, float] | None = None,
+        global_breaker_tripped: bool = False,
     ) -> dict[str, object]:
         guard = guard_parallel_mode(mode=mode, payload={"parallel": True, "strategy_lanes": enabled_strategies})
         if not guard.allowed:
@@ -42,19 +46,33 @@ class PaperParallelOrchestrator:
         lanes = sorted({s for s in enabled_strategies if s in {"scalp", "intraday", "swing"}})
         results: list[LaneResult] = []
 
+        lane_budget_usd = lane_budget_usd or {}
+        lane_used_usd = lane_used_usd or {}
+
         def _run(strategy: str) -> LaneResult:
             path = self._lane_state_path(strategy)
             path.parent.mkdir(parents=True, exist_ok=True)
-            attempted, executed, blocked = lane_runner(strategy, path)
+
+            reject_source = ""
+            if global_breaker_tripped:
+                attempted, executed, blocked = 0, 0, 1
+                reject_source = "global_drawdown_trip"
+            elif strategy in lane_budget_usd and lane_used_usd.get(strategy, 0.0) >= lane_budget_usd[strategy]:
+                attempted, executed, blocked = 0, 0, 1
+                reject_source = "lane_limit"
+            else:
+                attempted, executed, blocked = lane_runner(strategy, path)
+
             with self._lock:
                 payload = {
                     "strategy": strategy,
                     "attempted": attempted,
                     "executed": executed,
                     "blocked": blocked,
+                    "reject_source": reject_source,
                 }
                 path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-            return LaneResult(strategy, attempted, executed, blocked, str(path))
+            return LaneResult(strategy, attempted, executed, blocked, str(path), reject_source)
 
         with ThreadPoolExecutor(max_workers=max(1, len(lanes))) as pool:
             for lane in pool.map(_run, lanes):
