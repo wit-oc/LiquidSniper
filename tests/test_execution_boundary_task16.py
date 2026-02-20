@@ -7,7 +7,7 @@ def _trade_intent(**overrides):
     base = {
         "intent_id": "8e8947f4-e1f7-4d6a-b5fa-362db4f8b735",
         "ts": "2026-02-19T15:00:00Z",
-        "strategy_id": "htf-confluence-v1",
+        "strategy_id": "intraday",
         "mode": "paper",
         "venue": "blofin",
         "symbol": "ETHUSDT",
@@ -187,6 +187,7 @@ def test_execute_with_adapter_persists_paper_run_artifact(tmp_path, monkeypatch)
 
     payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     assert payload["run_id"] == "run_123"
+    assert payload["strategy"] == "intraday"
     assert payload["entry"] == 2012.5
     assert payload["stop_loss_initial"] == 1978.0
     assert payload["tp_levels"] == [2060.0, 2125.0, 2190.0]

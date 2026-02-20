@@ -101,6 +101,7 @@ def build_run_artifact(proposal: dict[str, Any], execution_result: dict[str, Any
         "run_id": run_id,
         "timestamp": timestamp,
         "symbol": merged.get("symbol"),
+        "strategy": merged.get("strategy") or trade_intent.get("strategy") or trade_intent.get("strategy_id"),
         "direction": merged.get("side"),
         "anchor_profile_id": merged.get("anchor_profile_id"),
         "htf_anchor_tf": merged.get("htf_anchor_tf"),
