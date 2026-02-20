@@ -148,6 +148,7 @@ We’ll start with a minimal schema and extend.
 ## Developer workflow
 
 - Local environment setup: `docs/dev_setup.md`
+- Paper daemon operations: `docs/PAPER_DAEMON_RUNBOOK_V1.md`
 - Pre-merge quality gate: `docs/PRE_MERGE_CHECKLIST.md`
 - Codex on Mac mini runbook: `docs/CODEX_CLI_RUNBOOK.md`
 
