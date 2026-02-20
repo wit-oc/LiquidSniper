@@ -37,5 +37,27 @@ services:
       retries: 3
     restart: "no"
 
+  paper-debug-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python3", "-m", "liquidsniper.debug.server"]
+    env_file:
+      - .env.paper
+    environment:
+      - LIQUIDSNIPER_MODE=paper
+      - LIQUIDSNIPER_DEBUG_HOST=0.0.0.0
+      - LIQUIDSNIPER_DEBUG_PORT=8787
+    ports:
+      - "127.0.0.1:${LIQUIDSNIPER_DEBUG_PORT:-8787}:8787"
+    volumes:
+      - liquidsniper_data:/var/lib/liquidsniper:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    profiles:
+      - debug-ui
+    restart: unless-stopped
+
 volumes:
   liquidsniper_data:
