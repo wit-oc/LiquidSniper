@@ -7,8 +7,15 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
 - Docker Desktop / docker engine running
 - `cp .env.paper.example .env.paper`
 - Keep `LIQUIDSNIPER_MODE=paper`
+- Set profile + symbols explicitly for MVP attempts:
+  - `LIQUIDSNIPER_PROFILE_MODE=intraday_only`
+  - `LIQUIDSNIPER_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,SUIUSDT`
+- Ensure artifact root points to persistent volume path:
+  - `LS_ARTIFACT_ROOT=/var/lib/liquidsniper/artifacts`
 
 ## Startup
+- (After code changes) rebuild images:
+  - `docker compose -f docker-compose.paper.yml --env-file .env.paper build paper-runner scorecard-worker`
 - Start long-running paper runner:
   - `make paper-daemon-up`
 - Run scorecard aggregation once (daily/weekly artifacts):
@@ -20,7 +27,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
 ## Health checks
 - Container status:
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper ps`
-- Runner health file:
+- Runner health file (includes profile/symbols + attempted/executed/blocked):
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner cat /var/lib/liquidsniper/logs/paper_runner.health.json`
 - Scorecard worker health file:
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper run --rm scorecard-worker cat /var/lib/liquidsniper/logs/scorecard_worker.health.json`
