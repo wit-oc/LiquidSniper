@@ -120,6 +120,8 @@ def _build_proposal(
     idempotency_key = f"paper-{profile_policy.profile_id}-{symbol}-{market_snapshot['candle_ts']}"
     intent_id = str(uuid5(NAMESPACE_URL, idempotency_key))
 
+    strategy_id = {"I": "intraday", "C": "scalp", "S": "swing"}.get(profile_policy.profile_id, "intraday")
+
     proposal: dict[str, object] = {
         "trace_id": trace_id,
         "policy_version": profile_policy.policy_version,
@@ -145,7 +147,7 @@ def _build_proposal(
         "trade_intent": {
             "intent_id": intent_id,
             "ts": now_iso,
-            "strategy_id": f"paper-mvp-{profile_policy.profile_id.lower()}-v1",
+            "strategy_id": strategy_id,
             "mode": "paper",
             "venue": "blofin",
             "symbol": symbol,
