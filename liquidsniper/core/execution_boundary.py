@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 import os
+from pathlib import Path
 
 from .bankroll import BankrollState
 from .paper_artifacts import persist_run_artifact
 from .policy_gate import PolicyGateValidationError, validate_trade_intent
 from .mode_guard import guard_parallel_mode
+from .risk_breaker import apply_pnl, evaluate_drawdown, load_state, persist_state, utc_day
 
 
 _REQUIRED_AUDIT_FIELDS = ("trace_id", "policy_version", "rulebook_ref")
@@ -37,6 +39,17 @@ class ExecutionBoundary:
         if configured is None:
             configured = float(os.getenv("LIQUIDSNIPER_PAPER_BANKROLL_USD", "10000"))
         self._bankroll = BankrollState(float(configured))
+
+    def _breaker_state_path(self) -> Path:
+        root = os.getenv("LS_ARTIFACT_ROOT") or os.getenv("LIQUIDSNIPER_ARTIFACT_ROOT") or "artifacts"
+        return Path(root) / "paper_mvp" / "state" / "global_drawdown_breaker_state.json"
+
+    def _breaker_limits(self) -> tuple[float | None, float | None]:
+        raw_abs = os.getenv("LIQUIDSNIPER_MAX_DAILY_DRAWDOWN_USD")
+        raw_pct = os.getenv("LIQUIDSNIPER_MAX_DAILY_DRAWDOWN_PCT")
+        abs_limit = float(raw_abs) if raw_abs not in {None, ""} else None
+        pct_limit = float(raw_pct) if raw_pct not in {None, ""} else None
+        return abs_limit, pct_limit
 
     def _paper_risk_usd(self, proposal: dict[str, Any]) -> float:
         direct = proposal.get("risk_usd")
@@ -249,6 +262,41 @@ class ExecutionBoundary:
         is_paper = str(proposal.get("mode") or "paper") == "paper"
         reserved_risk = 0.0
 
+        breaker_state = None
+        breaker_state_path = self._breaker_state_path()
+        abs_limit, pct_limit = self._breaker_limits()
+        try:
+            breaker_state = load_state(
+                breaker_state_path,
+                starting_equity_usd=self._bankroll.snapshot().starting_equity_usd,
+                day=utc_day(),
+            )
+        except ValueError:
+            return {
+                "proposal_id": proposal_id,
+                "decision": "blocked",
+                "reason_codes": ("GLOBAL_DRAWDOWN_STATE_UNREADABLE",),
+                "trace_id": proposal.get("trace_id"),
+                "policy_version": proposal.get("policy_version"),
+            }
+
+        tripped, trip_reason = evaluate_drawdown(
+            breaker_state,
+            max_daily_drawdown_usd=abs_limit,
+            max_daily_drawdown_pct=pct_limit,
+        )
+        if tripped:
+            breaker_state.tripped = True
+            breaker_state.trip_reason = trip_reason
+            persist_state(breaker_state_path, breaker_state)
+            return {
+                "proposal_id": proposal_id,
+                "decision": "blocked",
+                "reason_codes": (trip_reason,),
+                "trace_id": proposal.get("trace_id"),
+                "policy_version": proposal.get("policy_version"),
+            }
+
         if is_paper:
             reserved_risk = self._paper_risk_usd(proposal)
             if reserved_risk > 0 and not self._bankroll.reserve_risk(reserved_risk):
@@ -265,11 +313,35 @@ class ExecutionBoundary:
         out = dict(gate)
         out["adapter_result"] = adapter_result
 
+        realized_pnl = self._paper_pnl_usd(proposal, adapter_result)
+        unrealized_pnl = adapter_result.get("unrealized_pnl_usd") if isinstance(adapter_result, dict) else None
+
         if is_paper:
             if reserved_risk > 0:
                 self._bankroll.release_reserved(reserved_risk)
-            self._bankroll.realize_pnl(self._paper_pnl_usd(proposal, adapter_result))
+            self._bankroll.realize_pnl(realized_pnl)
             out["bankroll"] = self._bankroll.snapshot().__dict__
+
+        apply_pnl(
+            breaker_state,
+            realized_delta_usd=realized_pnl,
+            unrealized_pnl_usd=float(unrealized_pnl) if unrealized_pnl is not None else None,
+        )
+        tripped_post, trip_reason_post = evaluate_drawdown(
+            breaker_state,
+            max_daily_drawdown_usd=abs_limit,
+            max_daily_drawdown_pct=pct_limit,
+        )
+        if tripped_post:
+            breaker_state.tripped = True
+            breaker_state.trip_reason = trip_reason_post
+        persist_state(breaker_state_path, breaker_state)
+        out["global_breaker"] = {
+            "tripped": breaker_state.tripped,
+            "trip_reason": breaker_state.trip_reason,
+            "drawdown_usd": breaker_state.drawdown_usd,
+            "trading_day": breaker_state.trading_day,
+        }
 
         if is_paper and out.get("decision") == "executed":
             _, artifact_path = persist_run_artifact(proposal, out)
