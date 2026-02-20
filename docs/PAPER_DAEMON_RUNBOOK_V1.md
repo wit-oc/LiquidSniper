@@ -33,6 +33,13 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
 ## Stop
 - `make paper-daemon-down`
 
+## State maintenance
+- Backup current paper artifacts/logs before cleanup:
+  - `make paper-backup-state`
+- Reset paper run state (runs/daily/weekly/throttle/logs):
+  - `make paper-reset-state`
+  - then bring services back up via Startup steps
+
 ## Health checks
 - Container status:
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper ps`
@@ -69,7 +76,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
 
 ## Operator validation checklist (debug v1)
 - [ ] `paper-debug-ui` starts only when `--profile debug-ui` is passed.
-- [ ] Service port is localhost-only (`127.0.0.1:*`).
+- [ ] Service bind/port matches configured exposure (`LIQUIDSNIPER_DEBUG_BIND` + `LIQUIDSNIPER_DEBUG_PORT`).
 - [ ] `POST /api/v1/debug/orders` returns `405 READ_ONLY_MODE`.
 - [ ] `GET /api/v1/debug/strategies` returns strategy summary cards.
 - [ ] `GET /api/v1/debug/orders` and `/positions` render data in UI tables.
