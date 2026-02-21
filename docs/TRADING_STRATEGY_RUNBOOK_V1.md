@@ -63,10 +63,11 @@ Decision payloads must include:
 
 ## Primary confluences (hard gates)
 
-1. **Support/Resistance first retest**
-2. **Market structure alignment (BoS / CHoCH)**
+1. **HTF bias permission** (BoS/CHoCH interpreted as bias mechanism: `long|short|neutral`)
+2. **Support/Resistance first retest** from nearest HTF/ITF levels
+3. **Secondary confluence minimum** (profile-configured)
 
-Both must pass before any promotion above `watch_only`.
+BoS/CHoCH is no longer a direct entry hard gate; it is used to classify bias context.
 
 ## Secondary confluences (ranked)
 
@@ -90,11 +91,16 @@ Secondary confluences increase confidence only; they cannot rescue failed primar
 
 ## Current runtime policy (implemented)
 
-- If either primary confluence is missing -> `reject`
-- If both primary confluences pass:
-  - 0-1 secondary hits -> `watch_only`
-  - 2-3 secondary hits -> `publish_candidate`
-  - 4-5 secondary hits -> `high_priority`
+Entry gate order is deterministic:
+1. `bias_permission` (expected side must match profile bias output)
+2. `sr_first_retest` from nearest HTF/ITF level context
+3. `secondary_confluence` threshold
+4. throttle/risk checks (daily cap, cooldown, active-risk cap)
+
+Tiering after pass:
+- 0-1 secondary hits -> `watch_only`
+- 2-3 secondary hits -> `publish_candidate`
+- 4-5 secondary hits -> `high_priority`
 
 ## Planned extension (tracked)
 
@@ -106,6 +112,8 @@ Add explicit regime-permission gate from anchor profile context before promotion
 
 - No autonomous live execution in this runbook scope.
 - Simulation and paper-trade journaling only.
+- BE-aware active-risk cap enforced: `LIQUIDSNIPER_MAX_ACTIVE_RISK_POSITIONS=2` counts only open positions still in `stop_state=initial|trailing`.
+- TP1 promotion to `stop_state=be` reduces active-risk usage without forcing immediate close.
 - Keep hard guardrails from:
   - `docs/FEASIBILITY_AND_KILL_CRITERIA.md`
   - `docs/GO_NO_GO_CHECKLIST.md`

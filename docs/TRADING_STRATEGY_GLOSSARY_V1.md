@@ -23,9 +23,10 @@ Use these definitions in code, tests, fixtures, and operator notes to keep decis
   Combined evidence from multiple independent signals. In LiquidSniper, confluence is policy-gated and never indicator-singleton.
 
 - **Primary confluences (hard gates)**  
-  Required pair:
-  1. Support/Resistance first retest
-  2. Market structure alignment (BoS/CHoCH)
+  Required sequence:
+  1. Bias permission (`long|short|neutral`) derived from HTF structure context
+  2. Support/Resistance first retest from nearest HTF/ITF levels
+  3. Secondary confluence minimum
 
 - **Secondary confluences (confidence boosters)**  
   Ranked set used for tiering once primaries pass:
@@ -113,6 +114,9 @@ Use these definitions in code, tests, fixtures, and operator notes to keep decis
 
 - **Runbook confluence override**  
   Priority gate where failed primaries prevent score-based promotion.
+
+- **Stop state** (`initial|be|trailing`)  
+  Position lifecycle flag for risk accounting. `be` (break-even) positions remain open but do not consume active-risk cap.
 
 ---
 

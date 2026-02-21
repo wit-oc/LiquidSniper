@@ -18,7 +18,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
   - `LIQUIDSNIPER_MIN_SECONDARY_HITS=2`
   - `LIQUIDSNIPER_COOLDOWN_SECONDS=900`
   - `LIQUIDSNIPER_DAILY_MAX_TRADES=4`
-  - `LIQUIDSNIPER_ENFORCE_ONE_OPEN_POSITION=true`
+  - `LIQUIDSNIPER_MAX_ACTIVE_RISK_POSITIONS=2`
 - Ensure artifact root points to persistent volume path:
   - `LS_ARTIFACT_ROOT=/var/lib/liquidsniper/artifacts`
 
@@ -45,7 +45,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper ps`
 - Runner health file (includes profile/symbols + attempted/executed/blocked):
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner cat /var/lib/liquidsniper/logs/paper_runner.health.json`
-- Persistent throttle state (idempotency/cooldown/daily-cap/open-position lock):
+- Persistent throttle state (idempotency/cooldown/daily-cap/BE-aware active-risk cap):
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner cat /var/lib/liquidsniper/artifacts/paper_mvp/state/execution_throttle_state.json`
 - Scorecard worker health file:
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper run --rm scorecard-worker cat /var/lib/liquidsniper/logs/scorecard_worker.health.json`
@@ -55,7 +55,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner ls -1 /var/lib/liquidsniper/artifacts/paper_mvp/runs | tail`
 - Gate trace inspection (per run):
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner sh -lc 'f=$(ls -1 /var/lib/liquidsniper/artifacts/paper_mvp/runs | tail -n 1); cat /var/lib/liquidsniper/artifacts/paper_mvp/runs/$f'`
-  - verify `gate_checks`, `decision_reason_codes`, `policy_snapshot`, and `candle_timestamp` are present
+  - verify `gate_checks`, `gate_trail`, `bias_snapshot`, `sr_context`, `position_state_before/after`, `decision_reason_codes`, `policy_snapshot`, and `candle_timestamp` are present
 - Daily scorecard:
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner cat /var/lib/liquidsniper/artifacts/paper_mvp/daily/$(date -u +%F).json`
 - Weekly rollup:
@@ -98,7 +98,8 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
   - `HTF_CHOP_BLOCKED` -> profile too strict for regime; reassess `LIQUIDSNIPER_HTF_CHOP_MAX`
   - `CONFLUENCE_TOO_WEAK` -> confluence matcher drift or `LIQUIDSNIPER_MIN_SECONDARY_HITS` too high
   - `IDEMPOTENCY_DUPLICATE` -> duplicate cycle inputs/candle timestamps
-  - `COOLDOWN_ACTIVE` / `DAILY_CAP_REACHED` / `OPEN_POSITION_LOCKED` -> expected overtrading protections
+  - `COOLDOWN_ACTIVE` / `DAILY_CAP_REACHED` / `ACTIVE_RISK_CAP_REACHED` -> expected overtrading protections
+  - `BIAS_NOT_PERMITTED` -> HTF bias engine returned neutral/opposite; inspect BoS/CHoCH + profile
 - Smoke validation (daemon remains down):
   - `./.venv/bin/pytest -q tests/test_paper_daemon_smoke.py`
   - pass condition: execution-rate bounded (not zero, not hyperactive) with blocked attempts observed
