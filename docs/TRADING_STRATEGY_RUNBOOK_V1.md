@@ -64,7 +64,7 @@ Decision payloads must include:
 ## Primary confluences (hard gates)
 
 1. **HTF bias permission** (BoS/CHoCH interpreted as bias mechanism: `long|short|neutral`)
-2. **Support/Resistance first retest** from nearest HTF/ITF levels
+2. **Support/Resistance first retest** from SR Engine V2 nearest eligible structural zones (HTF/ITF policy-eligible TFs only)
 3. **Secondary confluence minimum** (profile-configured)
 
 BoS/CHoCH is no longer a direct entry hard gate; it is used to classify bias context.
@@ -93,7 +93,7 @@ Secondary confluences increase confidence only; they cannot rescue failed primar
 
 Entry gate order is deterministic:
 1. `bias_permission` (expected side must match profile bias output)
-2. `sr_first_retest` from nearest HTF/ITF level context
+2. `sr_first_retest` from SR Engine V2 query (`confirmed` zone + profile anchor eligibility + first/deviation-retest state)
 3. `secondary_confluence` threshold
 4. throttle/risk checks (daily cap, cooldown, active-risk cap)
 

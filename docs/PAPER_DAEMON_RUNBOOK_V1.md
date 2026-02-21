@@ -21,6 +21,8 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
   - `LIQUIDSNIPER_MAX_ACTIVE_RISK_POSITIONS=2`
 - Ensure artifact root points to persistent volume path:
   - `LS_ARTIFACT_ROOT=/var/lib/liquidsniper/artifacts`
+- Ensure DB path is writable for SR Engine V2 zone persistence:
+  - `LIQUIDSNIPER_DB_PATH=/var/lib/liquidsniper/data/liquidsniper.sqlite`
 
 ## Startup
 - (After code changes) rebuild images:
@@ -56,6 +58,7 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
 - Gate trace inspection (per run):
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner sh -lc 'f=$(ls -1 /var/lib/liquidsniper/artifacts/paper_mvp/runs | tail -n 1); cat /var/lib/liquidsniper/artifacts/paper_mvp/runs/$f'`
   - verify `gate_checks`, `gate_trail`, `bias_snapshot`, `sr_context`, `position_state_before/after`, `decision_reason_codes`, `policy_snapshot`, and `candle_timestamp` are present
+  - verify `sr_context` includes `sr_anchor_tf`, `sr_eligible_tfs`, nearest support/resistance zone payloads (`zone_id`, `tf`, `bounds`, `first_retest_status`) and SR gate reason codes
 - Daily scorecard:
   - `docker compose -f docker-compose.paper.yml --env-file .env.paper exec -T paper-runner cat /var/lib/liquidsniper/artifacts/paper_mvp/daily/$(date -u +%F).json`
 - Weekly rollup:
