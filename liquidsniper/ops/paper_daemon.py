@@ -17,6 +17,8 @@ from liquidsniper.core.mode_guard import enforce_startup_mode
 from liquidsniper.core.paper_policy import (
     ProfilePolicy,
     ThrottleState,
+    compute_bias,
+    count_active_risk_positions,
     evaluate_gates,
     load_profile_policy,
     load_throttle_state,
@@ -125,6 +127,27 @@ def _ema(values: list[float], period: int) -> float:
     return float(ema_val)
 
 
+def _nearest_level(price: float, levels: list[float]) -> float | None:
+    if not levels:
+        return None
+    return min(levels, key=lambda lvl: abs(price - lvl))
+
+
+def _promote_positions_to_be(state: ThrottleState, *, now: datetime, cycle_count: int) -> tuple[int, list[str]]:
+    promoted = 0
+    ids: list[str] = []
+    for pos in state.open_positions:
+        if pos.get("status") != "open" or pos.get("stop_state") != "initial":
+            continue
+        if int(pos.get("opened_cycle") or 0) < cycle_count:
+            pos["stop_state"] = "be"
+            pos["tp1_ts"] = now.isoformat()
+            promoted += 1
+            ids.append(str(pos.get("position_id") or ""))
+    state.trades_open = sum(1 for p in state.open_positions if p.get("status") == "open")
+    return promoted, ids
+
+
 def _fetch_klines(symbol: str, interval: str, *, limit: int = 120) -> list[dict[str, object]]:
     qs = urllib.parse.urlencode({"symbol": symbol.upper(), "interval": interval, "limit": int(limit)})
     base = os.getenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://data-api.binance.vision").rstrip("/")
@@ -204,15 +227,26 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
         tf_minutes = 5 if policy.profile_id in {"I", "C"} else 15
         candle_ts = _floor_candle_ts(now, tf_minutes)
         side = "buy" if (seed[5] % 2 == 0) else "sell"
+        bos_choch = (seed[3] % 10) < 8
+        bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
+        entry = round(100 + (seed[3] / 255.0) * 200, 4)
+        nearest = round(entry * (0.998 if side == "buy" else 1.002), 4)
         return {
             "side": side,
-            "entry": round(100 + (seed[3] / 255.0) * 200, 4),
+            "entry": entry,
             "candle_ts": candle_ts,
             "candle_closed": (seed[0] % 10) < 8,
             "htf_chop": round(35 + (seed[1] / 255.0) * 35, 2),
             "sr_first_retest": (seed[2] % 10) < 8,
-            "bos_choch": (seed[3] % 10) < 8,
+            "bos_choch": bos_choch,
             "secondary_hits": int(seed[4] % 5),
+            "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id},
+            "sr_context": {
+                "nearest_htf_level": nearest,
+                "nearest_itf_level": nearest,
+                "distance_bps": 20.0,
+                "first_retest_eligible": (seed[2] % 10) < 8,
+            },
             "data_source": "mock",
         }
 
@@ -252,6 +286,14 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
 
     highs1h = [float(c["high"]) for c in c1h]
     lows1h = [float(c["low"]) for c in c1h]
+    highs4h = [float(c["high"]) for c in c4h]
+    lows4h = [float(c["low"]) for c in c4h]
+
+    htf_levels = [max(highs4h[-24:-2]), min(lows4h[-24:-2])]
+    itf_levels = [max(highs1h[-30:-3]), min(lows1h[-30:-3])]
+    nearest_htf = _nearest_level(close15, htf_levels)
+    nearest_itf = _nearest_level(close15, itf_levels)
+
     if side == "buy":
         level = max(highs1h[-30:-3])
         sr_first_retest = abs(close15 - level) / max(level, 1e-9) <= 0.0045
@@ -260,6 +302,8 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
         level = min(lows1h[-30:-3])
         sr_first_retest = abs(close15 - level) / max(level, 1e-9) <= 0.0045
         bos_choch = close15 < min(float(c["low"]) for c in c15[-16:-1])
+
+    bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
 
     ema20_15 = _ema(closes15[-60:], 20)
     ema50_15 = _ema(closes15[-60:], 50)
@@ -275,6 +319,9 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
         secondary_hits += int(closes1h[-1] < ema20_1h)
         secondary_hits += int(closes4h[-1] < ema20_4h)
 
+    nearest_level = nearest_itf if nearest_itf is not None else nearest_htf
+    distance_bps = 0.0 if nearest_level is None else abs(close15 - nearest_level) / max(nearest_level, 1e-9) * 10000.0
+
     return {
         "side": side,
         "entry": round(close15, 6),
@@ -284,6 +331,13 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
         "sr_first_retest": bool(sr_first_retest),
         "bos_choch": bool(bos_choch),
         "secondary_hits": int(secondary_hits),
+        "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id},
+        "sr_context": {
+            "nearest_htf_level": nearest_htf,
+            "nearest_itf_level": nearest_itf,
+            "distance_bps": round(float(distance_bps), 4),
+            "first_retest_eligible": bool(sr_first_retest),
+        },
         "data_source": "binance",
     }
 
@@ -341,6 +395,8 @@ def _build_proposal(
         "feed_reason_codes": [],
         "candle_timestamp": market_snapshot["candle_ts"],
         "gate_checks": gate_checks,
+        "bias_snapshot": market_snapshot.get("bias_snapshot") if isinstance(market_snapshot.get("bias_snapshot"), dict) else {},
+        "sr_context": market_snapshot.get("sr_context") if isinstance(market_snapshot.get("sr_context"), dict) else {},
         "policy_snapshot": profile_policy.snapshot(),
         "trade_intent": {
             "intent_id": intent_id,
@@ -402,8 +458,7 @@ def _run_lane_cycle(
     executed = 0
     blocked = 0
 
-    # A position is considered open for one cycle window to enforce one-open-position guard.
-    state.trades_open = 0
+    promoted_count, promoted_ids = _promote_positions_to_be(state, now=now, cycle_count=cycle_count)
 
     for symbol in symbols:
         attempted += 1
@@ -440,6 +495,7 @@ def _run_lane_cycle(
             state=state,
             now=now,
             idempotency_key=idempotency_key,
+            side=str(snapshot.get("side") or "buy"),
             candle_closed=bool(snapshot["candle_closed"]),
             candle_ts=str(snapshot["candle_ts"]),
             htf_chop=float(snapshot["htf_chop"]),
@@ -459,11 +515,21 @@ def _run_lane_cycle(
             gate_checks=gate.gate_checks,
         )
         proposal["strategy"] = strategy
+        proposal["position_state_before"] = {
+            "open_positions": state.trades_open,
+            "active_risk_positions": count_active_risk_positions(state),
+            "tp1_promotions_this_cycle": promoted_count,
+            "promoted_position_ids": promoted_ids,
+        }
 
         out = boundary.propose_trade(proposal, policy)
         decision = out.get("decision")
         if decision != "accepted":
             blocked += 1
+            proposal["position_state_after"] = {
+                "open_positions": state.trades_open,
+                "active_risk_positions": count_active_risk_positions(state),
+            }
             persist_run_artifact(proposal, {"decision": "blocked", "reason_codes": list(out.get("reason_codes") or gate.reason_codes)})
             continue
 
@@ -475,14 +541,34 @@ def _run_lane_cycle(
             executed += 1
             state.executed_today += 1
             state.last_entry_ts = now.isoformat()
-            state.trades_open = 1
             state.seen_idempotency_keys = (state.seen_idempotency_keys + [idempotency_key])[-2000:]
+            state.open_positions.append(
+                {
+                    "position_id": out["proposal_id"],
+                    "symbol": symbol,
+                    "strategy": strategy,
+                    "status": "open",
+                    "stop_state": "initial",
+                    "opened_cycle": cycle_count,
+                    "tp1_ts": None,
+                }
+            )
+            state.trades_open = sum(1 for p in state.open_positions if p.get("status") == "open")
 
             adapter_result = result.get("adapter_result") if isinstance(result.get("adapter_result"), dict) else {}
             realized_trade_pnl = _as_float(adapter_result.get("pnl_usd"), _as_float(proposal.get("pnl_usd"), 0.0))
             state.realized_pnl_today_usd = round(state.realized_pnl_today_usd + realized_trade_pnl, 8)
+            proposal["position_state_after"] = {
+                "open_positions": state.trades_open,
+                "active_risk_positions": count_active_risk_positions(state),
+            }
+            persist_run_artifact(proposal, result)
         else:
             blocked += 1
+            proposal["position_state_after"] = {
+                "open_positions": state.trades_open,
+                "active_risk_positions": count_active_risk_positions(state),
+            }
             persist_run_artifact(proposal, result)
 
     persist_throttle_state(state_path, state)

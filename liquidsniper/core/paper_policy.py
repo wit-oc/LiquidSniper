@@ -17,7 +17,6 @@ _PROFILE_DEFAULTS = {
             "require_candle_close": True,
             "htf_chop_max": 45.0,
             "require_sr_first_retest": True,
-            "require_bos_choch": True,
             "min_secondary_confluence_hits": 2,
         },
     },
@@ -29,7 +28,6 @@ _PROFILE_DEFAULTS = {
             "require_candle_close": True,
             "htf_chop_max": 50.0,
             "require_sr_first_retest": True,
-            "require_bos_choch": True,
             "min_secondary_confluence_hits": 2,
         },
     },
@@ -41,7 +39,6 @@ _PROFILE_DEFAULTS = {
             "require_candle_close": True,
             "htf_chop_max": 55.0,
             "require_sr_first_retest": True,
-            "require_bos_choch": True,
             "min_secondary_confluence_hits": 1,
         },
     },
@@ -57,12 +54,11 @@ class ProfilePolicy:
     require_candle_close: bool
     htf_chop_max: float
     require_sr_first_retest: bool
-    require_bos_choch: bool
     min_secondary_confluence_hits: int
     cooldown_seconds: int
     daily_max_trades: int
     daily_max_loss_usd: float
-    enforce_one_open_position: bool
+    max_active_risk_positions: int
     policy_version: str
 
     def snapshot(self) -> dict[str, Any]:
@@ -77,6 +73,7 @@ class ThrottleState:
     executed_today: int
     realized_pnl_today_usd: float
     seen_idempotency_keys: list[str]
+    open_positions: list[dict[str, Any]]
 
     @classmethod
     def empty(cls, trading_day: str) -> "ThrottleState":
@@ -87,6 +84,7 @@ class ThrottleState:
             executed_today=0,
             realized_pnl_today_usd=0.0,
             seen_idempotency_keys=[],
+            open_positions=[],
         )
 
 
@@ -95,6 +93,12 @@ class GateDecision:
     accepted: bool
     reason_codes: tuple[str, ...]
     gate_checks: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BiasDecision:
+    direction: str
+    mechanism: str
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -122,6 +126,19 @@ def _utc_day(now: datetime) -> str:
     return now.astimezone(timezone.utc).date().isoformat()
 
 
+def count_active_risk_positions(state: ThrottleState) -> int:
+    return sum(1 for p in state.open_positions if str(p.get("status", "open")) == "open" and str(p.get("stop_state", "initial")) != "be")
+
+
+def compute_bias(*, profile_id: str, side: str, bos_choch: bool) -> BiasDecision:
+    expected = "long" if side == "buy" else "short"
+    if bos_choch:
+        return BiasDecision(direction=expected, mechanism="bos_choch_confirmed")
+    if profile_id in {"I", "C"}:
+        return BiasDecision(direction=expected, mechanism="ema_structure_proxy")
+    return BiasDecision(direction="neutral", mechanism="structure_unconfirmed")
+
+
 def load_profile_policy() -> ProfilePolicy:
     profile_id = os.getenv("LIQUIDSNIPER_PROFILE_ID", "I").strip().upper()
     spec = _PROFILE_DEFAULTS.get(profile_id)
@@ -145,6 +162,10 @@ def load_profile_policy() -> ProfilePolicy:
     if daily_max_loss_usd <= 0:
         raise RuntimeError("LIQUIDSNIPER_MAX_DAILY_LOSS_USD must be > 0")
 
+    max_active_risk_positions = _int_env("LIQUIDSNIPER_MAX_ACTIVE_RISK_POSITIONS", 2)
+    if max_active_risk_positions <= 0:
+        raise RuntimeError("LIQUIDSNIPER_MAX_ACTIVE_RISK_POSITIONS must be > 0")
+
     return ProfilePolicy(
         profile_id=profile_id,
         htf_anchor_tf=str(spec["htf_anchor_tf"]),
@@ -153,12 +174,11 @@ def load_profile_policy() -> ProfilePolicy:
         require_candle_close=_bool_env("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", bool(gate["require_candle_close"])),
         htf_chop_max=_float_env("LIQUIDSNIPER_HTF_CHOP_MAX", float(gate["htf_chop_max"])),
         require_sr_first_retest=_bool_env("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", bool(gate["require_sr_first_retest"])),
-        require_bos_choch=_bool_env("LIQUIDSNIPER_REQUIRE_BOS_CHOCH", bool(gate["require_bos_choch"])),
         min_secondary_confluence_hits=min_secondary,
         cooldown_seconds=cooldown_seconds,
         daily_max_trades=daily_max_trades,
         daily_max_loss_usd=daily_max_loss_usd,
-        enforce_one_open_position=_bool_env("LIQUIDSNIPER_ENFORCE_ONE_OPEN_POSITION", True),
+        max_active_risk_positions=max_active_risk_positions,
         policy_version=os.getenv("LIQUIDSNIPER_POLICY_VERSION", "v1").strip() or "v1",
     )
 
@@ -169,6 +189,21 @@ def load_throttle_state(path: Path, now: datetime) -> ThrottleState:
         return ThrottleState.empty(trading_day)
 
     raw = json.loads(path.read_text(encoding="utf-8"))
+    open_positions = []
+    for item in (raw.get("open_positions") or []):
+        if not isinstance(item, dict):
+            continue
+        open_positions.append(
+            {
+                "position_id": str(item.get("position_id") or ""),
+                "symbol": str(item.get("symbol") or ""),
+                "strategy": str(item.get("strategy") or ""),
+                "status": str(item.get("status") or "open"),
+                "stop_state": str(item.get("stop_state") or "initial"),
+                "opened_cycle": int(item.get("opened_cycle") or 0),
+                "tp1_ts": item.get("tp1_ts"),
+            }
+        )
     state = ThrottleState(
         trading_day=str(raw.get("trading_day") or trading_day),
         last_entry_ts=raw.get("last_entry_ts"),
@@ -176,14 +211,17 @@ def load_throttle_state(path: Path, now: datetime) -> ThrottleState:
         executed_today=max(0, int(raw.get("executed_today") or 0)),
         realized_pnl_today_usd=float(raw.get("realized_pnl_today_usd") or 0.0),
         seen_idempotency_keys=[str(x) for x in (raw.get("seen_idempotency_keys") or []) if str(x)],
+        open_positions=open_positions,
     )
     if state.trading_day != trading_day:
         return ThrottleState.empty(trading_day)
+    state.trades_open = sum(1 for p in state.open_positions if str(p.get("status", "open")) == "open")
     return state
 
 
 def persist_throttle_state(path: Path, state: ThrottleState) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    state.trades_open = sum(1 for p in state.open_positions if str(p.get("status", "open")) == "open")
     path.write_text(json.dumps(asdict(state), sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
@@ -202,6 +240,7 @@ def evaluate_gates(
     state: ThrottleState,
     now: datetime,
     idempotency_key: str,
+    side: str,
     candle_closed: bool,
     candle_ts: str,
     htf_chop: float,
@@ -210,6 +249,9 @@ def evaluate_gates(
     secondary_hits: int,
 ) -> GateDecision:
     daily_loss_usd = max(0.0, -float(state.realized_pnl_today_usd))
+    bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
+    expected_bias = "long" if side == "buy" else "short"
+    active_risk_positions = count_active_risk_positions(state)
 
     checks: dict[str, Any] = {
         "daily_loss_circuit": {
@@ -220,8 +262,8 @@ def evaluate_gates(
         },
         "candle_close": {"required": policy.require_candle_close, "ok": (candle_closed or not policy.require_candle_close), "candle_ts": candle_ts},
         "htf_chop": {"max": policy.htf_chop_max, "actual": round(float(htf_chop), 4), "ok": float(htf_chop) <= policy.htf_chop_max},
+        "bias": {"expected": expected_bias, "actual": bias.direction, "mechanism": bias.mechanism, "ok": bias.direction == expected_bias},
         "sr_first_retest": {"required": policy.require_sr_first_retest, "actual": bool(sr_first_retest), "ok": (bool(sr_first_retest) or not policy.require_sr_first_retest)},
-        "bos_choch": {"required": policy.require_bos_choch, "actual": bool(bos_choch), "ok": (bool(bos_choch) or not policy.require_bos_choch)},
         "secondary_confluence": {
             "min": policy.min_secondary_confluence_hits,
             "actual": int(secondary_hits),
@@ -232,10 +274,10 @@ def evaluate_gates(
     throttle = {
         "idempotency": {"ok": idempotency_key not in state.seen_idempotency_keys},
         "daily_cap": {"max": policy.daily_max_trades, "actual": state.executed_today, "ok": state.executed_today < policy.daily_max_trades},
-        "one_open_position": {
-            "enforced": policy.enforce_one_open_position,
-            "actual_open": state.trades_open,
-            "ok": (state.trades_open == 0 if policy.enforce_one_open_position else True),
+        "active_risk_cap": {
+            "max": policy.max_active_risk_positions,
+            "actual": active_risk_positions,
+            "ok": active_risk_positions < policy.max_active_risk_positions,
         },
         "cooldown": {"seconds": policy.cooldown_seconds, "ok": True},
     }
@@ -250,26 +292,27 @@ def evaluate_gates(
     checks["throttle"] = throttle
 
     reasons: list[str] = []
-    if not checks["daily_loss_circuit"]["ok"]:
-        reasons.append("RISK_DAILY_LOSS_CAP_BREACH")
-    if not checks["candle_close"]["ok"]:
-        reasons.append("CANDLE_NOT_CLOSED")
-    if not checks["htf_chop"]["ok"]:
-        reasons.append("HTF_CHOP_BLOCKED")
-    if not checks["sr_first_retest"]["ok"]:
-        reasons.append("RETEST_REQUIRED")
-    if not checks["bos_choch"]["ok"]:
-        reasons.append("BOS_CHOCH_REQUIRED")
-    if not checks["secondary_confluence"]["ok"]:
-        reasons.append("CONFLUENCE_TOO_WEAK")
+    gate_trail: list[dict[str, Any]] = []
 
-    if not throttle["idempotency"]["ok"]:
-        reasons.append("IDEMPOTENCY_DUPLICATE")
-    if not throttle["daily_cap"]["ok"]:
-        reasons.append("DAILY_CAP_REACHED")
-    if not throttle["one_open_position"]["ok"]:
-        reasons.append("OPEN_POSITION_LOCKED")
-    if not throttle["cooldown"]["ok"]:
-        reasons.append("COOLDOWN_ACTIVE")
+    def _record(stage: str, ok: bool, code: str | None = None) -> None:
+        node = {"stage": stage, "ok": ok}
+        if code:
+            node["reason_code"] = code
+        gate_trail.append(node)
+        if (not ok) and code:
+            reasons.append(code)
 
+    _record("daily_loss_circuit", bool(checks["daily_loss_circuit"]["ok"]), "RISK_DAILY_LOSS_CAP_BREACH")
+    _record("candle_close", bool(checks["candle_close"]["ok"]), "CANDLE_NOT_CLOSED")
+    _record("htf_chop", bool(checks["htf_chop"]["ok"]), "HTF_CHOP_BLOCKED")
+    _record("bias_permission", bool(checks["bias"]["ok"]), "BIAS_NOT_PERMITTED")
+    _record("sr_retest", bool(checks["sr_first_retest"]["ok"]), "RETEST_REQUIRED")
+    _record("secondary_confluence", bool(checks["secondary_confluence"]["ok"]), "CONFLUENCE_TOO_WEAK")
+
+    _record("idempotency", bool(throttle["idempotency"]["ok"]), "IDEMPOTENCY_DUPLICATE")
+    _record("daily_cap", bool(throttle["daily_cap"]["ok"]), "DAILY_CAP_REACHED")
+    _record("active_risk_cap", bool(throttle["active_risk_cap"]["ok"]), "ACTIVE_RISK_CAP_REACHED")
+    _record("cooldown", bool(throttle["cooldown"]["ok"]), "COOLDOWN_ACTIVE")
+
+    checks["gate_trail"] = gate_trail
     return GateDecision(accepted=not reasons, reason_codes=tuple(reasons), gate_checks=checks)
