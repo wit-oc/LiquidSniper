@@ -119,6 +119,7 @@ def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for run in runs:
         strategy, profile_id = _strategy_for_run(run)
+        sr = run.get("sr_context") if isinstance(run.get("sr_context"), dict) else {}
         rows.append(
             {
                 "run_id": run.get("run_id"),
@@ -127,9 +128,14 @@ def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "profile_id": profile_id,
                 "symbol": run.get("symbol"),
                 "side": run.get("direction"),
+                "entry": run.get("entry"),
                 "decision_tier": run.get("decision_tier"),
                 "execution_decision": run.get("execution_decision"),
                 "proposal_decision": run.get("proposal_decision"),
+                "sr_nearest_htf_level": sr.get("nearest_htf_level"),
+                "sr_nearest_itf_level": sr.get("nearest_itf_level"),
+                "sr_first_retest_eligible": sr.get("first_retest_eligible"),
+                "sr_distance_bps": sr.get("distance_bps"),
                 "test_id": _test_id_for_run(run),
             }
         )
