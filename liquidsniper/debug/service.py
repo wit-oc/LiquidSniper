@@ -89,20 +89,30 @@ def _test_id_for_run(run: dict[str, Any]) -> str | None:
     return str(test_id) if isinstance(test_id, str) and test_id else None
 
 
+def _run_matches_filters(run: dict[str, Any], filters: dict[str, Any]) -> bool:
+    strategy, _ = _strategy_for_run(run)
+    if filters["strategy"] and strategy != filters["strategy"]:
+        return False
+    if filters["run_id"] and str(run.get("run_id") or "") != filters["run_id"]:
+        return False
+    if filters["test_id"] and _test_id_for_run(run) != filters["test_id"]:
+        return False
+    return True
+
+
 def _apply_filters(runs: list[dict[str, Any]], filters: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for run in runs:
-        strategy, _ = _strategy_for_run(run)
-        if filters["strategy"] and strategy != filters["strategy"]:
-            continue
-        if filters["run_id"] and str(run.get("run_id") or "") != filters["run_id"]:
-            continue
-        if filters["test_id"] and _test_id_for_run(run) != filters["test_id"]:
+        if not _run_matches_filters(run, filters):
             continue
         out.append(run)
         if len(out) >= int(filters["limit"]):
             break
     return out
+
+
+def _apply_filters_unbounded(runs: list[dict[str, Any]], filters: dict[str, Any]) -> list[dict[str, Any]]:
+    return [run for run in runs if _run_matches_filters(run, filters)]
 
 
 def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -127,7 +137,7 @@ def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _build_positions(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    open_by_symbol: dict[str, dict[str, Any]] = {}
+    open_by_lane_symbol: dict[str, dict[str, Any]] = {}
     for run in runs:
         if run.get("execution_decision") != "executed":
             continue
@@ -137,7 +147,8 @@ def _build_positions(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not symbol:
             continue
         strategy, profile_id = _strategy_for_run(run)
-        open_by_symbol[symbol] = {
+        key = f"{strategy}:{symbol}"
+        open_by_lane_symbol[key] = {
             "strategy": strategy,
             "profile_id": profile_id,
             "symbol": symbol,
@@ -148,7 +159,7 @@ def _build_positions(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "run_id": run.get("run_id"),
             "timestamp": run.get("timestamp"),
         }
-    return list(open_by_symbol.values())
+    return list(open_by_lane_symbol.values())
 
 
 def _build_events(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -255,7 +266,9 @@ def build_app() -> Callable[..., list[bytes]]:
             return _json_response(start_response, "404 Not Found", {"error": "NOT_FOUND"})
 
         filters = _parse_filters(str(environ.get("QUERY_STRING") or ""))
-        runs = _apply_filters(_load_runs(), filters)
+        all_runs = _load_runs()
+        runs = _apply_filters(all_runs, filters)
+        runs_unbounded = _apply_filters_unbounded(all_runs, filters)
         breaker = _load_breaker_state()
 
         if path == "/api/v1/debug/orders":
@@ -265,10 +278,10 @@ def build_app() -> Callable[..., list[bytes]]:
         elif path == "/api/v1/debug/events":
             data = _build_events(runs)
         elif path == "/api/v1/debug/strategies":
-            data = _build_strategy_summaries(runs, breaker)
+            data = _build_strategy_summaries(runs_unbounded, breaker)
         elif path == "/api/v1/debug/snapshot":
             data = {
-                "strategies": _build_strategy_summaries(runs, breaker),
+                "strategies": _build_strategy_summaries(runs_unbounded, breaker),
                 "orders": _build_orders(runs),
                 "positions": _build_positions(runs),
                 "events": _build_events(runs),
@@ -310,7 +323,7 @@ _INDEX_HTML = """<!doctype html>
 function filters(){
   const q = new URLSearchParams();
   for (const id of ["strategy","run_id","test_id"]) { const v=document.getElementById(id).value; if(v) q.set(id,v); }
-  q.set("limit","200");
+  q.set("limit","1000");
   return q.toString();
 }
 async function get(path){ const r=await fetch(path+"?"+filters()); return await r.json(); }

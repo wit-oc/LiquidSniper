@@ -291,6 +291,7 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
 def _build_proposal(
     symbol: str,
     *,
+    strategy: str,
     now: datetime,
     cycle_count: int,
     profile_policy: ProfilePolicy,
@@ -313,7 +314,7 @@ def _build_proposal(
     risk_usd = float(os.getenv("LIQUIDSNIPER_RISK_USD_PER_TRADE", "25"))
     pnl_usd = round(((seed[2] - 128) / 128.0) * risk_usd * 0.20, 2)
 
-    trace_id = f"paper-{now_iso.replace(':', '').replace('-', '')}-{symbol.lower()}"
+    trace_id = f"paper-{now_iso.replace(':', '').replace('-', '')}-{strategy}-{symbol.lower()}"
     idempotency_key = f"paper-{profile_policy.profile_id}-{symbol}-{market_snapshot['candle_ts']}"
     intent_id = str(uuid5(NAMESPACE_URL, idempotency_key))
 
@@ -411,7 +412,7 @@ def _run_lane_cycle(
             snapshot = _build_market_snapshot(symbol, now=now, cycle_count=cycle_count, policy=profile_policy)
         except MarketDataUnavailable as exc:
             blocked += 1
-            trace_id = f"paper-{now.isoformat().replace(':', '').replace('-', '')}-{symbol.lower()}"
+            trace_id = f"paper-{now.isoformat().replace(':', '').replace('-', '')}-{strategy}-{symbol.lower()}"
             reject_proposal = {
                 "trace_id": trace_id,
                 "policy_version": profile_policy.policy_version,
@@ -449,6 +450,7 @@ def _run_lane_cycle(
 
         proposal, policy = _build_proposal(
             symbol,
+            strategy=strategy,
             now=now,
             cycle_count=cycle_count,
             profile_policy=profile_policy,
