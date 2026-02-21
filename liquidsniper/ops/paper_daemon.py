@@ -34,6 +34,51 @@ def _symbols() -> list[str]:
     return out or ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "SUIUSDT"]
 
 
+def _symbols_for_strategy(strategy: str) -> list[str]:
+    key = f"LIQUIDSNIPER_SYMBOLS_{strategy.upper()}"
+    raw = os.getenv(key)
+    if raw:
+        out = [x.strip().upper() for x in raw.split(",") if x.strip()]
+        if out:
+            return out
+    return _symbols()
+
+
+def _strategy_profile_id(strategy: str) -> str:
+    mapping = {"scalp": "C", "intraday": "I", "swing": "S"}
+    return mapping.get(strategy, "I")
+
+
+def _parallel_enabled() -> bool:
+    feature = os.getenv("LIQUIDSNIPER_FEATURE_PAPER_PARALLEL", "false").strip().lower() in {"1", "true", "yes", "on"}
+    runtime = os.getenv("LIQUIDSNIPER_PAPER_PARALLEL", "false").strip().lower() in {"1", "true", "yes", "on"}
+    return feature and runtime
+
+
+def _parallel_strategies() -> list[str]:
+    raw = os.getenv("LIQUIDSNIPER_PAPER_PARALLEL_STRATEGIES", "scalp,intraday,swing")
+    allowed = {"scalp", "intraday", "swing"}
+    items = [x.strip().lower() for x in raw.split(",") if x.strip()]
+    uniq = []
+    seen = set()
+    for s in items:
+        if s in allowed and s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    return uniq or ["intraday"]
+
+
+def _lane_bankroll(strategy: str) -> float:
+    key = f"LIQUIDSNIPER_PAPER_BANKROLL_USD_{strategy.upper()}"
+    raw = os.getenv(key)
+    if raw and raw.strip():
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return float(os.getenv("LIQUIDSNIPER_PAPER_BANKROLL_USD", "2000"))
+
+
 def _artifact_root() -> str:
     return os.getenv("LS_ARTIFACT_ROOT") or os.getenv("LIQUIDSNIPER_ARTIFACT_ROOT") or "artifacts"
 
@@ -124,7 +169,8 @@ def _write_health(
     loop_seconds: int,
     cycle_count: int,
     cycle_stats: dict[str, int],
-    profile_policy: ProfilePolicy,
+    profile_policy: ProfilePolicy | None = None,
+    lanes: list[dict[str, object]] | None = None,
 ) -> None:
     payload = {
         "service": "paper-runner",
@@ -133,11 +179,14 @@ def _write_health(
         "loop_seconds": loop_seconds,
         "cycle_count": cycle_count,
         "profile_mode": os.getenv("LIQUIDSNIPER_PROFILE_MODE", "intraday_only"),
-        "profile_id": profile_policy.profile_id,
         "symbols": _symbols(),
         "cycle_stats": cycle_stats,
         "updated_at": _utc_now(),
     }
+    if profile_policy is not None:
+        payload["profile_id"] = profile_policy.profile_id
+    if lanes is not None:
+        payload["lanes"] = lanes
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
@@ -317,15 +366,35 @@ def _build_proposal(
     return proposal, policy
 
 
-def _state_path() -> Path:
-    return Path(_artifact_root()) / "paper_mvp" / "state" / "execution_throttle_state.json"
+def _state_path(strategy: str | None = None) -> Path:
+    root = Path(_artifact_root()) / "paper_mvp" / "state"
+    if strategy:
+        return root / "lanes" / f"{strategy}_execution_throttle_state.json"
+    return root / "execution_throttle_state.json"
 
 
-def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundary: ExecutionBoundary) -> None:
-    now = datetime.now(timezone.utc)
-    os.environ.setdefault("LS_ARTIFACT_ROOT", _artifact_root())
-    profile_policy = load_profile_policy()
-    state_path = _state_path()
+def _load_profile_policy_for(profile_id: str) -> ProfilePolicy:
+    prev = os.getenv("LIQUIDSNIPER_PROFILE_ID")
+    os.environ["LIQUIDSNIPER_PROFILE_ID"] = profile_id
+    try:
+        return load_profile_policy()
+    finally:
+        if prev is None:
+            os.environ.pop("LIQUIDSNIPER_PROFILE_ID", None)
+        else:
+            os.environ["LIQUIDSNIPER_PROFILE_ID"] = prev
+
+
+def _run_lane_cycle(
+    *,
+    strategy: str,
+    symbols: list[str],
+    cycle_count: int,
+    now: datetime,
+    boundary: ExecutionBoundary,
+    profile_policy: ProfilePolicy,
+    state_path: Path,
+) -> dict[str, int]:
     state = load_throttle_state(state_path, now)
 
     attempted = 0
@@ -335,7 +404,7 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
     # A position is considered open for one cycle window to enforce one-open-position guard.
     state.trades_open = 0
 
-    for symbol in _symbols():
+    for symbol in symbols:
         attempted += 1
 
         try:
@@ -348,6 +417,7 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
                 "policy_version": profile_policy.policy_version,
                 "rulebook_ref": "TRADING_STRATEGY_PLAYBOOK_V1",
                 "mode": "paper",
+                "strategy": strategy,
                 "symbol": symbol,
                 "direction": "buy",
                 "entry": None,
@@ -386,6 +456,7 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
             gate_reason_codes=gate.reason_codes,
             gate_checks=gate.gate_checks,
         )
+        proposal["strategy"] = strategy
 
         out = boundary.propose_trade(proposal, policy)
         decision = out.get("decision")
@@ -413,20 +484,80 @@ def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundar
             persist_run_artifact(proposal, result)
 
     persist_throttle_state(state_path, state)
+    return {"attempted": attempted, "executed": executed, "blocked": blocked}
+
+
+def run_cycle(*, loop_seconds: int, health_path: Path, cycle_count: int, boundary: ExecutionBoundary) -> None:
+    now = datetime.now(timezone.utc)
+    os.environ.setdefault("LS_ARTIFACT_ROOT", _artifact_root())
+    profile_policy = load_profile_policy()
+    stats = _run_lane_cycle(
+        strategy={"I": "intraday", "C": "scalp", "S": "swing"}.get(profile_policy.profile_id, "intraday"),
+        symbols=_symbols(),
+        cycle_count=cycle_count,
+        now=now,
+        boundary=boundary,
+        profile_policy=profile_policy,
+        state_path=_state_path(),
+    )
 
     _write_health(
         health_path,
         status="ok",
         loop_seconds=loop_seconds,
         cycle_count=cycle_count,
-        cycle_stats={"attempted": attempted, "executed": executed, "blocked": blocked},
+        cycle_stats=stats,
         profile_policy=profile_policy,
+    )
+
+
+def run_cycle_parallel(
+    *,
+    loop_seconds: int,
+    health_path: Path,
+    cycle_count: int,
+    lane_boundaries: dict[str, ExecutionBoundary],
+) -> None:
+    now = datetime.now(timezone.utc)
+    os.environ.setdefault("LS_ARTIFACT_ROOT", _artifact_root())
+
+    lanes_info: list[dict[str, object]] = []
+    total = {"attempted": 0, "executed": 0, "blocked": 0}
+    for strategy in _parallel_strategies():
+        profile_id = _strategy_profile_id(strategy)
+        policy = _load_profile_policy_for(profile_id)
+        lane_stats = _run_lane_cycle(
+            strategy=strategy,
+            symbols=_symbols_for_strategy(strategy),
+            cycle_count=cycle_count,
+            now=now,
+            boundary=lane_boundaries[strategy],
+            profile_policy=policy,
+            state_path=_state_path(strategy),
+        )
+        lanes_info.append({
+            "strategy": strategy,
+            "profile_id": profile_id,
+            "symbols": _symbols_for_strategy(strategy),
+            **lane_stats,
+        })
+        total["attempted"] += lane_stats["attempted"]
+        total["executed"] += lane_stats["executed"]
+        total["blocked"] += lane_stats["blocked"]
+
+    _write_health(
+        health_path,
+        status="ok",
+        loop_seconds=loop_seconds,
+        cycle_count=cycle_count,
+        cycle_stats=total,
+        lanes=lanes_info,
     )
 
 
 def main() -> None:
     mode = os.getenv("LIQUIDSNIPER_MODE", "paper").strip().lower()
-    parallel_enabled = os.getenv("LIQUIDSNIPER_PAPER_PARALLEL", "false").strip().lower() in {"1", "true", "yes"}
+    parallel_enabled = _parallel_enabled()
     enforce_startup_mode(parallel_enabled=parallel_enabled, mode=mode)
     if mode != "paper":
         raise RuntimeError("MODE_GUARD_PAPER_DAEMON_REQUIRES_PAPER")
@@ -436,10 +567,17 @@ def main() -> None:
     health_path = Path(os.getenv("LIQUIDSNIPER_HEALTH_PATH", "/var/lib/liquidsniper/logs/paper_runner.health.json"))
 
     boundary = ExecutionBoundary()
+    lane_boundaries: dict[str, ExecutionBoundary] = {
+        strategy: ExecutionBoundary(starting_bankroll_usd=_lane_bankroll(strategy)) for strategy in _parallel_strategies()
+    }
+
     cycle_count = 0
     while True:
         cycle_count += 1
-        run_cycle(loop_seconds=loop_seconds, health_path=health_path, cycle_count=cycle_count, boundary=boundary)
+        if parallel_enabled:
+            run_cycle_parallel(loop_seconds=loop_seconds, health_path=health_path, cycle_count=cycle_count, lane_boundaries=lane_boundaries)
+        else:
+            run_cycle(loop_seconds=loop_seconds, health_path=health_path, cycle_count=cycle_count, boundary=boundary)
         if run_once:
             break
         time.sleep(max(1, loop_seconds))
