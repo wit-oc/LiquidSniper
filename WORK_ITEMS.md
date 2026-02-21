@@ -22,62 +22,57 @@ Status tags:
 
 ## Integration reconciliation snapshot (2026-02-15)
 
+- [x] **[Done]** Task 05 — Telegram ingestion wiring integration hardening
+- [x] **[Done]** Task 06 — Streamlit UI cleanup against diagnostic + card views
+- [x] **[Done]** Task 07 — Docker/compose verification with shared artifact mount
+- [x] **[Done]** Task 08 — runbook/validation gate update for simulation rollout
 - [x] **[Done]** Task 09 — analysis run contract + pipeline skeleton
 - [x] **[Done]** Task 10 — would-alert simulation mode
 - [x] **[Done]** Task 11 — TradingView artifact linking + mount contract
 - [x] **[Done]** Task 12 — minimal diagnostic UI updates
 - [x] **[Done]** Task 13 — OpenClaw orchestration + rulebook/bootstrap + secrets flow
-- [x] **[Done]** Task 05 — Telegram ingestion wiring integration hardening
-- [x] **[Done]** Task 06 — Streamlit UI cleanup against diagnostic + card views
-- [x] **[Done]** Task 07 — Docker/compose verification with shared artifact mount
-- [x] **[Done]** Task 08 — runbook/validation gate update for simulation rollout
 
 ---
 
-## Strategy automation alignment snapshot (2026-02-18)
+## Core paper implementation reconciliation (2026-02-21)
 
-- [x] **[Done]** Added `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md` (proposal -> LiquidSniper mapping)
-- [x] **[Done]** Upgraded `docs/TRADING_STRATEGY_RUNBOOK_V1.md` to v1.1 (HTF-anchor + deterministic payload)
-- [x] **[Done]** Added `docs/TRADING_STRATEGY_GLOSSARY_V1.md` (canonical strategy terminology + payload definitions)
-- [x] **[Done]** Added canonical paper sequence: `docs/MVP_PAPER_SEQUENCE_V1.md`
-- [x] **[Done]** Landed fail-closed dependency stubs (`.env.example`, `docs/OPERATOR_DEPENDENCY_STUBS_V1.md`, go/no-go stub gates)
-- [x] **[Done]** Added Task 14 scaffold contract: `docs/HTF_ANCHOR_PROFILE_CONTRACT_V1.md`
-- [ ] **[Now]** Task 14 implementation — wire rulebook/schema + regime permission integration
-- [x] **[Done]** Drafted execution-core command contract (`docs/EXECUTION_CORE_COMMAND_CONTRACT_V1.md`) defining sub-agent safe interface and hard-reject reason-code model
-- [ ] **[Next]** Task 15 — score mapping into deterministic payload fields
-- [ ] **[Next]** Task 16 — dependency threading + non-bypass boundaries
-- [ ] **[Next]** Task 17 — adversarial validation gates
-- [ ] **[Next]** Task 18 — packaging boundary decision
+Reference artifact:
+- `initiatives/liquidsniper-paper-implementation-wave1-2026-02-18.md`
 
----
+Completed in wave1:
+- [x] **[Done]** Task 19 — market-data provider contract + canonical candle schema
+- [x] **[Done]** Task 20 — CCXT OHLCV backfill + incremental scheduler
+- [x] **[Done]** Task 21 — candle quality gates + aggregation policy
+- [x] **[Done]** Task 22 — strategy feed integration (canonical candles baseline)
+- [x] **[Done]** Task 14 — HTF-anchor/runtime profile contract enforcement
+- [x] **[Done]** Task 15 — deterministic score payload mapping
+- [x] **[Done]** Task 16 — non-bypass strategy -> policy -> execution boundary
+- [x] **[Done]** Task 17 — two-pass adversarial validation harness
+- [x] **[Done]** Task 23 — rate-limit budgets + circuit breakers + feed health events
+- [x] **[Done]** Task 24 — trigger-feed decoupling + traceability fields
+- [x] **[Done]** Task 26 — feed benchmark + gate evidence pack (`artifacts/paper_mvp/task17_26_gate_evidence.json`)
 
-## Data feed strategy snapshot (2026-02-18)
+Still open:
+- [ ] **[Now]** Task 18 — packaging boundary decision ADR (integrated vs separate execution core)
+- [ ] **[Next]** Task 25 — native Blofin adapter fallback (conditional on CCXT gap assessment)
 
-Canonical decision: **strategy-grade analysis must use canonical OHLCV feed**; Mobchart Telegram remains trigger/context only.
-
-Reference: `docs/DATA_FEED_STRATEGY_V1.md`
-
-- [ ] **[Now]** Task 19 — market-data provider contract + canonical candle schema
-- [ ] **[Now]** Task 20 — CCXT OHLCV backfill + incremental scheduler
-- [ ] **[Now]** Task 21 — candle quality gates + aggregation policy
-- [ ] **[Now]** Task 22 — strategy feed integration (canonical candles as baseline)
-- [ ] **[Next]** Task 23 — rate-limit controls + circuit breakers + feed health events
-- [ ] **[Next]** Task 24 — trigger feed decoupling + rationale traceability
-- [ ] **[Next]** Task 25 — native Blofin adapter fallback (conditional)
-- [ ] **[Next]** Task 26 — feed benchmark + paper-MVP gate evidence
+Recent safety hardening:
+- [x] **[Done]** Daily-loss circuit breaker set as first policy gate (`RISK_DAILY_LOSS_CAP_BREACH`) with policy/daemon/test/runbook updates (commit `b943f15`).
 
 ---
 
-## Sequencing note (canonical)
+## Immediate execution sequence (post-cleanup)
 
-Use this sequence for current execution:
-
-1. `docs/MVP_PAPER_SEQUENCE_V1.md` (phase order)
-2. Data feed baseline Tasks **19 -> 22**
-3. Strategy/governance Tasks **14 -> 18** (with Task 15 dependent on feed baseline fields)
-4. Hardening + evidence Tasks **23 -> 26**
-
-This keeps strategy implementation aligned with actual market-data requirements and avoids false confidence from trigger-only signals.
+1. **Task board hygiene lane**
+   - Retarget daily-lane selector to unresolved work only.
+2. **Task 18 decision lane**
+   - Publish packaging-boundary ADR + fork triggers.
+3. **Evidence refresh lane**
+   - Re-run targeted test/evidence suite after circuit-breaker changes.
+4. **Paper soak lane**
+   - 1–2 week paper run with fixed tuning cadence + kill/promotion criteria.
+5. **Task 25 conditional lane**
+   - Only if CCXT capability gap is confirmed.
 
 ---
 
