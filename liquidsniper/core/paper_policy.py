@@ -17,6 +17,7 @@ _PROFILE_DEFAULTS = {
             "require_candle_close": True,
             "htf_chop_max": 45.0,
             "require_sr_first_retest": True,
+            "sr_retest_bps_max": 60.0,
             "min_secondary_confluence_hits": 2,
         },
     },
@@ -28,6 +29,7 @@ _PROFILE_DEFAULTS = {
             "require_candle_close": True,
             "htf_chop_max": 50.0,
             "require_sr_first_retest": True,
+            "sr_retest_bps_max": 45.0,
             "min_secondary_confluence_hits": 2,
         },
     },
@@ -39,6 +41,7 @@ _PROFILE_DEFAULTS = {
             "require_candle_close": True,
             "htf_chop_max": 55.0,
             "require_sr_first_retest": True,
+            "sr_retest_bps_max": 35.0,
             "min_secondary_confluence_hits": 1,
         },
     },
@@ -54,6 +57,7 @@ class ProfilePolicy:
     require_candle_close: bool
     htf_chop_max: float
     require_sr_first_retest: bool
+    sr_retest_bps_max: float
     min_secondary_confluence_hits: int
     cooldown_seconds: int
     daily_max_trades: int
@@ -174,6 +178,7 @@ def load_profile_policy() -> ProfilePolicy:
         require_candle_close=_bool_env("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", bool(gate["require_candle_close"])),
         htf_chop_max=_float_env("LIQUIDSNIPER_HTF_CHOP_MAX", float(gate["htf_chop_max"])),
         require_sr_first_retest=_bool_env("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", bool(gate["require_sr_first_retest"])),
+        sr_retest_bps_max=_float_env("LIQUIDSNIPER_SR_RETEST_BPS_MAX", float(gate["sr_retest_bps_max"])),
         min_secondary_confluence_hits=min_secondary,
         cooldown_seconds=cooldown_seconds,
         daily_max_trades=daily_max_trades,
@@ -245,6 +250,7 @@ def evaluate_gates(
     candle_ts: str,
     htf_chop: float,
     sr_first_retest: bool,
+    sr_distance_bps: float,
     bos_choch: bool,
     secondary_hits: int,
 ) -> GateDecision:
@@ -263,7 +269,13 @@ def evaluate_gates(
         "candle_close": {"required": policy.require_candle_close, "ok": (candle_closed or not policy.require_candle_close), "candle_ts": candle_ts},
         "htf_chop": {"max": policy.htf_chop_max, "actual": round(float(htf_chop), 4), "ok": float(htf_chop) <= policy.htf_chop_max},
         "bias": {"expected": expected_bias, "actual": bias.direction, "mechanism": bias.mechanism, "ok": bias.direction == expected_bias},
-        "sr_first_retest": {"required": policy.require_sr_first_retest, "actual": bool(sr_first_retest), "ok": (bool(sr_first_retest) or not policy.require_sr_first_retest)},
+        "sr_first_retest": {
+            "required": policy.require_sr_first_retest,
+            "distance_bps": round(float(sr_distance_bps), 4),
+            "max_distance_bps": float(policy.sr_retest_bps_max),
+            "actual": bool(sr_first_retest),
+            "ok": (bool(sr_first_retest) or not policy.require_sr_first_retest),
+        },
         "secondary_confluence": {
             "min": policy.min_secondary_confluence_hits,
             "actual": int(secondary_hits),

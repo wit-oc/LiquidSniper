@@ -238,6 +238,7 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
             "candle_closed": (seed[0] % 10) < 8,
             "htf_chop": round(35 + (seed[1] / 255.0) * 35, 2),
             "sr_first_retest": (seed[2] % 10) < 8,
+            "sr_distance_bps": 20.0,
             "bos_choch": bos_choch,
             "secondary_hits": int(seed[4] % 5),
             "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id},
@@ -250,93 +251,112 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
             "data_source": "mock",
         }
 
-    i15 = _interval_for("15m")
-    i1h = _interval_for("1h")
-    i4h = _interval_for("4h")
+    entry_tf = policy.ltf_trigger_tfs[0]
+    i_entry = _interval_for(entry_tf)
+    i_itf = _interval_for(policy.itf_tf)
+    i_htf = _interval_for(policy.htf_anchor_tf)
 
-    c15 = _fetch_klines(symbol, i15, limit=120)
-    c1h = _fetch_klines(symbol, i1h, limit=120)
-    c4h = _fetch_klines(symbol, i4h, limit=120)
+    c_entry = _fetch_klines(symbol, i_entry, limit=180)
+    c_itf = _fetch_klines(symbol, i_itf, limit=180)
+    c_htf = _fetch_klines(symbol, i_htf, limit=180)
 
-    last15 = c15[-1]
-    close15 = float(last15["close"])
-    candle_ts = str(last15["close_time"].isoformat())
-    candle_closed = now >= last15["close_time"]
+    last_entry = c_entry[-1]
+    close_entry = float(last_entry["close"])
+    candle_ts = str(last_entry["close_time"].isoformat())
+    candle_closed = now >= last_entry["close_time"]
 
-    closes15 = [float(c["close"]) for c in c15]
-    closes1h = [float(c["close"]) for c in c1h]
-    closes4h = [float(c["close"]) for c in c4h]
+    closes_entry = [float(c["close"]) for c in c_entry]
+    closes_itf = [float(c["close"]) for c in c_itf]
+    closes_htf = [float(c["close"]) for c in c_htf]
 
-    ema20_1h = _ema(closes1h[-60:], 20)
-    ema50_1h = _ema(closes1h[-60:], 50)
-    ema20_4h = _ema(closes4h[-60:], 20)
-    ema50_4h = _ema(closes4h[-60:], 50)
+    ema20_itf = _ema(closes_itf[-80:], 20)
+    ema50_itf = _ema(closes_itf[-80:], 50)
+    ema20_htf = _ema(closes_htf[-80:], 20)
+    ema50_htf = _ema(closes_htf[-80:], 50)
 
-    if ema20_1h > ema50_1h and ema20_4h > ema50_4h:
+    if ema20_itf > ema50_itf and ema20_htf > ema50_htf:
         side = "buy"
-    elif ema20_1h < ema50_1h and ema20_4h < ema50_4h:
+    elif ema20_itf < ema50_itf and ema20_htf < ema50_htf:
         side = "sell"
     else:
         side = "buy"
 
-    # Chop proxy: path inefficiency on 1H closes (higher => choppier).
-    path = sum(abs(closes1h[i] - closes1h[i - 1]) for i in range(1, len(closes1h[-32:])))
-    net = abs(closes1h[-1] - closes1h[-32]) if len(closes1h) >= 32 else abs(closes1h[-1] - closes1h[0])
+    # Chop proxy: path inefficiency on ITF closes (higher => choppier).
+    segment = closes_itf[-32:] if len(closes_itf) >= 32 else closes_itf
+    path = sum(abs(segment[i] - segment[i - 1]) for i in range(1, len(segment)))
+    net = abs(segment[-1] - segment[0]) if len(segment) >= 2 else 0.0
     htf_chop = 100.0 if net <= 1e-9 else min(100.0, (path / net) * 25.0)
 
-    highs1h = [float(c["high"]) for c in c1h]
-    lows1h = [float(c["low"]) for c in c1h]
-    highs4h = [float(c["high"]) for c in c4h]
-    lows4h = [float(c["low"]) for c in c4h]
+    highs_itf = [float(c["high"]) for c in c_itf]
+    lows_itf = [float(c["low"]) for c in c_itf]
+    highs_htf = [float(c["high"]) for c in c_htf]
+    lows_htf = [float(c["low"]) for c in c_htf]
 
-    htf_levels = [max(highs4h[-24:-2]), min(lows4h[-24:-2])]
-    itf_levels = [max(highs1h[-30:-3]), min(lows1h[-30:-3])]
-    nearest_htf = _nearest_level(close15, htf_levels)
-    nearest_itf = _nearest_level(close15, itf_levels)
+    htf_resistance = max(highs_htf[-24:-2])
+    htf_support = min(lows_htf[-24:-2])
+    itf_resistance = max(highs_itf[-30:-3])
+    itf_support = min(lows_itf[-30:-3])
+
+    nearest_support = _nearest_level(close_entry, [htf_support, itf_support])
+    nearest_resistance = _nearest_level(close_entry, [htf_resistance, itf_resistance])
 
     if side == "buy":
-        level = max(highs1h[-30:-3])
-        sr_first_retest = abs(close15 - level) / max(level, 1e-9) <= 0.0045
-        bos_choch = close15 > max(float(c["high"]) for c in c15[-16:-1])
+        ref_level = nearest_support if nearest_support is not None else itf_support
+        sr_distance_bps = abs(close_entry - ref_level) / max(ref_level, 1e-9) * 10000.0
+        sr_first_retest = sr_distance_bps <= float(policy.sr_retest_bps_max)
+        bos_choch = close_entry > max(float(c["high"]) for c in c_entry[-16:-1])
+        nearest_htf_side = htf_support
+        nearest_itf_side = itf_support
     else:
-        level = min(lows1h[-30:-3])
-        sr_first_retest = abs(close15 - level) / max(level, 1e-9) <= 0.0045
-        bos_choch = close15 < min(float(c["low"]) for c in c15[-16:-1])
+        ref_level = nearest_resistance if nearest_resistance is not None else itf_resistance
+        sr_distance_bps = abs(close_entry - ref_level) / max(ref_level, 1e-9) * 10000.0
+        sr_first_retest = sr_distance_bps <= float(policy.sr_retest_bps_max)
+        bos_choch = close_entry < min(float(c["low"]) for c in c_entry[-16:-1])
+        nearest_htf_side = htf_resistance
+        nearest_itf_side = itf_resistance
 
     bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
 
-    ema20_15 = _ema(closes15[-60:], 20)
-    ema50_15 = _ema(closes15[-60:], 50)
+    ema20_entry = _ema(closes_entry[-80:], 20)
+    ema50_entry = _ema(closes_entry[-80:], 50)
     secondary_hits = 0
     if side == "buy":
-        secondary_hits += int(close15 > ema20_15)
-        secondary_hits += int(close15 > ema50_15)
-        secondary_hits += int(closes1h[-1] > ema20_1h)
-        secondary_hits += int(closes4h[-1] > ema20_4h)
+        secondary_hits += int(close_entry > ema20_entry)
+        secondary_hits += int(close_entry > ema50_entry)
+        secondary_hits += int(closes_itf[-1] > ema20_itf)
+        secondary_hits += int(closes_htf[-1] > ema20_htf)
     else:
-        secondary_hits += int(close15 < ema20_15)
-        secondary_hits += int(close15 < ema50_15)
-        secondary_hits += int(closes1h[-1] < ema20_1h)
-        secondary_hits += int(closes4h[-1] < ema20_4h)
-
-    nearest_level = nearest_itf if nearest_itf is not None else nearest_htf
-    distance_bps = 0.0 if nearest_level is None else abs(close15 - nearest_level) / max(nearest_level, 1e-9) * 10000.0
+        secondary_hits += int(close_entry < ema20_entry)
+        secondary_hits += int(close_entry < ema50_entry)
+        secondary_hits += int(closes_itf[-1] < ema20_itf)
+        secondary_hits += int(closes_htf[-1] < ema20_htf)
 
     return {
         "side": side,
-        "entry": round(close15, 6),
+        "entry": round(close_entry, 6),
         "candle_ts": candle_ts,
         "candle_closed": candle_closed,
         "htf_chop": round(float(htf_chop), 4),
         "sr_first_retest": bool(sr_first_retest),
+        "sr_distance_bps": round(float(sr_distance_bps), 4),
         "bos_choch": bool(bos_choch),
         "secondary_hits": int(secondary_hits),
         "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id},
         "sr_context": {
-            "nearest_htf_level": nearest_htf,
-            "nearest_itf_level": nearest_itf,
-            "distance_bps": round(float(distance_bps), 4),
+            "entry_tf": entry_tf,
+            "itf_tf": policy.itf_tf,
+            "htf_tf": policy.htf_anchor_tf,
+            "nearest_support": nearest_support,
+            "nearest_resistance": nearest_resistance,
+            "htf_support": htf_support,
+            "htf_resistance": htf_resistance,
+            "itf_support": itf_support,
+            "itf_resistance": itf_resistance,
+            "nearest_htf_level": nearest_htf_side,
+            "nearest_itf_level": nearest_itf_side,
+            "distance_bps": round(float(sr_distance_bps), 4),
             "first_retest_eligible": bool(sr_first_retest),
+            "retest_bps_max": float(policy.sr_retest_bps_max),
         },
         "data_source": "binance",
     }
@@ -500,6 +520,7 @@ def _run_lane_cycle(
             candle_ts=str(snapshot["candle_ts"]),
             htf_chop=float(snapshot["htf_chop"]),
             sr_first_retest=bool(snapshot["sr_first_retest"]),
+            sr_distance_bps=float(snapshot.get("sr_distance_bps") or 0.0),
             bos_choch=bool(snapshot["bos_choch"]),
             secondary_hits=int(snapshot["secondary_hits"]),
         )

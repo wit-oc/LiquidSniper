@@ -31,6 +31,7 @@ def test_evaluate_gates_blocks_profile_conditions(monkeypatch):
         candle_ts="2026-02-20T14:30:00+00:00",
         htf_chop=52.0,
         sr_first_retest=True,
+        sr_distance_bps=120.0,
         bos_choch=False,
         secondary_hits=1,
     )
@@ -75,6 +76,7 @@ def test_evaluate_gates_blocks_throttle_conditions(monkeypatch):
         candle_ts="2026-02-20T14:35:00+00:00",
         htf_chop=10.0,
         sr_first_retest=True,
+        sr_distance_bps=25.0,
         bos_choch=True,
         secondary_hits=3,
     )
