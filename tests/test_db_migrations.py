@@ -23,6 +23,10 @@ EXPECTED_TABLES = {
     "market_candles",
     "feed_checkpoints",
     "feed_health_events",
+    "strategy_accounts",
+    "strategy_account_configs",
+    "sr_zones",
+    "sr_zone_touches",
 }
 
 
