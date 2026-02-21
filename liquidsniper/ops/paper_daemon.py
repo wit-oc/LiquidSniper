@@ -154,10 +154,17 @@ def _promote_positions_to_be(state: ThrottleState, *, now: datetime, cycle_count
 def _fetch_klines(symbol: str, interval: str, *, limit: int = 120) -> list[dict[str, object]]:
     qs = urllib.parse.urlencode({"symbol": symbol.upper(), "interval": interval, "limit": int(limit)})
     base = os.getenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://data-api.binance.vision").rstrip("/")
+
+    parsed = urllib.parse.urlparse(base)
+    allowed_hosts_raw = os.getenv("LIQUIDSNIPER_MARKETDATA_ALLOWED_HOSTS", "data-api.binance.vision,api.binance.com")
+    allowed_hosts = {h.strip().lower() for h in allowed_hosts_raw.split(",") if h.strip()}
+    if parsed.scheme != "https" or not parsed.netloc or parsed.hostname is None or parsed.hostname.lower() not in allowed_hosts:
+        raise MarketDataUnavailable("BINANCE_BASE_URL_INVALID")
+
     url = f"{base}/api/v3/klines?{qs}"
     req = urllib.request.Request(url, headers={"User-Agent": "LiquidSniper/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:  # nosec B310
             if int(getattr(resp, "status", 200)) != 200:
                 raise MarketDataUnavailable(f"BINANCE_HTTP_{getattr(resp, 'status', 'ERR')}")
             payload = json.loads(resp.read().decode("utf-8"))
