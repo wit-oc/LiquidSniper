@@ -84,5 +84,6 @@ This keeps strategy implementation aligned with actual market-data requirements 
 ## Deferred backlog (not dropped)
 
 - [ ] Dynamic S/R level initiative integration (phase-gated sidecar)
+- [ ] SR Engine V2 implementation wave (see `docs/SR_ENGINE_V2_SPEC.md`, tasks SRV2-T0..T8)
 - [ ] Automated watchlist refresh/diff alerts for TradingView list inputs
 - [ ] Additional TradingView automation beyond current artifact-linking contract

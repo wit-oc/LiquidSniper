@@ -10,6 +10,7 @@ Status legend: [Now] [Next] [Later] [Blocked] [Done]
 - [ ] Task 21: Implement candle quality gates + aggregation policy
 - [ ] Task 22: Integrate strategy path to canonical candles (trigger feed becomes context only)
 - [ ] Task 14: Execute HTF-anchor rulebook contract implementation using `docs/HTF_ANCHOR_PROFILE_CONTRACT_V1.md` scaffold
+- [ ] SRV2-T0..T8: Execute `docs/SR_ENGINE_V2_SPEC.md` (HTF-anchored pivot-zone S/R engine with >=3 meaningful touches)
 
 ## [Next]
 - [ ] Task 23: Add provider rate-limit budgets + circuit breakers + feed health events
