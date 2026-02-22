@@ -103,6 +103,16 @@ def test_run_cycle_persists_idempotency_and_blocks_duplicate(monkeypatch, tmp_pa
     assert len(state["seen_idempotency_keys"]) == 1
 
 
+def test_fetch_klines_rejects_non_https_or_unapproved_host(monkeypatch):
+    monkeypatch.setenv("LIQUIDSNIPER_MARKETDATA_BASE", "http://example.com")
+    with pytest.raises(paper_daemon.MarketDataUnavailable, match="BINANCE_BASE_URL_INVALID"):
+        paper_daemon._fetch_klines("BTCUSDT", "15m", limit=5)
+
+    monkeypatch.setenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://evil.example")
+    with pytest.raises(paper_daemon.MarketDataUnavailable, match="BINANCE_BASE_URL_INVALID"):
+        paper_daemon._fetch_klines("BTCUSDT", "15m", limit=5)
+
+
 def test_daily_loss_circuit_breaker_halts_remaining_trades(monkeypatch, tmp_path):
     health = tmp_path / "paper.health.json"
     artifact_root = tmp_path / "artifacts"

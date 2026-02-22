@@ -14,6 +14,8 @@ from uuid import NAMESPACE_URL, uuid5
 from liquidsniper.core.execution_boundary import ExecutionBoundary, PolicyDecision
 from liquidsniper.core.paper_artifacts import persist_run_artifact
 from liquidsniper.core.mode_guard import enforce_startup_mode
+from liquidsniper.core.db import init_db
+from liquidsniper.core.sr_engine_v2 import build_zones_for_tf, nearest_sr_query, persist_sr_state
 from liquidsniper.core.paper_policy import (
     ProfilePolicy,
     ThrottleState,
@@ -109,6 +111,7 @@ def _interval_for(tf: str) -> str:
         "1h": "1h",
         "4h": "4h",
         "1d": "1d",
+        "1w": "1w",
     }
     if token not in mapping:
         raise ValueError(f"unsupported timeframe: {tf}")
@@ -151,10 +154,17 @@ def _promote_positions_to_be(state: ThrottleState, *, now: datetime, cycle_count
 def _fetch_klines(symbol: str, interval: str, *, limit: int = 120) -> list[dict[str, object]]:
     qs = urllib.parse.urlencode({"symbol": symbol.upper(), "interval": interval, "limit": int(limit)})
     base = os.getenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://data-api.binance.vision").rstrip("/")
+
+    parsed = urllib.parse.urlparse(base)
+    allowed_hosts_raw = os.getenv("LIQUIDSNIPER_MARKETDATA_ALLOWED_HOSTS", "data-api.binance.vision,api.binance.com")
+    allowed_hosts = {h.strip().lower() for h in allowed_hosts_raw.split(",") if h.strip()}
+    if parsed.scheme != "https" or not parsed.netloc or parsed.hostname is None or parsed.hostname.lower() not in allowed_hosts:
+        raise MarketDataUnavailable("BINANCE_BASE_URL_INVALID")
+
     url = f"{base}/api/v3/klines?{qs}"
     req = urllib.request.Request(url, headers={"User-Agent": "LiquidSniper/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:  # nosec B310
             if int(getattr(resp, "status", 200)) != 200:
                 raise MarketDataUnavailable(f"BINANCE_HTTP_{getattr(resp, 'status', 'ERR')}")
             payload = json.loads(resp.read().decode("utf-8"))
@@ -287,33 +297,35 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
     net = abs(segment[-1] - segment[0]) if len(segment) >= 2 else 0.0
     htf_chop = 100.0 if net <= 1e-9 else min(100.0, (path / net) * 25.0)
 
-    highs_itf = [float(c["high"]) for c in c_itf]
-    lows_itf = [float(c["low"]) for c in c_itf]
-    highs_htf = [float(c["high"]) for c in c_htf]
-    lows_htf = [float(c["low"]) for c in c_htf]
+    sr_candles = {
+        "1H": _fetch_klines(symbol, "1h", limit=220),
+        "4H": _fetch_klines(symbol, "4h", limit=220),
+        "1D": _fetch_klines(symbol, "1d", limit=220),
+        "1W": _fetch_klines(symbol, "1w", limit=220),
+    }
+    sr_zones: list[dict[str, object]] = []
+    sr_touches: list[dict[str, object]] = []
+    for tf, tf_candles in sr_candles.items():
+        z, t = build_zones_for_tf(symbol, tf, tf_candles)
+        sr_zones.extend(z)
+        sr_touches.extend(t)
 
-    htf_resistance = max(highs_htf[-24:-2])
-    htf_support = min(lows_htf[-24:-2])
-    itf_resistance = max(highs_itf[-30:-3])
-    itf_support = min(lows_itf[-30:-3])
+    db_path = os.getenv("LIQUIDSNIPER_DB_PATH", "data/liquidsniper.sqlite")
+    conn = init_db(db_path)
+    try:
+        persist_sr_state(conn, sr_zones, sr_touches)
+    finally:
+        conn.close()
 
-    nearest_support = _nearest_level(close_entry, [htf_support, itf_support])
-    nearest_resistance = _nearest_level(close_entry, [htf_resistance, itf_resistance])
+    sr_query = nearest_sr_query(profile_id=policy.profile_id, side=side, entry=close_entry, zones=sr_zones)
+    nearest_support_obj = sr_query.get("nearest_support") if isinstance(sr_query.get("nearest_support"), dict) else None
+    nearest_resistance_obj = sr_query.get("nearest_resistance") if isinstance(sr_query.get("nearest_resistance"), dict) else None
 
-    if side == "buy":
-        ref_level = nearest_support if nearest_support is not None else itf_support
-        sr_distance_bps = abs(close_entry - ref_level) / max(ref_level, 1e-9) * 10000.0
-        sr_first_retest = sr_distance_bps <= float(policy.sr_retest_bps_max)
-        bos_choch = close_entry > max(float(c["high"]) for c in c_entry[-16:-1])
-        nearest_htf_side = htf_support
-        nearest_itf_side = itf_support
-    else:
-        ref_level = nearest_resistance if nearest_resistance is not None else itf_resistance
-        sr_distance_bps = abs(close_entry - ref_level) / max(ref_level, 1e-9) * 10000.0
-        sr_first_retest = sr_distance_bps <= float(policy.sr_retest_bps_max)
-        bos_choch = close_entry < min(float(c["low"]) for c in c_entry[-16:-1])
-        nearest_htf_side = htf_resistance
-        nearest_itf_side = itf_resistance
+    nearest_support = (nearest_support_obj or {}).get("bounds", {}).get("mid") if nearest_support_obj else None
+    nearest_resistance = (nearest_resistance_obj or {}).get("bounds", {}).get("mid") if nearest_resistance_obj else None
+    sr_distance_bps = float(sr_query.get("distance_bps") or 999999.0)
+    sr_first_retest = bool(sr_query.get("first_retest_eligible")) and sr_distance_bps <= float(policy.sr_retest_bps_max)
+    bos_choch = close_entry > max(float(c["high"]) for c in c_entry[-16:-1]) if side == "buy" else close_entry < min(float(c["low"]) for c in c_entry[-16:-1])
 
     bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
 
@@ -346,17 +358,17 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
             "entry_tf": entry_tf,
             "itf_tf": policy.itf_tf,
             "htf_tf": policy.htf_anchor_tf,
-            "nearest_support": nearest_support,
-            "nearest_resistance": nearest_resistance,
-            "htf_support": htf_support,
-            "htf_resistance": htf_resistance,
-            "itf_support": itf_support,
-            "itf_resistance": itf_resistance,
-            "nearest_htf_level": nearest_htf_side,
-            "nearest_itf_level": nearest_itf_side,
+            "sr_anchor_tf": sr_query.get("sr_anchor_tf"),
+            "sr_eligible_tfs": sr_query.get("sr_eligible_tfs"),
+            "nearest_support": nearest_support_obj,
+            "nearest_resistance": nearest_resistance_obj,
+            "nearest_htf_level": nearest_support if side == "buy" else nearest_resistance,
+            "nearest_itf_level": nearest_support if side == "buy" else nearest_resistance,
             "distance_bps": round(float(sr_distance_bps), 4),
             "first_retest_eligible": bool(sr_first_retest),
             "retest_bps_max": float(policy.sr_retest_bps_max),
+            "gate_eligible": bool(sr_query.get("gate_eligible")),
+            "reason_codes": list(sr_query.get("reason_codes") or []),
         },
         "data_source": "binance",
     }
