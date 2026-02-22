@@ -4,6 +4,7 @@ import base64
 import json
 import os
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs
@@ -19,12 +20,31 @@ def _json_response(start_response: Callable[..., Any], status: str, payload: dic
 
 def _parse_filters(query: str) -> dict[str, Any]:
     params = parse_qs(query, keep_blank_values=False)
-    limit = 200
-    if "limit" in params:
+
+    page_size = 200
+    raw_limit = params.get("limit", [None])[0]
+    raw_page_size = params.get("page_size", [None])[0]
+    raw_size = raw_page_size if raw_page_size is not None else raw_limit
+    if raw_size is not None:
         try:
-            limit = max(1, min(1000, int(params["limit"][0])))
+            page_size = max(1, min(1000, int(raw_size)))
         except (TypeError, ValueError):
-            limit = 200
+            page_size = 200
+
+    page = 1
+    if "page" in params:
+        try:
+            page = max(1, int(params["page"][0]))
+        except (TypeError, ValueError):
+            page = 1
+
+    event_hours = int(os.getenv("LIQUIDSNIPER_EVENT_RETENTION_HOURS", "24"))
+    if "event_hours" in params:
+        try:
+            event_hours = max(1, min(24 * 30, int(params["event_hours"][0])))
+        except (TypeError, ValueError):
+            event_hours = int(os.getenv("LIQUIDSNIPER_EVENT_RETENTION_HOURS", "24"))
+
     strategy = params.get("strategy", [None])[0]
     run_id = params.get("run_id", [None])[0]
     test_id = params.get("test_id", [None])[0]
@@ -32,7 +52,9 @@ def _parse_filters(query: str) -> dict[str, Any]:
         "strategy": strategy if strategy in {"scalp", "intraday", "swing"} else None,
         "run_id": run_id or None,
         "test_id": test_id or None,
-        "limit": limit,
+        "page_size": page_size,
+        "page": page,
+        "event_hours": event_hours,
     }
 
 
@@ -101,18 +123,21 @@ def _run_matches_filters(run: dict[str, Any], filters: dict[str, Any]) -> bool:
 
 
 def _apply_filters(runs: list[dict[str, Any]], filters: dict[str, Any]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for run in runs:
-        if not _run_matches_filters(run, filters):
-            continue
-        out.append(run)
-        if len(out) >= int(filters["limit"]):
-            break
-    return out
-
-
-def _apply_filters_unbounded(runs: list[dict[str, Any]], filters: dict[str, Any]) -> list[dict[str, Any]]:
     return [run for run in runs if _run_matches_filters(run, filters)]
+
+
+def _paginate(rows: list[dict[str, Any]], *, page: int, page_size: int) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    total = len(rows)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return page_rows, {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -171,9 +196,26 @@ def _build_positions(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(open_by_lane_symbol.values())
 
 
-def _build_events(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    raw = value.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _build_events(runs: list[dict[str, Any]], *, event_hours: int = 24) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(event_hours)))
     for run in runs:
+        ts = _parse_timestamp(run.get("timestamp"))
+        if ts is None or ts < cutoff:
+            continue
         strategy, profile_id = _strategy_for_run(run)
         gate_passed = bool(run.get("score_gate_passed"))
         symbol = run.get("symbol")
@@ -277,33 +319,36 @@ def build_app() -> Callable[..., list[bytes]]:
         filters = _parse_filters(str(environ.get("QUERY_STRING") or ""))
         all_runs = _load_runs()
         runs = _apply_filters(all_runs, filters)
-        runs_unbounded = _apply_filters_unbounded(all_runs, filters)
         breaker = _load_breaker_state()
 
+        pagination: dict[str, int] | None = None
         if path == "/api/v1/debug/orders":
-            data = _build_orders(runs)
+            rows = _build_orders(runs)
+            data, pagination = _paginate(rows, page=int(filters["page"]), page_size=int(filters["page_size"]))
         elif path == "/api/v1/debug/positions":
-            data = _build_positions(runs)
+            rows = _build_positions(runs)
+            data, pagination = _paginate(rows, page=int(filters["page"]), page_size=int(filters["page_size"]))
         elif path == "/api/v1/debug/events":
-            data = _build_events(runs)
+            rows = _build_events(runs, event_hours=int(filters["event_hours"]))
+            data, pagination = _paginate(rows, page=int(filters["page"]), page_size=int(filters["page_size"]))
         elif path == "/api/v1/debug/strategies":
-            data = _build_strategy_summaries(runs_unbounded, breaker)
+            data = _build_strategy_summaries(runs, breaker)
         elif path == "/api/v1/debug/snapshot":
             data = {
-                "strategies": _build_strategy_summaries(runs_unbounded, breaker),
+                "strategies": _build_strategy_summaries(runs, breaker),
                 "orders": _build_orders(runs),
                 "positions": _build_positions(runs),
-                "events": _build_events(runs),
+                "events": _build_events(runs, event_hours=int(filters["event_hours"])),
                 "breaker": breaker,
             }
         else:
             return _json_response(start_response, "404 Not Found", {"error": "NOT_FOUND"})
 
-        return _json_response(
-            start_response,
-            "200 OK",
-            {"data": data, "meta": {"read_only": True, "count": len(data) if isinstance(data, list) else None, "filters": filters}},
-        )
+        meta: dict[str, Any] = {"read_only": True, "count": len(data) if isinstance(data, list) else None, "filters": filters}
+        if pagination is not None:
+            meta["pagination"] = pagination
+
+        return _json_response(start_response, "200 OK", {"data": data, "meta": meta})
 
     return app
 
@@ -311,38 +356,66 @@ def build_app() -> Callable[..., list[bytes]]:
 _INDEX_HTML = """<!doctype html>
 <html>
 <head>
-  <meta charset=\"utf-8\" />
+  <meta charset="utf-8" />
   <title>LiquidSniper Paper Debug UI</title>
   <style>body{font-family:system-ui;margin:20px} .row{display:flex;gap:8px;flex-wrap:wrap} .card{border:1px solid #ddd;border-radius:8px;padding:10px;margin:6px 0} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ddd;padding:4px;font-size:12px}</style>
 </head>
 <body>
   <h2>Paper Debug UI (read-only v1)</h2>
-  <div class=\"row\">
-    <label>Strategy <select id=\"strategy\"><option value=\"\">all</option><option>scalp</option><option>intraday</option><option>swing</option></select></label>
-    <label>Run ID <input id=\"run_id\" /></label>
-    <label>Test ID <input id=\"test_id\" /></label>
-    <button onclick=\"reloadAll()\">Apply</button>
-    <button onclick=\"exportSnapshot()\">Export snapshot JSON</button>
+  <div class="row">
+    <label>Strategy <select id="strategy"><option value="">all</option><option>scalp</option><option>intraday</option><option>swing</option></select></label>
+    <label>Run ID <input id="run_id" /></label>
+    <label>Test ID <input id="test_id" /></label>
+    <label>Page <input id="page" type="number" min="1" value="1" style="width:72px" /></label>
+    <label>Page size <input id="page_size" type="number" min="1" max="1000" value="100" style="width:88px" /></label>
+    <label>Event hours <input id="event_hours" type="number" min="1" max="720" value="24" style="width:88px" /></label>
+    <button onclick="reloadAll()">Apply</button>
+    <button onclick="prevPage()">Prev</button>
+    <button onclick="nextPage()">Next</button>
+    <button onclick="exportSnapshot()">Export snapshot JSON</button>
   </div>
-  <h3>Strategy cards</h3><div id=\"strategies\"></div>
-  <h3>Order flow</h3><table id=\"orders\"></table>
-  <h3>Open positions</h3><table id=\"positions\"></table>
-  <h3>Event log</h3><table id=\"events\"></table>
+  <h3>Strategy cards</h3><div id="strategies"></div>
+  <h3>Order flow</h3><div id="orders_meta"></div><table id="orders"></table>
+  <h3>Open positions</h3><div id="positions_meta"></div><table id="positions"></table>
+  <h3>Event log (retention window applied)</h3><div id="events_meta"></div><table id="events"></table>
 <script>
 function filters(){
   const q = new URLSearchParams();
-  for (const id of ["strategy","run_id","test_id"]) { const v=document.getElementById(id).value; if(v) q.set(id,v); }
-  q.set("limit","1000");
+  for (const id of ["strategy","run_id","test_id","page","page_size","event_hours"]) { const v=document.getElementById(id).value; if(v) q.set(id,v); }
   return q.toString();
 }
 async function get(path){ const r=await fetch(path+"?"+filters()); return await r.json(); }
 function table(el, rows){ if(!rows.length){el.innerHTML="<tr><td>No rows</td></tr>"; return;} const cols=Object.keys(rows[0]); el.innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>"+rows.map(r=>"<tr>"+cols.map(c=>`<td>${r[c] ?? ''}</td>`).join("")+"</tr>").join(""); }
+function setMeta(elId, payload){
+  const p = payload?.meta?.pagination;
+  if(!p){ document.getElementById(elId).innerHTML=''; return; }
+  document.getElementById(elId).innerHTML = `<div class=card>page ${p.page}/${p.total_pages} · page_size ${p.page_size} · total ${p.total}</div>`;
+}
+function prevPage(){
+  const el=document.getElementById('page');
+  const n=Math.max(1, (parseInt(el.value||'1',10)-1));
+  el.value=String(n); reloadAll();
+}
+function nextPage(){
+  const el=document.getElementById('page');
+  const n=Math.max(1, (parseInt(el.value||'1',10)+1));
+  el.value=String(n); reloadAll();
+}
 async function reloadAll(){
   const s = (await get('/api/v1/debug/strategies')).data || [];
   document.getElementById('strategies').innerHTML = s.map(x=>`<div class=card><b>${x.strategy}</b> (${x.profile_id}) · runs ${x.runs_total} · executed ${x.executed_total} · rejected ${x.rejected_total} · open ${x.open_positions}</div>`).join('') || '<div class=card>No data</div>';
-  table(document.getElementById('orders'), (await get('/api/v1/debug/orders')).data || []);
-  table(document.getElementById('positions'), (await get('/api/v1/debug/positions')).data || []);
-  table(document.getElementById('events'), (await get('/api/v1/debug/events')).data || []);
+
+  const orders = await get('/api/v1/debug/orders');
+  const positions = await get('/api/v1/debug/positions');
+  const events = await get('/api/v1/debug/events');
+
+  setMeta('orders_meta', orders);
+  setMeta('positions_meta', positions);
+  setMeta('events_meta', events);
+
+  table(document.getElementById('orders'), orders.data || []);
+  table(document.getElementById('positions'), positions.data || []);
+  table(document.getElementById('events'), events.data || []);
 }
 async function exportSnapshot(){
   const snap = await get('/api/v1/debug/snapshot');

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from liquidsniper.debug.service import build_app
@@ -29,7 +30,7 @@ def _call(app, path: str, *, method: str = "GET", query: str = "", auth: str | N
 def _write_run(path: Path, **kw):
     payload = {
         "run_id": kw.get("run_id", "r1"),
-        "timestamp": kw.get("timestamp", "2026-02-20T00:00:00+00:00"),
+        "timestamp": kw.get("timestamp", datetime.now(timezone.utc).isoformat()),
         "anchor_profile_id": kw.get("anchor_profile_id", "I"),
         "strategy": kw.get("strategy"),
         "symbol": kw.get("symbol", "BTCUSDT"),
@@ -107,6 +108,35 @@ def test_read_only_guard(monkeypatch, tmp_path: Path):
     status, payload = _call(app, "/api/v1/debug/orders", method="POST")
     assert status.startswith("405")
     assert payload["error"] == "READ_ONLY_MODE"
+
+
+def test_pagination_and_event_retention(monkeypatch, tmp_path: Path):
+    runs = tmp_path / "paper_mvp" / "runs"
+    runs.mkdir(parents=True)
+    now = datetime.now(timezone.utc)
+    old_ts = (now - timedelta(hours=30)).isoformat()
+    new_ts = (now - timedelta(hours=2)).isoformat()
+
+    _write_run(runs / "old.json", run_id="old", timestamp=old_ts, decision_reason_codes=["OLD_EVENT"]) 
+    _write_run(runs / "new1.json", run_id="new1", timestamp=new_ts, decision_reason_codes=["NEW_EVENT_1"]) 
+    _write_run(runs / "new2.json", run_id="new2", timestamp=new_ts, decision_reason_codes=["NEW_EVENT_2"]) 
+
+    monkeypatch.setenv("LS_ARTIFACT_ROOT", str(tmp_path))
+    app = build_app()
+
+    status_o, payload_o = _call(app, "/api/v1/debug/orders", query="page_size=1&page=2")
+    assert status_o.startswith("200")
+    assert payload_o["meta"]["pagination"]["page"] == 2
+    assert payload_o["meta"]["pagination"]["page_size"] == 1
+    assert payload_o["meta"]["pagination"]["total"] >= 2
+    assert len(payload_o["data"]) == 1
+
+    status_e, payload_e = _call(app, "/api/v1/debug/events")
+    assert status_e.startswith("200")
+    codes = {row["code"] for row in payload_e["data"]}
+    assert "NEW_EVENT_1" in codes
+    assert "NEW_EVENT_2" in codes
+    assert "OLD_EVENT" not in codes
 
 
 def test_auth_guard_token_and_basic(monkeypatch, tmp_path: Path):

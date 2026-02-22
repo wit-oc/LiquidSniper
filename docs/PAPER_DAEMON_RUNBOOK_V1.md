@@ -72,7 +72,13 @@ Paper-only daemonized operation for LiquidSniper using `docker-compose.paper.yml
 - API base:
   - `http://127.0.0.1:${LIQUIDSNIPER_DEBUG_PORT:-8787}/api/v1/debug`
 - Snapshot export endpoint:
-  - `GET /api/v1/debug/snapshot?strategy=<scalp|intraday|swing>&run_id=<id>&test_id=<id>&limit=200`
+  - `GET /api/v1/debug/snapshot?strategy=<scalp|intraday|swing>&run_id=<id>&test_id=<id>&event_hours=24`
+- List pagination params (`orders|positions|events`):
+  - `page=<n>` (default `1`)
+  - `page_size=<n>` (default `200`, max `1000`)
+- Event retention window:
+  - default from `LIQUIDSNIPER_EVENT_RETENTION_HOURS` (default `24`)
+  - override per request with `event_hours=<n>`
 - Auth guard (configure one):
   - Bearer token: set `LIQUIDSNIPER_DEBUG_TOKEN`, then send `Authorization: Bearer <token>`
   - Basic auth: set `LIQUIDSNIPER_DEBUG_USER` + `LIQUIDSNIPER_DEBUG_PASS`
