@@ -145,6 +145,8 @@ def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for run in runs:
         strategy, profile_id = _strategy_for_run(run)
         sr = run.get("sr_context") if isinstance(run.get("sr_context"), dict) else {}
+        checks = run.get("gate_checks") if isinstance(run.get("gate_checks"), dict) else {}
+        sec = checks.get("secondary_confluence") if isinstance(checks.get("secondary_confluence"), dict) else {}
         rows.append(
             {
                 "run_id": run.get("run_id"),
@@ -154,6 +156,10 @@ def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "symbol": run.get("symbol"),
                 "side": run.get("direction"),
                 "entry": run.get("entry"),
+                "confluence_score": run.get("score_total"),
+                "confluence_gate_passed": run.get("score_gate_passed"),
+                "confluence_hits": sec.get("actual"),
+                "confluence_min": sec.get("min"),
                 "decision_tier": run.get("decision_tier"),
                 "execution_decision": run.get("execution_decision"),
                 "proposal_decision": run.get("proposal_decision"),
