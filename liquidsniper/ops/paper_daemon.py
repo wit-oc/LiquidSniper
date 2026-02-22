@@ -72,6 +72,10 @@ def _parallel_strategies() -> list[str]:
     return uniq or ["intraday"]
 
 
+BASE_TICK_SECONDS = 5 * 60
+LANE_TICK_DIVISOR = {"scalp": 1, "intraday": 3, "swing": 12}
+
+
 def _lane_bankroll(strategy: str) -> float:
     key = f"LIQUIDSNIPER_PAPER_BANKROLL_USD_{strategy.upper()}"
     raw = os.getenv(key)
@@ -81,6 +85,21 @@ def _lane_bankroll(strategy: str) -> float:
         except ValueError:
             pass
     return float(os.getenv("LIQUIDSNIPER_PAPER_BANKROLL_USD", "2000"))
+
+
+def _base_tick_index(now: datetime) -> int:
+    return int(now.timestamp()) // BASE_TICK_SECONDS
+
+
+def _lane_should_run(*, strategy: str, tick_index: int) -> bool:
+    return (tick_index % LANE_TICK_DIVISOR.get(strategy, 1)) == 0
+
+
+def _seconds_until_next_base_tick(now: datetime) -> int:
+    elapsed = int(now.timestamp()) % BASE_TICK_SECONDS
+    if elapsed == 0:
+        return BASE_TICK_SECONDS
+    return BASE_TICK_SECONDS - elapsed
 
 
 def _artifact_root() -> str:
@@ -638,33 +657,45 @@ def run_cycle_parallel(
     health_path: Path,
     cycle_count: int,
     lane_boundaries: dict[str, ExecutionBoundary],
+    lane_run_flags: dict[str, bool] | None = None,
 ) -> None:
     now = datetime.now(timezone.utc)
     os.environ.setdefault("LS_ARTIFACT_ROOT", _artifact_root())
 
     lanes_info: list[dict[str, object]] = []
-    total = {"attempted": 0, "executed": 0, "blocked": 0}
+    total = {"attempted": 0, "executed": 0, "blocked": 0, "skipped_preclose": 0}
+    lane_run_flags = lane_run_flags or {}
     for strategy in _parallel_strategies():
         profile_id = _strategy_profile_id(strategy)
         policy = _load_profile_policy_for(profile_id)
-        lane_stats = _run_lane_cycle(
-            strategy=strategy,
-            symbols=_symbols_for_strategy(strategy),
-            cycle_count=cycle_count,
-            now=now,
-            boundary=lane_boundaries[strategy],
-            profile_policy=policy,
-            state_path=_state_path(strategy),
-        )
+        should_run = lane_run_flags.get(strategy, True)
+        symbols = _symbols_for_strategy(strategy)
+        if should_run:
+            lane_stats = _run_lane_cycle(
+                strategy=strategy,
+                symbols=symbols,
+                cycle_count=cycle_count,
+                now=now,
+                boundary=lane_boundaries[strategy],
+                profile_policy=policy,
+                state_path=_state_path(strategy),
+            )
+            skipped_preclose = 0
+        else:
+            lane_stats = {"attempted": 0, "executed": 0, "blocked": 0}
+            skipped_preclose = len(symbols)
+
         lanes_info.append({
             "strategy": strategy,
             "profile_id": profile_id,
-            "symbols": _symbols_for_strategy(strategy),
+            "symbols": symbols,
             **lane_stats,
+            "skipped_preclose": skipped_preclose,
         })
         total["attempted"] += lane_stats["attempted"]
         total["executed"] += lane_stats["executed"]
         total["blocked"] += lane_stats["blocked"]
+        total["skipped_preclose"] += skipped_preclose
 
     _write_health(
         health_path,
@@ -693,15 +724,58 @@ def main() -> None:
     }
 
     cycle_count = 0
+    last_tick_index: int | None = None
     while True:
+        now = datetime.now(timezone.utc)
+        tick_index = _base_tick_index(now)
+        if last_tick_index is not None and tick_index == last_tick_index:
+            if run_once:
+                break
+            time.sleep(max(1, _seconds_until_next_base_tick(now)))
+            continue
+
         cycle_count += 1
+        last_tick_index = tick_index
+
         if parallel_enabled:
-            run_cycle_parallel(loop_seconds=loop_seconds, health_path=health_path, cycle_count=cycle_count, lane_boundaries=lane_boundaries)
+            lane_flags = {strategy: _lane_should_run(strategy=strategy, tick_index=tick_index) for strategy in _parallel_strategies()}
+            run_cycle_parallel(
+                loop_seconds=BASE_TICK_SECONDS,
+                health_path=health_path,
+                cycle_count=cycle_count,
+                lane_boundaries=lane_boundaries,
+                lane_run_flags=lane_flags,
+            )
         else:
-            run_cycle(loop_seconds=loop_seconds, health_path=health_path, cycle_count=cycle_count, boundary=boundary)
+            profile_policy = load_profile_policy()
+            strategy = {"I": "intraday", "C": "scalp", "S": "swing"}.get(profile_policy.profile_id, "intraday")
+            should_run = _lane_should_run(strategy=strategy, tick_index=tick_index)
+            if should_run:
+                run_cycle(loop_seconds=BASE_TICK_SECONDS, health_path=health_path, cycle_count=cycle_count, boundary=boundary)
+            else:
+                _write_health(
+                    health_path,
+                    status="ok",
+                    loop_seconds=BASE_TICK_SECONDS,
+                    cycle_count=cycle_count,
+                    cycle_stats={"attempted": 0, "executed": 0, "blocked": 0, "skipped_preclose": len(_symbols())},
+                    profile_policy=profile_policy,
+                    lanes=[
+                        {
+                            "strategy": strategy,
+                            "profile_id": profile_policy.profile_id,
+                            "symbols": _symbols(),
+                            "attempted": 0,
+                            "executed": 0,
+                            "blocked": 0,
+                            "skipped_preclose": len(_symbols()),
+                        }
+                    ],
+                )
+
         if run_once:
             break
-        time.sleep(max(1, loop_seconds))
+        time.sleep(max(1, _seconds_until_next_base_tick(datetime.now(timezone.utc))))
 
 
 if __name__ == "__main__":
