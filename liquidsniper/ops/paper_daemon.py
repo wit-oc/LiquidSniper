@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -214,6 +214,104 @@ def _fetch_klines(symbol: str, interval: str, *, limit: int = 120) -> list[dict[
     return out
 
 
+def _fetch_klines_with_retry(
+    symbol: str,
+    interval: str,
+    *,
+    limit: int = 120,
+    sleep_fn=time.sleep,
+) -> tuple[list[dict[str, object]], int]:
+    attempts_max = max(1, int(os.getenv("LIQUIDSNIPER_DATA_FETCH_RETRY_ATTEMPTS", "3")))
+    base_delay = max(1, int(os.getenv("LIQUIDSNIPER_DATA_FETCH_RETRY_BASE_MS", "250")))
+    max_delay = max(base_delay, int(os.getenv("LIQUIDSNIPER_DATA_FETCH_RETRY_MAX_MS", "1000")))
+    endpoint = os.getenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://data-api.binance.vision").rstrip("/")
+
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts_max + 1):
+        try:
+            candles = _fetch_klines(symbol, interval, limit=limit)
+            return candles, attempt
+        except MarketDataUnavailable as exc:
+            last_exc = exc
+            if attempt >= attempts_max:
+                break
+            backoff_ms = min(max_delay, base_delay * (2 ** (attempt - 1)))
+            sleep_fn(backoff_ms / 1000.0)
+
+    raise MarketDataUnavailable(
+        f"DATA_FETCH_RETRY_EXHAUSTED:{symbol}:{interval}:attempts={attempts_max}:endpoint={endpoint}:last={last_exc}"
+    )
+
+
+def _classify_breakout_regime(
+    *,
+    side: str,
+    closes_entry: list[float],
+    highs_entry: list[float],
+    lows_entry: list[float],
+    ema20_itf: float,
+    ema50_itf: float,
+    ema20_htf: float,
+    ema50_htf: float,
+) -> tuple[bool, dict[str, object]]:
+    if len(closes_entry) < 18 or len(highs_entry) < 18 or len(lows_entry) < 18:
+        return False, {"range_break": False, "displacement_ok": False, "bias_aligned": False}
+
+    close_now = float(closes_entry[-1])
+    close_prev = float(closes_entry[-2])
+    recent_high = max(float(v) for v in highs_entry[-17:-1])
+    recent_low = min(float(v) for v in lows_entry[-17:-1])
+
+    range_break = close_now > recent_high if side == "buy" else close_now < recent_low
+    displacement_bps = abs(close_now - close_prev) / max(abs(close_prev), 1e-9) * 10_000.0
+    displacement_min_bps = float(os.getenv("LIQUIDSNIPER_BREAKOUT_DISPLACEMENT_MIN_BPS", "12"))
+    displacement_ok = displacement_bps >= displacement_min_bps
+    bias_aligned = (ema20_itf > ema50_itf and ema20_htf > ema50_htf) if side == "buy" else (ema20_itf < ema50_itf and ema20_htf < ema50_htf)
+
+    breakout = bool(range_break and displacement_ok and bias_aligned)
+    return breakout, {
+        "range_break": bool(range_break),
+        "displacement_bps": round(displacement_bps, 4),
+        "displacement_min_bps": round(displacement_min_bps, 4),
+        "displacement_ok": bool(displacement_ok),
+        "bias_aligned": bool(bias_aligned),
+    }
+
+
+def _confirm_candle_close_with_backoff(
+    *,
+    snapshot: dict[str, object],
+    snapshot_builder,
+    symbol: str,
+    cycle_count: int,
+    policy: ProfilePolicy,
+    now: datetime,
+    sleep_fn=time.sleep,
+) -> tuple[dict[str, object], dict[str, object]]:
+    schedule_sec = (5, 10, 15)
+    attempts = 0
+    elapsed = 0
+    current = snapshot
+    if bool(current.get("candle_closed")):
+        return current, {"close_confirm_attempts": 0, "close_confirm_elapsed_sec": 0, "close_confirm_timeout": False}
+
+    for step in schedule_sec:
+        sleep_fn(step)
+        elapsed += step
+        attempts += 1
+        probe_now = now + timedelta(seconds=elapsed)
+        current = snapshot_builder(symbol, now=probe_now, cycle_count=cycle_count, policy=policy)
+        if bool(current.get("candle_closed")):
+            break
+
+    timed_out = not bool(current.get("candle_closed"))
+    return current, {
+        "close_confirm_attempts": attempts,
+        "close_confirm_elapsed_sec": elapsed,
+        "close_confirm_timeout": timed_out,
+    }
+
+
 def _write_health(
     path: Path,
     *,
@@ -277,6 +375,11 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
                 "distance_bps": 20.0,
                 "first_retest_eligible": (seed[2] % 10) < 8,
             },
+            "breakout_regime": bool(bos_choch),
+            "breakout_diagnostics": {"range_break": bool(bos_choch), "displacement_ok": True, "bias_aligned": True},
+            "data_fetch_attempts": 0,
+            "close_confirm_attempts": 0,
+            "close_confirm_elapsed_sec": 0,
             "data_source": "mock",
         }
 
@@ -285,9 +388,14 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
     i_itf = _interval_for(policy.itf_tf)
     i_htf = _interval_for(policy.htf_anchor_tf)
 
-    c_entry = _fetch_klines(symbol, i_entry, limit=180)
-    c_itf = _fetch_klines(symbol, i_itf, limit=180)
-    c_htf = _fetch_klines(symbol, i_htf, limit=180)
+    data_fetch_attempts = 0
+
+    c_entry, attempts = _fetch_klines_with_retry(symbol, i_entry, limit=180)
+    data_fetch_attempts += attempts
+    c_itf, attempts = _fetch_klines_with_retry(symbol, i_itf, limit=180)
+    data_fetch_attempts += attempts
+    c_htf, attempts = _fetch_klines_with_retry(symbol, i_htf, limit=180)
+    data_fetch_attempts += attempts
 
     last_entry = c_entry[-1]
     close_entry = float(last_entry["close"])
@@ -316,11 +424,20 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
     net = abs(segment[-1] - segment[0]) if len(segment) >= 2 else 0.0
     htf_chop = 100.0 if net <= 1e-9 else min(100.0, (path / net) * 25.0)
 
+    sr_1h, a = _fetch_klines_with_retry(symbol, "1h", limit=220)
+    data_fetch_attempts += a
+    sr_4h, a = _fetch_klines_with_retry(symbol, "4h", limit=220)
+    data_fetch_attempts += a
+    sr_1d, a = _fetch_klines_with_retry(symbol, "1d", limit=220)
+    data_fetch_attempts += a
+    sr_1w, a = _fetch_klines_with_retry(symbol, "1w", limit=220)
+    data_fetch_attempts += a
+
     sr_candles = {
-        "1H": _fetch_klines(symbol, "1h", limit=220),
-        "4H": _fetch_klines(symbol, "4h", limit=220),
-        "1D": _fetch_klines(symbol, "1d", limit=220),
-        "1W": _fetch_klines(symbol, "1w", limit=220),
+        "1H": sr_1h,
+        "4H": sr_4h,
+        "1D": sr_1d,
+        "1W": sr_1w,
     }
     sr_zones: list[dict[str, object]] = []
     sr_touches: list[dict[str, object]] = []
@@ -344,7 +461,20 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
     nearest_resistance = (nearest_resistance_obj or {}).get("bounds", {}).get("mid") if nearest_resistance_obj else None
     sr_distance_bps = float(sr_query.get("distance_bps") or 999999.0)
     sr_first_retest = bool(sr_query.get("first_retest_eligible")) and sr_distance_bps <= float(policy.sr_retest_bps_max)
-    bos_choch = close_entry > max(float(c["high"]) for c in c_entry[-16:-1]) if side == "buy" else close_entry < min(float(c["low"]) for c in c_entry[-16:-1])
+    highs_entry = [float(c["high"]) for c in c_entry]
+    lows_entry = [float(c["low"]) for c in c_entry]
+    bos_choch = close_entry > max(highs_entry[-16:-1]) if side == "buy" else close_entry < min(lows_entry[-16:-1])
+
+    breakout_regime, breakout_diag = _classify_breakout_regime(
+        side=side,
+        closes_entry=closes_entry,
+        highs_entry=highs_entry,
+        lows_entry=lows_entry,
+        ema20_itf=ema20_itf,
+        ema50_itf=ema50_itf,
+        ema20_htf=ema20_htf,
+        ema50_htf=ema50_htf,
+    )
 
     bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
 
@@ -389,6 +519,11 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
             "gate_eligible": bool(sr_query.get("gate_eligible")),
             "reason_codes": list(sr_query.get("reason_codes") or []),
         },
+        "breakout_regime": bool(breakout_regime),
+        "breakout_diagnostics": breakout_diag,
+        "data_fetch_attempts": int(data_fetch_attempts),
+        "close_confirm_attempts": 0,
+        "close_confirm_elapsed_sec": 0,
         "data_source": "binance",
     }
 
@@ -539,6 +674,25 @@ def _run_lane_cycle(
             persist_run_artifact(reject_proposal, {"decision": "blocked", "reason_codes": ["DATA_UNAVAILABLE"]})
             continue
 
+        close_confirm = {"close_confirm_attempts": 0, "close_confirm_elapsed_sec": 0, "close_confirm_timeout": False}
+        if profile_policy.require_candle_close and str(snapshot.get("data_source") or "").lower() == "binance" and not bool(snapshot.get("candle_closed")):
+            snapshot, close_confirm = _confirm_candle_close_with_backoff(
+                snapshot=snapshot,
+                snapshot_builder=_build_market_snapshot,
+                symbol=symbol,
+                cycle_count=cycle_count,
+                policy=profile_policy,
+                now=now,
+                sleep_fn=time.sleep,
+            )
+            snapshot["close_confirm_attempts"] = int(close_confirm["close_confirm_attempts"])
+            snapshot["close_confirm_elapsed_sec"] = int(close_confirm["close_confirm_elapsed_sec"])
+
+        breakout_regime = bool(snapshot.get("breakout_regime"))
+        htf_chop_mode = "breakout_softened" if breakout_regime else "strict"
+        soften_points = float(os.getenv("LIQUIDSNIPER_HTF_CHOP_SOFTEN_POINTS", "8"))
+        htf_chop_threshold_effective = min(100.0, float(profile_policy.htf_chop_max) + (soften_points if breakout_regime else 0.0))
+
         idempotency_key = f"paper-{profile_policy.profile_id}-{symbol}-{snapshot['candle_ts']}"
 
         gate = evaluate_gates(
@@ -550,6 +704,8 @@ def _run_lane_cycle(
             candle_closed=bool(snapshot["candle_closed"]),
             candle_ts=str(snapshot["candle_ts"]),
             htf_chop=float(snapshot["htf_chop"]),
+            htf_chop_max_effective=float(htf_chop_threshold_effective),
+            htf_chop_mode=htf_chop_mode,
             sr_first_retest=bool(snapshot["sr_first_retest"]),
             sr_distance_bps=float(snapshot.get("sr_distance_bps") or 0.0),
             bos_choch=bool(snapshot["bos_choch"]),
@@ -567,12 +723,28 @@ def _run_lane_cycle(
             gate_checks=gate.gate_checks,
         )
         proposal["strategy"] = strategy
+        proposal["close_confirm_attempts"] = int(snapshot.get("close_confirm_attempts") or close_confirm["close_confirm_attempts"])
+        proposal["close_confirm_elapsed_sec"] = int(snapshot.get("close_confirm_elapsed_sec") or close_confirm["close_confirm_elapsed_sec"])
+        proposal["data_fetch_attempts"] = int(snapshot.get("data_fetch_attempts") or 0)
+        proposal["breakout_regime"] = bool(breakout_regime)
+        proposal["htf_chop_mode"] = htf_chop_mode
+        proposal["htf_chop_threshold_effective"] = round(float(htf_chop_threshold_effective), 4)
         proposal["position_state_before"] = {
             "open_positions": state.trades_open,
             "active_risk_positions": count_active_risk_positions(state),
             "tp1_promotions_this_cycle": promoted_count,
             "promoted_position_ids": promoted_ids,
         }
+
+        if bool(close_confirm.get("close_confirm_timeout")) and not bool(snapshot.get("candle_closed")):
+            blocked += 1
+            proposal["decision_reason_codes"] = ["CANDLE_CLOSE_TIMEOUT"]
+            proposal["position_state_after"] = {
+                "open_positions": state.trades_open,
+                "active_risk_positions": count_active_risk_positions(state),
+            }
+            persist_run_artifact(proposal, {"decision": "blocked", "reason_codes": ["CANDLE_CLOSE_TIMEOUT"]})
+            continue
 
         out = boundary.propose_trade(proposal, policy)
         decision = out.get("decision")
