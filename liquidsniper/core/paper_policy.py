@@ -249,6 +249,8 @@ def evaluate_gates(
     candle_closed: bool,
     candle_ts: str,
     htf_chop: float,
+    htf_chop_max_effective: float | None = None,
+    htf_chop_mode: str = "strict",
     sr_first_retest: bool,
     sr_distance_bps: float,
     bos_choch: bool,
@@ -259,6 +261,8 @@ def evaluate_gates(
     expected_bias = "long" if side == "buy" else "short"
     active_risk_positions = count_active_risk_positions(state)
 
+    htf_chop_max_value = float(htf_chop_max_effective) if htf_chop_max_effective is not None else float(policy.htf_chop_max)
+
     checks: dict[str, Any] = {
         "daily_loss_circuit": {
             "max_loss_usd": policy.daily_max_loss_usd,
@@ -267,7 +271,13 @@ def evaluate_gates(
             "ok": daily_loss_usd <= policy.daily_max_loss_usd,
         },
         "candle_close": {"required": policy.require_candle_close, "ok": (candle_closed or not policy.require_candle_close), "candle_ts": candle_ts},
-        "htf_chop": {"max": policy.htf_chop_max, "actual": round(float(htf_chop), 4), "ok": float(htf_chop) <= policy.htf_chop_max},
+        "htf_chop": {
+            "max": float(policy.htf_chop_max),
+            "max_effective": round(htf_chop_max_value, 4),
+            "mode": str(htf_chop_mode),
+            "actual": round(float(htf_chop), 4),
+            "ok": float(htf_chop) <= htf_chop_max_value,
+        },
         "bias": {"expected": expected_bias, "actual": bias.direction, "mechanism": bias.mechanism, "ok": bias.direction == expected_bias},
         "sr_first_retest": {
             "required": policy.require_sr_first_retest,
