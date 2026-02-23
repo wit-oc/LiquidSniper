@@ -30,7 +30,7 @@ def main() -> None:
     trading_day = now.strftime("%Y-%m-%d")
     trading_week = now.strftime("%G-W%V")
 
-    artifact_root_env = os.getenv("LS_ARTIFACT_ROOT") or os.getenv("LIQUIDSNIPER_ARTIFACT_ROOT")
+    artifact_root_env = os.getenv("LIQUIDSNIPER_ARTIFACT_ROOT") or os.getenv("LS_ARTIFACT_ROOT")
     artifact_root = Path(artifact_root_env) if artifact_root_env else None
 
     persist_daily_scorecard(trading_day=trading_day, artifact_root=artifact_root)

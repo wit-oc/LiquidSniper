@@ -154,7 +154,7 @@ def persist_run_artifact(proposal: dict[str, Any], execution_result: dict[str, A
     if not run_id:
         raise ValueError("run_id is required to persist paper run artifact")
 
-    artifact_root = Path(os.getenv("LS_ARTIFACT_ROOT", "artifacts"))
+    artifact_root = Path(os.getenv("LIQUIDSNIPER_ARTIFACT_ROOT") or os.getenv("LS_ARTIFACT_ROOT") or "artifacts")
     path = artifact_root / "paper_mvp" / "runs" / f"{run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
@@ -278,7 +278,7 @@ def build_daily_scorecard(*, trading_day: str, runs: list[dict[str, Any]]) -> di
 
 
 def persist_daily_scorecard(*, trading_day: str, artifact_root: Path | None = None) -> tuple[dict[str, Any], Path]:
-    root = artifact_root or Path(os.getenv("LS_ARTIFACT_ROOT", "artifacts"))
+    root = artifact_root or Path(os.getenv("LIQUIDSNIPER_ARTIFACT_ROOT") or os.getenv("LS_ARTIFACT_ROOT") or "artifacts")
     runs = _load_run_payloads_for_day(trading_day=trading_day, artifact_root=root)
     payload = build_daily_scorecard(trading_day=trading_day, runs=runs)
 
@@ -461,7 +461,7 @@ def build_weekly_rollup(*, trading_week: str, runs: list[dict[str, Any]]) -> dic
 
 
 def persist_weekly_rollup(*, trading_week: str, artifact_root: Path | None = None) -> tuple[dict[str, Any], Path]:
-    root = artifact_root or Path(os.getenv("LS_ARTIFACT_ROOT", "artifacts"))
+    root = artifact_root or Path(os.getenv("LIQUIDSNIPER_ARTIFACT_ROOT") or os.getenv("LS_ARTIFACT_ROOT") or "artifacts")
     runs = _load_run_payloads_for_week(trading_week=trading_week, artifact_root=root)
     payload = build_weekly_rollup(trading_week=trading_week, runs=runs)
 
