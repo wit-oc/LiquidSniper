@@ -910,7 +910,11 @@ def main() -> None:
         last_tick_index = tick_index
 
         if parallel_enabled:
-            lane_flags = {strategy: _lane_should_run(strategy=strategy, tick_index=tick_index) for strategy in _parallel_strategies()}
+            lane_flags = (
+                {strategy: True for strategy in _parallel_strategies()}
+                if run_once
+                else {strategy: _lane_should_run(strategy=strategy, tick_index=tick_index) for strategy in _parallel_strategies()}
+            )
             run_cycle_parallel(
                 loop_seconds=BASE_TICK_SECONDS,
                 health_path=health_path,
@@ -921,7 +925,7 @@ def main() -> None:
         else:
             profile_policy = load_profile_policy()
             strategy = {"I": "intraday", "C": "scalp", "S": "swing"}.get(profile_policy.profile_id, "intraday")
-            should_run = _lane_should_run(strategy=strategy, tick_index=tick_index)
+            should_run = run_once or _lane_should_run(strategy=strategy, tick_index=tick_index)
             if should_run:
                 run_cycle(loop_seconds=BASE_TICK_SECONDS, health_path=health_path, cycle_count=cycle_count, boundary=boundary)
             else:
