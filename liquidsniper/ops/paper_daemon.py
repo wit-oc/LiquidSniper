@@ -76,6 +76,14 @@ BASE_TICK_SECONDS = 5 * 60
 LANE_TICK_DIVISOR = {"scalp": 1, "intraday": 3, "swing": 12}
 
 
+def _exchange_time_offset_ms() -> int:
+    raw = os.getenv("LIQUIDSNIPER_EXCHANGE_TIME_OFFSET_MS", "0").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return 0
+
+
 def _lane_bankroll(strategy: str) -> float:
     key = f"LIQUIDSNIPER_PAPER_BANKROLL_USD_{strategy.upper()}"
     raw = os.getenv(key)
@@ -87,16 +95,18 @@ def _lane_bankroll(strategy: str) -> float:
     return float(os.getenv("LIQUIDSNIPER_PAPER_BANKROLL_USD", "2000"))
 
 
-def _base_tick_index(now: datetime) -> int:
-    return int(now.timestamp()) // BASE_TICK_SECONDS
+def _base_tick_index(now: datetime, *, offset_ms: int = 0) -> int:
+    adjusted = now + timedelta(milliseconds=offset_ms)
+    return int(adjusted.timestamp()) // BASE_TICK_SECONDS
 
 
 def _lane_should_run(*, strategy: str, tick_index: int) -> bool:
     return (tick_index % LANE_TICK_DIVISOR.get(strategy, 1)) == 0
 
 
-def _seconds_until_next_base_tick(now: datetime) -> int:
-    elapsed = int(now.timestamp()) % BASE_TICK_SECONDS
+def _seconds_until_next_base_tick(now: datetime, *, offset_ms: int = 0) -> int:
+    adjusted = now + timedelta(milliseconds=offset_ms)
+    elapsed = int(adjusted.timestamp()) % BASE_TICK_SECONDS
     if elapsed == 0:
         return BASE_TICK_SECONDS
     return BASE_TICK_SECONDS - elapsed
@@ -135,6 +145,39 @@ def _interval_for(tf: str) -> str:
     if token not in mapping:
         raise ValueError(f"unsupported timeframe: {tf}")
     return mapping[token]
+
+
+def _interval_minutes(tf: str) -> int:
+    token = _interval_for(tf)
+    amount = int(token[:-1])
+    unit = token[-1]
+    if unit == "m":
+        return amount
+    if unit == "h":
+        return amount * 60
+    if unit == "d":
+        return amount * 60 * 24
+    if unit == "w":
+        return amount * 60 * 24 * 7
+    raise ValueError(f"unsupported timeframe: {tf}")
+
+
+def _target_candle_window(*, now: datetime, tf_minutes: int, offset_ms: int = 0) -> tuple[datetime, datetime]:
+    tf_seconds = max(60, int(tf_minutes) * 60)
+    adjusted_epoch = int((now + timedelta(milliseconds=offset_ms)).timestamp())
+    target_close_epoch = adjusted_epoch - (adjusted_epoch % tf_seconds)
+    target_open_epoch = target_close_epoch - tf_seconds
+    return (
+        datetime.fromtimestamp(target_open_epoch, tz=timezone.utc),
+        datetime.fromtimestamp(target_close_epoch, tz=timezone.utc),
+    )
+
+
+def _select_candle_by_open_time(candles: list[dict[str, object]], *, target_open: datetime) -> dict[str, object] | None:
+    for candle in candles:
+        if candle.get("open_time") == target_open:
+            return candle
+    return None
 
 
 def _ema(values: list[float], period: int) -> float:
@@ -300,7 +343,17 @@ def _confirm_candle_close_with_backoff(
         elapsed += step
         attempts += 1
         probe_now = now + timedelta(seconds=elapsed)
-        current = snapshot_builder(symbol, now=probe_now, cycle_count=cycle_count, policy=policy)
+        target_close_ts = str(snapshot.get("target_close_ts") or "")
+        try:
+            current = snapshot_builder(
+                symbol,
+                now=probe_now,
+                cycle_count=cycle_count,
+                policy=policy,
+                target_close_ts=target_close_ts,
+            )
+        except TypeError:
+            current = snapshot_builder(symbol, now=probe_now, cycle_count=cycle_count, policy=policy)
         if bool(current.get("candle_closed")):
             break
 
@@ -347,12 +400,21 @@ def _floor_candle_ts(now: datetime, tf_minutes: int) -> str:
     return floored.isoformat()
 
 
-def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, policy: ProfilePolicy) -> dict[str, object]:
+def _build_market_snapshot(
+    symbol: str,
+    *,
+    now: datetime,
+    cycle_count: int,
+    policy: ProfilePolicy,
+    target_close_ts: str | None = None,
+) -> dict[str, object]:
     data_source = os.getenv("LIQUIDSNIPER_DATA_SOURCE", "binance").strip().lower()
     if data_source == "mock":
         seed = _score_seed(f"snapshot:{symbol}:{now.isoformat()}:{cycle_count}:{policy.profile_id}")
         tf_minutes = 5 if policy.profile_id in {"I", "C"} else 15
-        candle_ts = _floor_candle_ts(now, tf_minutes)
+        offset_ms = _exchange_time_offset_ms()
+        target_open_dt, target_close_dt = _target_candle_window(now=now, tf_minutes=tf_minutes, offset_ms=offset_ms)
+        candle_ts = target_close_dt.isoformat()
         side = "buy" if (seed[5] % 2 == 0) else "sell"
         bos_choch = (seed[3] % 10) < 8
         bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
@@ -363,6 +425,10 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
             "entry": entry,
             "candle_ts": candle_ts,
             "candle_closed": (seed[0] % 10) < 8,
+            "target_open_ts": target_open_dt.isoformat(),
+            "target_close_ts": target_close_dt.isoformat(),
+            "matched_candle_open_ts": target_open_dt.isoformat(),
+            "exchange_offset_ms": int(offset_ms),
             "htf_chop": round(35 + (seed[1] / 255.0) * 35, 2),
             "sr_first_retest": (seed[2] % 10) < 8,
             "sr_distance_bps": 20.0,
@@ -397,10 +463,20 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
     c_htf, attempts = _fetch_klines_with_retry(symbol, i_htf, limit=180)
     data_fetch_attempts += attempts
 
+    tf_minutes = _interval_minutes(entry_tf)
+    offset_ms = _exchange_time_offset_ms()
+    if target_close_ts:
+        target_close_dt = datetime.fromisoformat(target_close_ts)
+        target_open_dt = target_close_dt - timedelta(minutes=tf_minutes)
+    else:
+        target_open_dt, target_close_dt = _target_candle_window(now=now, tf_minutes=tf_minutes, offset_ms=offset_ms)
+
+    target_candle = _select_candle_by_open_time(c_entry, target_open=target_open_dt)
+
     last_entry = c_entry[-1]
-    close_entry = float(last_entry["close"])
-    candle_ts = str(last_entry["close_time"].isoformat())
-    candle_closed = now >= last_entry["close_time"]
+    close_entry = float(target_candle["close"] if target_candle is not None else last_entry["close"])
+    candle_ts = target_close_dt.isoformat()
+    candle_closed = bool(target_candle is not None and now >= target_close_dt)
 
     closes_entry = [float(c["close"]) for c in c_entry]
     closes_itf = [float(c["close"]) for c in c_itf]
@@ -497,6 +573,10 @@ def _build_market_snapshot(symbol: str, *, now: datetime, cycle_count: int, poli
         "entry": round(close_entry, 6),
         "candle_ts": candle_ts,
         "candle_closed": candle_closed,
+        "target_open_ts": target_open_dt.isoformat(),
+        "target_close_ts": target_close_dt.isoformat(),
+        "matched_candle_open_ts": target_candle["open_time"].isoformat() if target_candle is not None else None,
+        "exchange_offset_ms": int(offset_ms),
         "htf_chop": round(float(htf_chop), 4),
         "sr_first_retest": bool(sr_first_retest),
         "sr_distance_bps": round(float(sr_distance_bps), 4),
@@ -725,6 +805,10 @@ def _run_lane_cycle(
         proposal["strategy"] = strategy
         proposal["close_confirm_attempts"] = int(snapshot.get("close_confirm_attempts") or close_confirm["close_confirm_attempts"])
         proposal["close_confirm_elapsed_sec"] = int(snapshot.get("close_confirm_elapsed_sec") or close_confirm["close_confirm_elapsed_sec"])
+        proposal["target_open_ts"] = snapshot.get("target_open_ts")
+        proposal["target_close_ts"] = snapshot.get("target_close_ts")
+        proposal["matched_candle_open_ts"] = snapshot.get("matched_candle_open_ts")
+        proposal["exchange_offset_ms"] = int(snapshot.get("exchange_offset_ms") or 0)
         proposal["data_fetch_attempts"] = int(snapshot.get("data_fetch_attempts") or 0)
         proposal["breakout_regime"] = bool(breakout_regime)
         proposal["htf_chop_mode"] = htf_chop_mode
@@ -897,13 +981,14 @@ def main() -> None:
 
     cycle_count = 0
     last_tick_index: int | None = None
+    exchange_offset_ms = _exchange_time_offset_ms()
     while True:
         now = datetime.now(timezone.utc)
-        tick_index = _base_tick_index(now)
+        tick_index = _base_tick_index(now, offset_ms=exchange_offset_ms)
         if last_tick_index is not None and tick_index == last_tick_index:
             if run_once:
                 break
-            time.sleep(max(1, _seconds_until_next_base_tick(now)))
+            time.sleep(max(1, _seconds_until_next_base_tick(now, offset_ms=exchange_offset_ms)))
             continue
 
         cycle_count += 1
@@ -951,7 +1036,7 @@ def main() -> None:
 
         if run_once:
             break
-        time.sleep(max(1, _seconds_until_next_base_tick(datetime.now(timezone.utc))))
+        time.sleep(max(1, _seconds_until_next_base_tick(datetime.now(timezone.utc), offset_ms=exchange_offset_ms)))
 
 
 if __name__ == "__main__":
