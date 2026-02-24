@@ -45,6 +45,72 @@ def test_close_confirm_backoff_schedule_and_timeout_without_prior_candle_fallbac
     assert snapshot["candle_closed"] is False
 
 
+def test_close_confirm_succeeds_on_second_retry_for_same_target_candle() -> None:
+    calls: list[int] = []
+    seen_targets: list[str] = []
+
+    def sleep_fn(sec: float) -> None:
+        calls.append(int(sec))
+
+    def flips_closed(_symbol: str, *, now: datetime, cycle_count: int, policy, target_close_ts: str = ""):
+        seen_targets.append(target_close_ts)
+        return {
+            "side": "buy",
+            "entry": 50000.0,
+            "candle_ts": target_close_ts or now.isoformat(),
+            "candle_closed": len(calls) >= 2,
+            "target_open_ts": "2026-02-23T14:45:00+00:00",
+            "target_close_ts": "2026-02-23T15:00:00+00:00",
+            "matched_candle_open_ts": "2026-02-23T14:45:00+00:00" if len(calls) >= 2 else None,
+            "htf_chop": 40.0,
+            "sr_first_retest": True,
+            "sr_distance_bps": 10.0,
+            "bos_choch": False,
+            "secondary_hits": 2,
+            "breakout_regime": False,
+            "data_fetch_attempts": 0,
+        }
+
+    initial = flips_closed(
+        "BTCUSDT",
+        now=datetime.now(timezone.utc),
+        cycle_count=1,
+        policy=paper_daemon.load_profile_policy(),
+        target_close_ts="2026-02-23T15:00:00+00:00",
+    )
+    snapshot, meta = paper_daemon._confirm_candle_close_with_backoff(
+        snapshot=initial,
+        snapshot_builder=flips_closed,
+        symbol="BTCUSDT",
+        cycle_count=1,
+        policy=paper_daemon.load_profile_policy(),
+        now=datetime(2026, 2, 23, 15, 0, 0, tzinfo=timezone.utc),
+        sleep_fn=sleep_fn,
+    )
+
+    assert calls == [5, 10]
+    assert meta["close_confirm_attempts"] == 2
+    assert meta["close_confirm_elapsed_sec"] == 15
+    assert meta["close_confirm_timeout"] is False
+    assert snapshot["candle_closed"] is True
+    assert all(ts == "2026-02-23T15:00:00+00:00" for ts in seen_targets)
+
+
+def test_target_candle_selection_and_alignment_helpers() -> None:
+    now = datetime(2026, 2, 23, 15, 0, 2, tzinfo=timezone.utc)
+    open_ts, close_ts = paper_daemon._target_candle_window(now=now, tf_minutes=15, offset_ms=0)
+    assert open_ts == datetime(2026, 2, 23, 14, 45, 0, tzinfo=timezone.utc)
+    assert close_ts == datetime(2026, 2, 23, 15, 0, 0, tzinfo=timezone.utc)
+
+    candles = [
+        {"open_time": datetime(2026, 2, 23, 14, 30, 0, tzinfo=timezone.utc), "close": 1.0},
+        {"open_time": datetime(2026, 2, 23, 14, 45, 0, tzinfo=timezone.utc), "close": 2.0},
+    ]
+    matched = paper_daemon._select_candle_by_open_time(candles, target_open=open_ts)
+    assert matched is not None
+    assert matched["close"] == 2.0
+
+
 def test_fetch_klines_retry_uses_same_endpoint_and_reports_attempts(monkeypatch) -> None:
     monkeypatch.setenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://data-api.binance.vision")
     monkeypatch.setenv("LIQUIDSNIPER_DATA_FETCH_RETRY_ATTEMPTS", "3")
@@ -89,6 +155,10 @@ def test_run_cycle_emits_candle_close_timeout_and_diagnostics(monkeypatch, tmp_p
             "entry": 50000.0,
             "candle_ts": "2026-02-23T15:00:00+00:00",
             "candle_closed": False,
+            "target_open_ts": "2026-02-23T14:45:00+00:00",
+            "target_close_ts": "2026-02-23T15:00:00+00:00",
+            "matched_candle_open_ts": None,
+            "exchange_offset_ms": 0,
             "htf_chop": 20.0,
             "sr_first_retest": True,
             "sr_distance_bps": 10.0,
@@ -111,6 +181,9 @@ def test_run_cycle_emits_candle_close_timeout_and_diagnostics(monkeypatch, tmp_p
     assert payload["decision_reason_codes"] == ["CANDLE_CLOSE_TIMEOUT"]
     assert payload["close_confirm_attempts"] == 3
     assert payload["close_confirm_elapsed_sec"] == 30
+    assert payload["target_open_ts"] == "2026-02-23T14:45:00+00:00"
+    assert payload["target_close_ts"] == "2026-02-23T15:00:00+00:00"
+    assert payload["matched_candle_open_ts"] is None
 
 
 def test_breakout_softening_only_when_breakout_regime_true(monkeypatch, tmp_path) -> None:

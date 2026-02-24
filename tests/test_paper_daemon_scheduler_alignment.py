@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 from liquidsniper.core.execution_boundary import ExecutionBoundary
 from liquidsniper.ops import paper_daemon
@@ -16,6 +17,15 @@ def test_lane_close_boundary_divisibility_routes_expected_lanes():
     assert paper_daemon._lane_should_run(strategy="scalp", tick_index=108)
     assert paper_daemon._lane_should_run(strategy="intraday", tick_index=108)
     assert paper_daemon._lane_should_run(strategy="swing", tick_index=108)
+
+
+def test_base_tick_index_and_sleep_honor_exchange_offset():
+    now = datetime(2026, 2, 23, 15, 4, 58, tzinfo=timezone.utc)
+
+    # +2s exchange offset means exchange time is exactly at 5m boundary.
+    assert paper_daemon._base_tick_index(now, offset_ms=2000) != paper_daemon._base_tick_index(now, offset_ms=0)
+    assert paper_daemon._seconds_until_next_base_tick(now, offset_ms=2000) == paper_daemon.BASE_TICK_SECONDS
+    assert paper_daemon._seconds_until_next_base_tick(now, offset_ms=0) == 2
 
 
 def test_parallel_cycle_skips_preclose_without_block_noise(monkeypatch, tmp_path):
