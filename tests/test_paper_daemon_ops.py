@@ -159,9 +159,10 @@ def test_daily_loss_circuit_breaker_halts_remaining_trades(monkeypatch, tmp_path
 
     payload = json.loads(health.read_text(encoding="utf-8"))
     assert payload["cycle_stats"]["attempted"] == 2
-    assert payload["cycle_stats"]["executed"] == 1
-    assert payload["cycle_stats"]["blocked"] == 1
+    # Entry fills no longer realize PnL immediately; closes realize PnL when SL/BE/TP exits occur.
+    assert payload["cycle_stats"]["executed"] == 2
+    assert payload["cycle_stats"]["blocked"] == 0
 
     state_path = artifact_root / "paper_mvp" / "state" / "execution_throttle_state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["realized_pnl_today_usd"] == -10.0
+    assert state["realized_pnl_today_usd"] == 0.0

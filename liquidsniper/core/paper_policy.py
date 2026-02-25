@@ -150,6 +150,15 @@ def _float_env(name: str, default: float) -> float:
     return float(raw)
 
 
+def _to_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _utc_day(now: datetime) -> str:
     return now.astimezone(timezone.utc).date().isoformat()
 
@@ -200,9 +209,15 @@ def load_profile_policy() -> ProfilePolicy:
     if min_secondary < 0:
         raise RuntimeError("LIQUIDSNIPER_MIN_SECONDARY_HITS must be >= 0")
 
-    daily_max_trades = _int_env("LIQUIDSNIPER_DAILY_MAX_TRADES", 4)
-    if daily_max_trades <= 0:
-        raise RuntimeError("LIQUIDSNIPER_DAILY_MAX_TRADES must be > 0")
+    profile_suffix = {"C": "SCALP", "I": "INTRADAY", "S": "SWING"}.get(profile_id, profile_id)
+    profile_daily_key = f"LIQUIDSNIPER_DAILY_MAX_TRADES_{profile_suffix}"
+    profile_daily_raw = os.getenv(profile_daily_key)
+    if profile_daily_raw is not None and profile_daily_raw.strip():
+        daily_max_trades = int(profile_daily_raw)
+    else:
+        daily_max_trades = _int_env("LIQUIDSNIPER_DAILY_MAX_TRADES", 4)
+    if daily_max_trades < 0:
+        raise RuntimeError(f"{profile_daily_key if profile_daily_raw else 'LIQUIDSNIPER_DAILY_MAX_TRADES'} must be >= 0")
 
     cooldown_seconds = _int_env("LIQUIDSNIPER_COOLDOWN_SECONDS", 900)
     if cooldown_seconds < 0:
@@ -253,12 +268,25 @@ def load_throttle_state(path: Path, now: datetime) -> ThrottleState:
         open_positions.append(
             {
                 "position_id": str(item.get("position_id") or ""),
+                "run_id": str(item.get("run_id") or ""),
                 "symbol": str(item.get("symbol") or ""),
                 "strategy": str(item.get("strategy") or ""),
+                "side": str(item.get("side") or "buy"),
                 "status": str(item.get("status") or "open"),
                 "stop_state": str(item.get("stop_state") or "initial"),
                 "opened_cycle": int(item.get("opened_cycle") or 0),
+                "opened_ts": item.get("opened_ts"),
+                "closed_ts": item.get("closed_ts"),
+                "entry": _to_float(item.get("entry")),
+                "stop_loss_initial": _to_float(item.get("stop_loss_initial")),
+                "tp_levels": [
+                    v for v in (_to_float(x) for x in (item.get("tp_levels") or [])) if v is not None
+                ],
+                "risk_usd": _to_float(item.get("risk_usd")),
                 "tp1_ts": item.get("tp1_ts"),
+                "exit_reason": item.get("exit_reason"),
+                "exit_price": _to_float(item.get("exit_price")),
+                "realized_pnl_usd": _to_float(item.get("realized_pnl_usd")),
             }
         )
     state = ThrottleState(
@@ -384,7 +412,11 @@ def evaluate_gates(
 
     throttle = {
         "idempotency": {"ok": idempotency_key not in state.seen_idempotency_keys},
-        "daily_cap": {"max": policy.daily_max_trades, "actual": state.executed_today, "ok": state.executed_today < policy.daily_max_trades},
+        "daily_cap": {
+            "max": policy.daily_max_trades,
+            "actual": state.executed_today,
+            "ok": (policy.daily_max_trades <= 0) or (state.executed_today < policy.daily_max_trades),
+        },
         "active_risk_cap": {
             "max": policy.max_active_risk_positions,
             "actual": active_risk_positions,

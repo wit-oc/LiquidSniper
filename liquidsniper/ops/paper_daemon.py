@@ -128,6 +128,251 @@ def _as_float(value: object, default: float = 0.0) -> float:
         return default
 
 
+def _parse_iso(ts: object) -> datetime | None:
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _run_artifact_path(run_id: str) -> Path:
+    return Path(_artifact_root()) / "paper_mvp" / "runs" / f"{run_id}.json"
+
+
+def _update_run_artifact_exit(*, run_id: str, exit_reason: str, exit_price: float, realized_pnl_usd: float, now: datetime, tp_hit_level: float | None = None) -> None:
+    path = _run_artifact_path(run_id)
+    if not path.exists():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return
+
+    entry = _as_float(payload.get("entry"), 0.0)
+    risk = _as_float(payload.get("risk_usd"), 0.0)
+    side = str(payload.get("direction") or "buy").lower()
+
+    payload["exit_reason"] = exit_reason
+    payload["exit_price"] = round(float(exit_price), 8)
+    payload["closed_ts"] = now.isoformat()
+    payload["pnl_usd"] = round(float(realized_pnl_usd), 8)
+
+    if entry > 0:
+        if side == "buy":
+            pnl_pct = ((float(exit_price) - entry) / entry) * 100.0
+        else:
+            pnl_pct = ((entry - float(exit_price)) / entry) * 100.0
+        payload["pnl_pct"] = round(float(pnl_pct), 6)
+    if risk > 0:
+        payload["pnl_r"] = round(float(realized_pnl_usd) / risk, 6)
+
+    if tp_hit_level is not None:
+        events = payload.get("tp_events") if isinstance(payload.get("tp_events"), list) else []
+        stamp = now.isoformat()
+        exists = False
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            if abs(_as_float(ev.get("level"), -1.0) - float(tp_hit_level)) < 1e-9:
+                exists = True
+                break
+        if not exists:
+            events.append({"level": round(float(tp_hit_level), 8), "hit_ts": stamp})
+        payload["tp_events"] = events
+
+    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
+def _position_units(entry: float, stop_loss_initial: float, risk_usd: float) -> float:
+    dist = abs(float(entry) - float(stop_loss_initial))
+    if dist <= 0.0:
+        return 0.0
+    return max(0.0, float(risk_usd) / dist)
+
+
+def _backfill_open_position_metadata(state: ThrottleState) -> int:
+    pending = [
+        p
+        for p in state.open_positions
+        if p.get("status") == "open"
+        and (
+            not p.get("run_id")
+            or _as_float(p.get("entry"), 0.0) <= 0.0
+            or _as_float(p.get("stop_loss_initial"), 0.0) <= 0.0
+            or not isinstance(p.get("tp_levels"), list)
+            or len(p.get("tp_levels") or []) == 0
+        )
+    ]
+    if not pending:
+        return 0
+
+    runs_dir = Path(_artifact_root()) / "paper_mvp" / "runs"
+    if not runs_dir.exists():
+        return 0
+
+    executed_by_symbol: dict[str, list[tuple[datetime, dict[str, object]]]] = {}
+    for fp in sorted(runs_dir.glob("*.json")):
+        try:
+            row = json.loads(fp.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if row.get("execution_decision") != "executed":
+            continue
+        if row.get("exit_reason"):
+            continue
+        run_id = str(row.get("run_id") or "")
+        sym = str(row.get("symbol") or "")
+        if not run_id or not sym:
+            continue
+        ts = _parse_iso(row.get("timestamp"))
+        if ts is None:
+            continue
+        executed_by_symbol.setdefault(sym, []).append((ts, row))
+
+    assigned_run_ids = {str(p.get("run_id") or "") for p in state.open_positions if p.get("run_id")}
+    updated = 0
+    for pos in sorted(pending, key=lambda x: int(x.get("opened_cycle") or 0)):
+        sym = str(pos.get("symbol") or "")
+        if not sym:
+            continue
+        candidates = executed_by_symbol.get(sym, [])
+        if not candidates:
+            continue
+
+        tp1_dt = _parse_iso(pos.get("tp1_ts"))
+        pool = [(ts, row) for ts, row in candidates if str(row.get("run_id") or "") not in assigned_run_ids]
+        if tp1_dt is not None:
+            before = [(ts, row) for ts, row in pool if ts <= tp1_dt]
+            if before:
+                pick_ts, pick_row = before[-1]
+            elif pool:
+                pick_ts, pick_row = pool[-1]
+            else:
+                continue
+        else:
+            if not pool:
+                continue
+            pick_ts, pick_row = pool[0]
+
+        run_id = str(pick_row.get("run_id") or "")
+        if not run_id:
+            continue
+        assigned_run_ids.add(run_id)
+
+        pos["run_id"] = run_id
+        pos["opened_ts"] = pick_row.get("timestamp")
+        pos["side"] = str(pick_row.get("direction") or "buy")
+        pos["entry"] = _as_float(pick_row.get("entry"), 0.0)
+        pos["stop_loss_initial"] = _as_float(pick_row.get("stop_loss_initial"), 0.0)
+        pos["tp_levels"] = [
+            _as_float(x)
+            for x in (pick_row.get("tp_levels") or [])
+            if _as_float(x, float("nan")) == _as_float(x, float("nan"))
+        ]
+        pos["risk_usd"] = _as_float(pick_row.get("risk_usd"), 0.0)
+        updated += 1
+
+    return updated
+
+
+def _close_open_positions_for_symbol(state: ThrottleState, *, symbol: str, mark_price: float, now: datetime) -> list[dict[str, object]]:
+    closed: list[dict[str, object]] = []
+    for pos in state.open_positions:
+        if pos.get("status") != "open" or str(pos.get("symbol") or "") != symbol:
+            continue
+
+        entry = _as_float(pos.get("entry"), 0.0)
+        stop = _as_float(pos.get("stop_loss_initial"), 0.0)
+        risk = _as_float(pos.get("risk_usd"), 0.0)
+        tp_levels_raw = pos.get("tp_levels") if isinstance(pos.get("tp_levels"), list) else []
+        tp_levels = [
+            _as_float(x)
+            for x in tp_levels_raw
+            if _as_float(x, float("nan")) == _as_float(x, float("nan"))
+        ]
+        side = str(pos.get("side") or "buy").lower()
+
+        if entry <= 0.0 or stop <= 0.0 or risk <= 0.0 or not tp_levels:
+            continue
+
+        tp2 = float(tp_levels[-1])
+        stop_state = str(pos.get("stop_state") or "initial")
+        exit_reason: str | None = None
+        exit_price: float | None = None
+        tp_hit_level: float | None = None
+
+        if side == "buy":
+            if mark_price >= tp2:
+                exit_reason = "TP2_HIT"
+                exit_price = tp2
+                tp_hit_level = tp2
+            elif stop_state == "be" and mark_price <= entry:
+                exit_reason = "BE_STOP_HIT"
+                exit_price = entry
+            elif stop_state != "be" and mark_price <= stop:
+                exit_reason = "SL_HIT"
+                exit_price = stop
+        else:
+            if mark_price <= tp2:
+                exit_reason = "TP2_HIT"
+                exit_price = tp2
+                tp_hit_level = tp2
+            elif stop_state == "be" and mark_price >= entry:
+                exit_reason = "BE_STOP_HIT"
+                exit_price = entry
+            elif stop_state != "be" and mark_price >= stop:
+                exit_reason = "SL_HIT"
+                exit_price = stop
+
+        if exit_reason is None or exit_price is None:
+            continue
+
+        units = _position_units(entry, stop, risk)
+        if side == "buy":
+            pnl = (float(exit_price) - entry) * units
+        else:
+            pnl = (entry - float(exit_price)) * units
+        pnl = round(float(pnl), 8)
+
+        pos["status"] = "closed"
+        pos["closed_ts"] = now.isoformat()
+        pos["exit_reason"] = exit_reason
+        pos["exit_price"] = round(float(exit_price), 8)
+        pos["realized_pnl_usd"] = pnl
+
+        state.realized_pnl_today_usd = round(float(state.realized_pnl_today_usd) + pnl, 8)
+
+        run_id = str(pos.get("run_id") or "")
+        if run_id:
+            _update_run_artifact_exit(
+                run_id=run_id,
+                exit_reason=exit_reason,
+                exit_price=float(exit_price),
+                realized_pnl_usd=pnl,
+                now=now,
+                tp_hit_level=tp_hit_level,
+            )
+
+        closed.append(
+            {
+                "position_id": str(pos.get("position_id") or ""),
+                "run_id": run_id,
+                "symbol": symbol,
+                "exit_reason": exit_reason,
+                "exit_price": round(float(exit_price), 8),
+                "realized_pnl_usd": pnl,
+            }
+        )
+
+    state.trades_open = sum(1 for p in state.open_positions if p.get("status") == "open")
+    return closed
+
+
 class MarketDataUnavailable(RuntimeError):
     pass
 
@@ -831,6 +1076,7 @@ def _run_lane_cycle(
     executed = 0
     blocked = 0
 
+    _backfill_open_position_metadata(state)
     promoted_count, promoted_ids = _promote_positions_to_be(state, now=now, cycle_count=cycle_count)
 
     for symbol in symbols:
@@ -874,6 +1120,10 @@ def _run_lane_cycle(
             )
             snapshot["close_confirm_attempts"] = int(close_confirm["close_confirm_attempts"])
             snapshot["close_confirm_elapsed_sec"] = int(close_confirm["close_confirm_elapsed_sec"])
+
+        mark_price = _as_float(snapshot.get("entry"), 0.0)
+        if mark_price > 0.0:
+            _close_open_positions_for_symbol(state, symbol=symbol, mark_price=mark_price, now=now)
 
         breakout_regime = bool(snapshot.get("breakout_regime"))
         htf_chop_mode = "soft_hard"
@@ -967,7 +1217,7 @@ def _run_lane_cycle(
 
         result = boundary.execute_with_adapter(
             out["proposal_id"],
-            lambda _: {"status": "paper_fill", "pnl_usd": proposal.get("pnl_usd", 0.0)},
+            lambda _: {"status": "paper_fill", "pnl_usd": 0.0},
         )
         if result.get("decision") == "executed":
             executed += 1
@@ -977,19 +1227,31 @@ def _run_lane_cycle(
             state.open_positions.append(
                 {
                     "position_id": out["proposal_id"],
+                    "run_id": str(proposal.get("trace_id") or proposal.get("run_id") or ""),
                     "symbol": symbol,
                     "strategy": strategy,
+                    "side": str(proposal.get("direction") or "buy"),
                     "status": "open",
                     "stop_state": "initial",
                     "opened_cycle": cycle_count,
+                    "opened_ts": now.isoformat(),
+                    "entry": _as_float(proposal.get("entry"), 0.0),
+                    "stop_loss_initial": _as_float(proposal.get("stop_loss_initial"), 0.0),
+                    "tp_levels": [
+                        _as_float(x)
+                        for x in (proposal.get("tp_levels") or [])
+                        if isinstance(x, (int, float, str))
+                    ],
+                    "risk_usd": _as_float(proposal.get("risk_usd"), 0.0),
                     "tp1_ts": None,
+                    "closed_ts": None,
+                    "exit_reason": None,
+                    "exit_price": None,
+                    "realized_pnl_usd": None,
                 }
             )
             state.trades_open = sum(1 for p in state.open_positions if p.get("status") == "open")
 
-            adapter_result = result.get("adapter_result") if isinstance(result.get("adapter_result"), dict) else {}
-            realized_trade_pnl = _as_float(adapter_result.get("pnl_usd"), _as_float(proposal.get("pnl_usd"), 0.0))
-            state.realized_pnl_today_usd = round(state.realized_pnl_today_usd + realized_trade_pnl, 8)
             proposal["position_state_after"] = {
                 "open_positions": state.trades_open,
                 "active_risk_positions": count_active_risk_positions(state),
