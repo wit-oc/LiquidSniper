@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import time
 import urllib.error
@@ -321,6 +322,48 @@ def _classify_breakout_regime(
     }
 
 
+def _sign(value: float, *, eps: float = 1e-12) -> float:
+    if value > eps:
+        return 1.0
+    if value < -eps:
+        return -1.0
+    return 0.0
+
+
+def _compute_htf_chop_components(closes: list[float], highs: list[float], lows: list[float], *, lookback: int = 14) -> dict[str, float]:
+    n = max(2, int(lookback))
+    if len(closes) < (n + 1) or len(highs) < n or len(lows) < n:
+        return {"ci": 100.0, "er": 100.0, "norm": 100.0}
+
+    c = [float(x) for x in closes[-(n + 1):]]
+    h = [float(x) for x in highs[-n:]]
+    l = [float(x) for x in lows[-n:]]
+    eps = 1e-9
+
+    tr_sum = 0.0
+    for i in range(1, len(c)):
+        prev_close = c[i - 1]
+        high_i = h[i - 1]
+        low_i = l[i - 1]
+        tr_sum += max(high_i - low_i, abs(high_i - prev_close), abs(low_i - prev_close))
+
+    span = max(max(h) - min(l), eps)
+    ci = 100.0 * (0.0 if tr_sum <= eps else (max(0.0, math.log10(tr_sum / span)) / max(math.log10(float(n)), eps)))
+
+    path = sum(abs(c[i] - c[i - 1]) for i in range(1, len(c)))
+    er = abs(c[-1] - c[0]) / max(path, eps)
+    er_chop = 100.0 * (1.0 - er)
+
+    w_ci = float(os.getenv("LIQUIDSNIPER_HTF_CHOP_W_CI", "0.7"))
+    w_er = float(os.getenv("LIQUIDSNIPER_HTF_CHOP_W_ER", "0.3"))
+    norm = max(0.0, min(100.0, (w_ci * ci) + (w_er * er_chop)))
+    return {
+        "ci": round(max(0.0, min(100.0, ci)), 4),
+        "er": round(max(0.0, min(100.0, er_chop)), 4),
+        "norm": round(norm, 4),
+    }
+
+
 def _confirm_candle_close_with_backoff(
     *,
     snapshot: dict[str, object],
@@ -420,6 +463,8 @@ def _build_market_snapshot(
         bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
         entry = round(100 + (seed[3] / 255.0) * 200, 4)
         nearest = round(entry * (0.998 if side == "buy" else 1.002), 4)
+        htf_chop_norm = round(35 + (seed[1] / 255.0) * 35, 2)
+        strict_retest = (seed[2] % 10) < 8
         return {
             "side": side,
             "entry": entry,
@@ -429,12 +474,20 @@ def _build_market_snapshot(
             "target_close_ts": target_close_dt.isoformat(),
             "matched_candle_open_ts": target_open_dt.isoformat(),
             "exchange_offset_ms": int(offset_ms),
-            "htf_chop": round(35 + (seed[1] / 255.0) * 35, 2),
-            "sr_first_retest": (seed[2] % 10) < 8,
+            "htf_chop": htf_chop_norm,
+            "htf_chop_ci": htf_chop_norm,
+            "htf_chop_er": htf_chop_norm,
+            "htf_chop_norm": htf_chop_norm,
+            "htf_chop_penalty": 0.0,
+            "sr_first_retest": strict_retest,
+            "sr_retest_mode": "strict" if strict_retest else "none",
+            "sr_near_retest_used": False,
+            "sr_penalty": 0.0,
+            "breakout_window_ok": bool(bos_choch),
             "sr_distance_bps": 20.0,
             "bos_choch": bos_choch,
             "secondary_hits": int(seed[4] % 5),
-            "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id},
+            "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id, "votes": {}},
             "sr_context": {
                 "nearest_htf_level": nearest,
                 "nearest_itf_level": nearest,
@@ -494,11 +547,13 @@ def _build_market_snapshot(
     else:
         side = "buy"
 
-    # Chop proxy: path inefficiency on ITF closes (higher => choppier).
-    segment = closes_itf[-32:] if len(closes_itf) >= 32 else closes_itf
-    path = sum(abs(segment[i] - segment[i - 1]) for i in range(1, len(segment)))
-    net = abs(segment[-1] - segment[0]) if len(segment) >= 2 else 0.0
-    htf_chop = 100.0 if net <= 1e-9 else min(100.0, (path / net) * 25.0)
+    chop_components = _compute_htf_chop_components(
+        closes_htf,
+        [float(c["high"]) for c in c_htf],
+        [float(c["low"]) for c in c_htf],
+        lookback=int(os.getenv("LIQUIDSNIPER_HTF_CHOP_LOOKBACK", "14")),
+    )
+    htf_chop = float(chop_components["norm"])
 
     sr_1h, a = _fetch_klines_with_retry(symbol, "1h", limit=220)
     data_fetch_attempts += a
@@ -536,7 +591,8 @@ def _build_market_snapshot(
     nearest_support = (nearest_support_obj or {}).get("bounds", {}).get("mid") if nearest_support_obj else None
     nearest_resistance = (nearest_resistance_obj or {}).get("bounds", {}).get("mid") if nearest_resistance_obj else None
     sr_distance_bps = float(sr_query.get("distance_bps") or 999999.0)
-    sr_first_retest = bool(sr_query.get("first_retest_eligible")) and sr_distance_bps <= float(policy.sr_retest_bps_max)
+    sr_first_retest_eligible = bool(sr_query.get("first_retest_eligible"))
+    sr_strict_ok = sr_first_retest_eligible and sr_distance_bps <= float(policy.sr_retest_bps_max)
     highs_entry = [float(c["high"]) for c in c_entry]
     lows_entry = [float(c["low"]) for c in c_entry]
     bos_choch = close_entry > max(highs_entry[-16:-1]) if side == "buy" else close_entry < min(lows_entry[-16:-1])
@@ -552,7 +608,39 @@ def _build_market_snapshot(
         ema50_htf=ema50_htf,
     )
 
-    bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
+    breakout_window_ok = bool(bos_choch)
+    near_lane_allowed = policy.profile_id in {"I", "C"}
+    near_band_ok = float(policy.sr_retest_bps_max) < sr_distance_bps <= float(policy.sr_retest_near_bps_max)
+    sr_near_retest_used = bool((not sr_strict_ok) and near_lane_allowed and breakout_regime and breakout_window_ok and near_band_ok and sr_first_retest_eligible)
+    sr_first_retest = bool(sr_strict_ok or sr_near_retest_used)
+    sr_retest_mode = "strict" if sr_strict_ok else ("near_breakout" if sr_near_retest_used else "none")
+    sr_penalty = 0.0
+    if sr_near_retest_used:
+        denom = max(float(policy.sr_retest_near_bps_max) - float(policy.sr_retest_bps_max), 1e-9)
+        ratio = max(0.0, min(1.0, (sr_distance_bps - float(policy.sr_retest_bps_max)) / denom))
+        sr_penalty = ratio * float(policy.sr_near_penalty_max)
+
+    htf_chop_penalty = 0.0
+    if htf_chop > float(policy.htf_chop_soft_max):
+        denom = max(float(policy.htf_chop_hard_max) - float(policy.htf_chop_soft_max), 1e-9)
+        ratio = max(0.0, min(1.0, (htf_chop - float(policy.htf_chop_soft_max)) / denom))
+        htf_chop_penalty = ratio * float(policy.htf_chop_penalty_max)
+
+    nearest_zone = nearest_support_obj if side == "buy" else nearest_resistance_obj
+    nearest_zone_mid = float((nearest_zone or {}).get("bounds", {}).get("mid") or close_entry)
+    v_htf = _sign(ema20_htf - ema50_htf)
+    v_itf = _sign(ema20_itf - ema50_itf)
+    v_structure = _sign((1.0 if bos_choch else -1.0) if side == "buy" else (-1.0 if bos_choch else 1.0))
+    v_sr_context = _sign((close_entry - nearest_zone_mid) if side == "buy" else (nearest_zone_mid - close_entry))
+    swing_votes = {"v_htf": v_htf, "v_itf": v_itf, "v_structure": v_structure, "v_sr_context": v_sr_context}
+
+    bias = compute_bias(
+        profile_id=policy.profile_id,
+        side=side,
+        bos_choch=bos_choch,
+        swing_votes=swing_votes,
+        swing_bias_neutral_band=policy.swing_bias_neutral_band,
+    )
 
     ema20_entry = _ema(closes_entry[-80:], 20)
     ema50_entry = _ema(closes_entry[-80:], 50)
@@ -578,11 +666,19 @@ def _build_market_snapshot(
         "matched_candle_open_ts": target_candle["open_time"].isoformat() if target_candle is not None else None,
         "exchange_offset_ms": int(offset_ms),
         "htf_chop": round(float(htf_chop), 4),
+        "htf_chop_ci": float(chop_components["ci"]),
+        "htf_chop_er": float(chop_components["er"]),
+        "htf_chop_norm": round(float(htf_chop), 4),
+        "htf_chop_penalty": round(float(htf_chop_penalty), 4),
         "sr_first_retest": bool(sr_first_retest),
+        "sr_retest_mode": sr_retest_mode,
+        "sr_near_retest_used": bool(sr_near_retest_used),
+        "sr_penalty": round(float(sr_penalty), 4),
+        "breakout_window_ok": bool(breakout_window_ok),
         "sr_distance_bps": round(float(sr_distance_bps), 4),
         "bos_choch": bool(bos_choch),
         "secondary_hits": int(secondary_hits),
-        "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id},
+        "bias_snapshot": {"direction": bias.direction, "mechanism": bias.mechanism, "profile_id": policy.profile_id, "votes": swing_votes},
         "sr_context": {
             "entry_tf": entry_tf,
             "itf_tf": policy.itf_tf,
@@ -594,8 +690,13 @@ def _build_market_snapshot(
             "nearest_htf_level": nearest_support if side == "buy" else nearest_resistance,
             "nearest_itf_level": nearest_support if side == "buy" else nearest_resistance,
             "distance_bps": round(float(sr_distance_bps), 4),
-            "first_retest_eligible": bool(sr_first_retest),
+            "first_retest_eligible": bool(sr_first_retest_eligible),
+            "gate_retest_pass": bool(sr_first_retest),
+            "retest_mode": sr_retest_mode,
+            "near_retest_used": bool(sr_near_retest_used),
             "retest_bps_max": float(policy.sr_retest_bps_max),
+            "retest_near_bps_max": float(policy.sr_retest_near_bps_max),
+            "sr_penalty": round(float(sr_penalty), 4),
             "gate_eligible": bool(sr_query.get("gate_eligible")),
             "reason_codes": list(sr_query.get("reason_codes") or []),
         },
@@ -629,7 +730,9 @@ def _build_proposal(
     # Score is market-feature-derived with a small deterministic tie-breaker.
     secondary_hits = int(market_snapshot.get("secondary_hits") or 0)
     htf_chop = float(market_snapshot.get("htf_chop") or 100.0)
-    score = round(max(0.0, min(10.0, 6.0 + (secondary_hits * 0.7) - max(0.0, (htf_chop - 35.0) / 25.0) + (seed[0] / 2550.0))), 2)
+    score_total_raw = max(0.0, min(10.0, 6.0 + (secondary_hits * 0.7) - max(0.0, (htf_chop - 35.0) / 25.0) + (seed[0] / 2550.0)))
+    score_penalty = float(market_snapshot.get("htf_chop_penalty") or 0.0) + float(market_snapshot.get("sr_penalty") or 0.0)
+    score = round(max(0.0, min(10.0, score_total_raw - score_penalty)), 2)
 
     risk_usd = float(os.getenv("LIQUIDSNIPER_RISK_USD_PER_TRADE", "25"))
     pnl_usd = round(((seed[2] - 128) / 128.0) * risk_usd * 0.20, 2)
@@ -654,6 +757,10 @@ def _build_proposal(
         "pnl_usd": pnl_usd,
         "anchor_profile_id": profile_policy.profile_id,
         "htf_anchor_tf": profile_policy.htf_anchor_tf,
+        "score_total_raw": round(score_total_raw, 4),
+        "score_total_adj": score,
+        "htf_chop_penalty": round(float(market_snapshot.get("htf_chop_penalty") or 0.0), 4),
+        "sr_penalty": round(float(market_snapshot.get("sr_penalty") or 0.0), 4),
         "score_total": score,
         "score_gate_passed": score >= 6.0,
         "decision_tier": "high_priority" if score >= 8.5 else "publish_candidate",
@@ -769,9 +876,9 @@ def _run_lane_cycle(
             snapshot["close_confirm_elapsed_sec"] = int(close_confirm["close_confirm_elapsed_sec"])
 
         breakout_regime = bool(snapshot.get("breakout_regime"))
-        htf_chop_mode = "breakout_softened" if breakout_regime else "strict"
-        soften_points = float(os.getenv("LIQUIDSNIPER_HTF_CHOP_SOFTEN_POINTS", "8"))
-        htf_chop_threshold_effective = min(100.0, float(profile_policy.htf_chop_max) + (soften_points if breakout_regime else 0.0))
+        htf_chop_mode = "soft_hard"
+        htf_chop_soft_effective = float(profile_policy.htf_chop_soft_max)
+        htf_chop_hard_effective = float(profile_policy.htf_chop_hard_max)
 
         idempotency_key = f"paper-{profile_policy.profile_id}-{symbol}-{snapshot['candle_ts']}"
 
@@ -784,12 +891,22 @@ def _run_lane_cycle(
             candle_closed=bool(snapshot["candle_closed"]),
             candle_ts=str(snapshot["candle_ts"]),
             htf_chop=float(snapshot["htf_chop"]),
-            htf_chop_max_effective=float(htf_chop_threshold_effective),
+            htf_chop_ci=float(snapshot.get("htf_chop_ci") or 100.0),
+            htf_chop_er=float(snapshot.get("htf_chop_er") or 100.0),
+            htf_chop_soft_max_effective=float(htf_chop_soft_effective),
+            htf_chop_hard_max_effective=float(htf_chop_hard_effective),
             htf_chop_mode=htf_chop_mode,
+            htf_chop_penalty=float(snapshot.get("htf_chop_penalty") or 0.0),
             sr_first_retest=bool(snapshot["sr_first_retest"]),
             sr_distance_bps=float(snapshot.get("sr_distance_bps") or 0.0),
+            sr_retest_mode=str(snapshot.get("sr_retest_mode") or "strict"),
+            sr_near_retest_used=bool(snapshot.get("sr_near_retest_used")),
+            sr_penalty=float(snapshot.get("sr_penalty") or 0.0),
+            breakout_regime=bool(snapshot.get("breakout_regime")),
+            breakout_window_ok=bool(snapshot.get("breakout_window_ok")),
             bos_choch=bool(snapshot["bos_choch"]),
             secondary_hits=int(snapshot["secondary_hits"]),
+            swing_votes=(snapshot.get("bias_snapshot") or {}).get("votes") if isinstance(snapshot.get("bias_snapshot"), dict) else None,
         )
 
         proposal, policy = _build_proposal(
@@ -812,7 +929,14 @@ def _run_lane_cycle(
         proposal["data_fetch_attempts"] = int(snapshot.get("data_fetch_attempts") or 0)
         proposal["breakout_regime"] = bool(breakout_regime)
         proposal["htf_chop_mode"] = htf_chop_mode
-        proposal["htf_chop_threshold_effective"] = round(float(htf_chop_threshold_effective), 4)
+        proposal["htf_chop_threshold_effective"] = round(float(htf_chop_hard_effective), 4)
+        proposal["htf_chop_soft_max"] = round(float(htf_chop_soft_effective), 4)
+        proposal["htf_chop_hard_max"] = round(float(htf_chop_hard_effective), 4)
+        proposal["htf_chop_ci"] = round(float(snapshot.get("htf_chop_ci") or 100.0), 4)
+        proposal["htf_chop_er"] = round(float(snapshot.get("htf_chop_er") or 100.0), 4)
+        proposal["htf_chop_norm"] = round(float(snapshot.get("htf_chop_norm") or snapshot.get("htf_chop") or 100.0), 4)
+        proposal["sr_retest_mode"] = str(snapshot.get("sr_retest_mode") or "strict")
+        proposal["sr_near_retest_used"] = bool(snapshot.get("sr_near_retest_used"))
         proposal["position_state_before"] = {
             "open_positions": state.trades_open,
             "active_risk_positions": count_active_risk_positions(state),

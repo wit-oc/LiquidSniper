@@ -15,9 +15,15 @@ _PROFILE_DEFAULTS = {
         "ltf_trigger_tfs": ["1H", "15m"],
         "gate": {
             "require_candle_close": True,
-            "htf_chop_max": 45.0,
+            "htf_chop_soft_max": 62.0,
+            "htf_chop_hard_max": 76.0,
+            "htf_chop_penalty_max": 0.8,
             "require_sr_first_retest": True,
-            "sr_retest_bps_max": 60.0,
+            "sr_retest_bps_max": 35.0,
+            "sr_retest_near_bps_max": 35.0,
+            "sr_near_penalty_max": 0.0,
+            "breakout_relax_window_candles": 1,
+            "swing_bias_neutral_band": 0.55,
             "min_secondary_confluence_hits": 2,
         },
     },
@@ -27,9 +33,15 @@ _PROFILE_DEFAULTS = {
         "ltf_trigger_tfs": ["15m", "5m"],
         "gate": {
             "require_candle_close": True,
-            "htf_chop_max": 50.0,
+            "htf_chop_soft_max": 68.0,
+            "htf_chop_hard_max": 82.0,
+            "htf_chop_penalty_max": 1.0,
             "require_sr_first_retest": True,
-            "sr_retest_bps_max": 45.0,
+            "sr_retest_bps_max": 18.0,
+            "sr_retest_near_bps_max": 30.0,
+            "sr_near_penalty_max": 0.7,
+            "breakout_relax_window_candles": 1,
+            "swing_bias_neutral_band": 0.55,
             "min_secondary_confluence_hits": 2,
         },
     },
@@ -39,9 +51,15 @@ _PROFILE_DEFAULTS = {
         "ltf_trigger_tfs": ["5m", "1m"],
         "gate": {
             "require_candle_close": True,
-            "htf_chop_max": 55.0,
+            "htf_chop_soft_max": 72.0,
+            "htf_chop_hard_max": 86.0,
+            "htf_chop_penalty_max": 1.2,
             "require_sr_first_retest": True,
-            "sr_retest_bps_max": 35.0,
+            "sr_retest_bps_max": 20.0,
+            "sr_retest_near_bps_max": 35.0,
+            "sr_near_penalty_max": 0.8,
+            "breakout_relax_window_candles": 1,
+            "swing_bias_neutral_band": 0.55,
             "min_secondary_confluence_hits": 1,
         },
     },
@@ -55,9 +73,15 @@ class ProfilePolicy:
     itf_tf: str
     ltf_trigger_tfs: tuple[str, ...]
     require_candle_close: bool
-    htf_chop_max: float
+    htf_chop_soft_max: float
+    htf_chop_hard_max: float
+    htf_chop_penalty_max: float
     require_sr_first_retest: bool
     sr_retest_bps_max: float
+    sr_retest_near_bps_max: float
+    sr_near_penalty_max: float
+    breakout_relax_window_candles: int
+    swing_bias_neutral_band: float
     min_secondary_confluence_hits: int
     cooldown_seconds: int
     daily_max_trades: int
@@ -134,12 +158,34 @@ def count_active_risk_positions(state: ThrottleState) -> int:
     return sum(1 for p in state.open_positions if str(p.get("status", "open")) == "open" and str(p.get("stop_state", "initial")) != "be")
 
 
-def compute_bias(*, profile_id: str, side: str, bos_choch: bool) -> BiasDecision:
+def compute_bias(
+    *,
+    profile_id: str,
+    side: str,
+    bos_choch: bool,
+    swing_votes: dict[str, float] | None = None,
+    swing_bias_neutral_band: float = 0.55,
+) -> BiasDecision:
     expected = "long" if side == "buy" else "short"
+    if profile_id != "S":
+        if bos_choch:
+            return BiasDecision(direction=expected, mechanism="bos_choch_confirmed")
+        return BiasDecision(direction=expected, mechanism="ema_structure_proxy")
+
+    votes = swing_votes or {}
+    if votes:
+        bias_conf = (
+            0.45 * float(votes.get("v_htf", 0.0))
+            + 0.30 * float(votes.get("v_itf", 0.0))
+            + 0.15 * float(votes.get("v_structure", 0.0))
+            + 0.10 * float(votes.get("v_sr_context", 0.0))
+        )
+        if abs(bias_conf) < max(0.0, float(swing_bias_neutral_band)):
+            return BiasDecision(direction="neutral", mechanism="swing_weighted_neutral")
+        return BiasDecision(direction=("long" if bias_conf > 0 else "short"), mechanism="swing_weighted_vote")
+
     if bos_choch:
         return BiasDecision(direction=expected, mechanism="bos_choch_confirmed")
-    if profile_id in {"I", "C"}:
-        return BiasDecision(direction=expected, mechanism="ema_structure_proxy")
     return BiasDecision(direction="neutral", mechanism="structure_unconfirmed")
 
 
@@ -176,9 +222,15 @@ def load_profile_policy() -> ProfilePolicy:
         itf_tf=str(spec["itf_tf"]),
         ltf_trigger_tfs=tuple(str(x) for x in spec["ltf_trigger_tfs"]),
         require_candle_close=_bool_env("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", bool(gate["require_candle_close"])),
-        htf_chop_max=_float_env("LIQUIDSNIPER_HTF_CHOP_MAX", float(gate["htf_chop_max"])),
+        htf_chop_soft_max=_float_env("LIQUIDSNIPER_HTF_CHOP_SOFT_MAX", float(gate["htf_chop_soft_max"])),
+        htf_chop_hard_max=_float_env("LIQUIDSNIPER_HTF_CHOP_HARD_MAX", float(gate["htf_chop_hard_max"])),
+        htf_chop_penalty_max=_float_env("LIQUIDSNIPER_HTF_CHOP_PENALTY_MAX", float(gate["htf_chop_penalty_max"])),
         require_sr_first_retest=_bool_env("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", bool(gate["require_sr_first_retest"])),
         sr_retest_bps_max=_float_env("LIQUIDSNIPER_SR_RETEST_BPS_MAX", float(gate["sr_retest_bps_max"])),
+        sr_retest_near_bps_max=_float_env("LIQUIDSNIPER_SR_RETEST_NEAR_BPS_MAX", float(gate["sr_retest_near_bps_max"])),
+        sr_near_penalty_max=_float_env("LIQUIDSNIPER_SR_NEAR_PENALTY_MAX", float(gate["sr_near_penalty_max"])),
+        breakout_relax_window_candles=max(0, _int_env("LIQUIDSNIPER_BREAKOUT_RELAX_WINDOW_CANDLES", int(gate["breakout_relax_window_candles"]))),
+        swing_bias_neutral_band=max(0.0, _float_env("LIQUIDSNIPER_SWING_BIAS_NEUTRAL_BAND", float(gate["swing_bias_neutral_band"]))),
         min_secondary_confluence_hits=min_secondary,
         cooldown_seconds=cooldown_seconds,
         daily_max_trades=daily_max_trades,
@@ -249,19 +301,36 @@ def evaluate_gates(
     candle_closed: bool,
     candle_ts: str,
     htf_chop: float,
-    htf_chop_max_effective: float | None = None,
-    htf_chop_mode: str = "strict",
+    htf_chop_ci: float | None = None,
+    htf_chop_er: float | None = None,
+    htf_chop_soft_max_effective: float | None = None,
+    htf_chop_hard_max_effective: float | None = None,
+    htf_chop_mode: str = "soft_hard",
+    htf_chop_penalty: float = 0.0,
     sr_first_retest: bool,
     sr_distance_bps: float,
+    sr_retest_mode: str = "strict",
+    sr_near_retest_used: bool = False,
+    sr_penalty: float = 0.0,
+    breakout_regime: bool = False,
+    breakout_window_ok: bool = False,
     bos_choch: bool,
     secondary_hits: int,
+    swing_votes: dict[str, float] | None = None,
 ) -> GateDecision:
     daily_loss_usd = max(0.0, -float(state.realized_pnl_today_usd))
-    bias = compute_bias(profile_id=policy.profile_id, side=side, bos_choch=bos_choch)
+    bias = compute_bias(
+        profile_id=policy.profile_id,
+        side=side,
+        bos_choch=bos_choch,
+        swing_votes=swing_votes,
+        swing_bias_neutral_band=policy.swing_bias_neutral_band,
+    )
     expected_bias = "long" if side == "buy" else "short"
     active_risk_positions = count_active_risk_positions(state)
 
-    htf_chop_max_value = float(htf_chop_max_effective) if htf_chop_max_effective is not None else float(policy.htf_chop_max)
+    htf_soft_max_value = float(htf_chop_soft_max_effective) if htf_chop_soft_max_effective is not None else float(policy.htf_chop_soft_max)
+    htf_hard_max_value = float(htf_chop_hard_max_effective) if htf_chop_hard_max_effective is not None else float(policy.htf_chop_hard_max)
 
     checks: dict[str, Any] = {
         "daily_loss_circuit": {
@@ -272,17 +341,37 @@ def evaluate_gates(
         },
         "candle_close": {"required": policy.require_candle_close, "ok": (candle_closed or not policy.require_candle_close), "candle_ts": candle_ts},
         "htf_chop": {
-            "max": float(policy.htf_chop_max),
-            "max_effective": round(htf_chop_max_value, 4),
+            "soft_max": float(policy.htf_chop_soft_max),
+            "hard_max": float(policy.htf_chop_hard_max),
+            "soft_max_effective": round(htf_soft_max_value, 4),
+            "hard_max_effective": round(htf_hard_max_value, 4),
             "mode": str(htf_chop_mode),
             "actual": round(float(htf_chop), 4),
-            "ok": float(htf_chop) <= htf_chop_max_value,
+            "ci": round(float(htf_chop_ci), 4) if htf_chop_ci is not None else None,
+            "er_chop": round(float(htf_chop_er), 4) if htf_chop_er is not None else None,
+            "penalty_max": float(policy.htf_chop_penalty_max),
+            "penalty": round(float(htf_chop_penalty), 4),
+            "ok": float(htf_chop) <= htf_hard_max_value,
         },
-        "bias": {"expected": expected_bias, "actual": bias.direction, "mechanism": bias.mechanism, "ok": bias.direction == expected_bias},
+        "bias": {
+            "expected": expected_bias,
+            "actual": bias.direction,
+            "mechanism": bias.mechanism,
+            "neutral_band": float(policy.swing_bias_neutral_band),
+            "votes": swing_votes or {},
+            "ok": bias.direction == expected_bias,
+        },
         "sr_first_retest": {
             "required": policy.require_sr_first_retest,
             "distance_bps": round(float(sr_distance_bps), 4),
             "max_distance_bps": float(policy.sr_retest_bps_max),
+            "near_max_distance_bps": float(policy.sr_retest_near_bps_max),
+            "near_penalty_max": float(policy.sr_near_penalty_max),
+            "retest_mode": str(sr_retest_mode),
+            "near_retest_used": bool(sr_near_retest_used),
+            "breakout_regime": bool(breakout_regime),
+            "breakout_window_ok": bool(breakout_window_ok),
+            "penalty": round(float(sr_penalty), 4),
             "actual": bool(sr_first_retest),
             "ok": (bool(sr_first_retest) or not policy.require_sr_first_retest),
         },
