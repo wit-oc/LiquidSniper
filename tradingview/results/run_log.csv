@@ -1,0 +1,6 @@
+run_id,phase,symbol,timeframe,window_start,window_end,baseline_id,is_control,delta_summary,value_changes,profile,use_profile_presets,allow_longs,allow_shorts,trigger_score,score_gate_min,htf_chop_hard_max,htf_chop_penalty_max,atr_stop_mult,tp_r,cooldown_bars,net_pnl_pct,net_pnl_usdt,profit_factor,max_dd_pct,max_dd_usdt,total_trades,win_rate_pct,avg_trade_pct,commission_usdt,notes
+B0,baseline,BTCUSDT,4H,2022-01-01,now,B0,true,"control baseline","none",I,true,true,true,6.8,6.0,82.0,1.0,1.5,2.0,3,,,,,,,,,,"Fill metrics from TradingView for this control row first"
+P1-LONG,phase1,BTCUSDT,4H,2022-01-01,now,B0,false,"long-only diagnostic","allow_shorts: true -> false",I,true,true,false,6.8,6.0,82.0,1.0,1.5,2.0,3,,,,,,,,,,
+A2-LONG,phase2A,BTCUSDT,4H,2022-01-01,now,B0,false,"chop hard max tighter","htf_chop_hard_max: 82.0 -> 77.0",I,true,true,false,6.8,6.0,77.0,1.0,1.5,2.0,3,,,,,,,,,,
+B2-LONG,phase2B,BTCUSDT,4H,2022-01-01,now,B0,false,"higher trigger threshold","trigger_score: 6.8 -> 7.1",I,true,true,false,7.1,6.0,82.0,1.0,1.5,2.0,3,,,,,,,,,,
+C2-LONG,phase2C,BTCUSDT,4H,2022-01-01,now,B0,false,"wider stop + higher TP","atr_stop_mult: 1.5 -> 1.8; tp_r: 2.0 -> 2.2",I,true,true,false,6.8,6.0,82.0,1.0,1.8,2.2,3,,,,,,,,,,
