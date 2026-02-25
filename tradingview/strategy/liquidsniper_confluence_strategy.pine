@@ -1,5 +1,5 @@
 //@version=5
-strategy("LiquidSniper Confluence Strategy", overlay=true, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.05, max_labels_count=500)
+strategy("LiquidSniper Confluence Strategy", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, commission_type=strategy.commission.percent, commission_value=0.05, max_labels_count=500)
 
 // ------------------------------------------------------
 // LiquidSniper Pine Strategy - Phase 2 parity pass
@@ -44,7 +44,6 @@ risk_mode = input.string("ATR", "Risk Model", options=["ATR", "Percent"], group=
 atr_stop_mult = input.float(1.5, "ATR Stop Mult", minval=0.1, step=0.1, group=group_risk)
 rr_take_profit = input.float(2.0, "Take Profit (R)", minval=0.5, step=0.1, group=group_risk)
 stop_loss_pct = input.float(0.7, "Stop Loss % (Percent mode)", minval=0.1, step=0.1, group=group_risk)
-qty_pct = input.float(10.0, "Position Size %", minval=0.1, maxval=100.0, step=0.1, group=group_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=group_risk)
 
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
@@ -171,11 +170,11 @@ var int last_trade_bar = na
 can_trade = na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)
 
 if allow_longs and long_trigger and can_trade and strategy.position_size <= 0
-    strategy.entry("LS-LONG", strategy.long, qty_percent=qty_pct)
+    strategy.entry("LS-LONG", strategy.long)
     last_trade_bar := bar_index
 
 if allow_shorts and short_trigger and can_trade and strategy.position_size >= 0
-    strategy.entry("LS-SHORT", strategy.short, qty_percent=qty_pct)
+    strategy.entry("LS-SHORT", strategy.short)
     last_trade_bar := bar_index
 
 atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
