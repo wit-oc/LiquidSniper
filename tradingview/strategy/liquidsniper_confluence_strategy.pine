@@ -2,13 +2,13 @@
 strategy("LiquidSniper Confluence Strategy", overlay=true, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.05, max_labels_count=500)
 
 // ------------------------------------------------------
-// Strategy wrapper for LiquidSniper confluence signals.
-// Keeps signal model close to indicator, then applies
-// deterministic entry/exit/risk for backtesting.
+// LiquidSniper Pine Strategy - Phase 2 parity pass
+// Signal + gating mirrors indicator parity model,
+// then strategy adds deterministic entries/exits.
 // ------------------------------------------------------
 
 group_meta = "00. Metadata"
-ls_version = input.string("tv-strategy-v0.1.0", "Logic Version", group=group_meta)
+ls_version = input.string("tv-strategy-v0.2.0", "Logic Version", group=group_meta)
 config_profile_id = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=group_meta)
 
 group_mode = "01. Mode"
@@ -17,27 +17,27 @@ enable_tf_auto_adjust = input.bool(true, "Enable TF Auto-Adjust", group=group_mo
 allow_longs = input.bool(true, "Allow Longs", group=group_mode)
 allow_shorts = input.bool(true, "Allow Shorts", group=group_mode)
 
-group_signal = "02. Signal Inputs"
-ema_fast_len = input.int(20, "ITF Fast EMA", minval=1, group=group_signal)
-ema_slow_len = input.int(50, "ITF Slow EMA", minval=2, group=group_signal)
-atr_len = input.int(14, "ATR Length", minval=1, group=group_signal)
-atr_zone_mult = input.float(1.0, "ATR Zone Mult", minval=0.1, step=0.1, group=group_signal)
-chop_soft_max = input.float(68.0, "HTF Chop Soft Max", minval=0.0, maxval=100.0, group=group_signal)
-chop_hard_max = input.float(82.0, "HTF Chop Hard Max", minval=0.0, maxval=100.0, group=group_signal)
-watch_threshold = input.float(60.0, "Watch Threshold", minval=0.0, maxval=100.0, group=group_signal)
-trigger_threshold = input.float(75.0, "Trigger Threshold", minval=0.0, maxval=100.0, group=group_signal)
+// Policy/score inputs
+group_policy = "02. Policy & Score"
+require_candle_close = input.bool(true, "Require Candle Close", group=group_policy)
+use_soft_hard_chop = input.bool(true, "Use Soft/Hard Chop Penalty", group=group_policy)
+htf_chop_w_ci = input.float(0.7, "HTF Chop Weight CI", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
+htf_chop_w_er = input.float(0.3, "HTF Chop Weight ER", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
 
-group_weights = "03. Confluence Weights"
-use_htf_regime = input.bool(true, "Use HTF Regime", group=group_weights)
-w_htf_regime = input.float(35.0, "Weight HTF Regime", step=0.5, group=group_weights)
-use_sr_retest = input.bool(true, "Use SR Retest", group=group_weights)
-w_sr_retest = input.float(30.0, "Weight SR Retest", step=0.5, group=group_weights)
-use_ltf_shift = input.bool(true, "Use LTF Shift", group=group_weights)
-w_ltf_shift = input.float(20.0, "Weight LTF Shift", step=0.5, group=group_weights)
-use_vol_regime = input.bool(true, "Use Vol Regime", group=group_weights)
-w_vol_regime = input.float(15.0, "Weight Vol Regime", step=0.5, group=group_weights)
+htf_chop_soft_max = input.float(config_profile_id == "S" ? 62.0 : config_profile_id == "I" ? 68.0 : 72.0, "HTF Chop Soft Max", minval=0.0, maxval=100.0, group=group_policy)
+htf_chop_hard_max = input.float(config_profile_id == "S" ? 76.0 : config_profile_id == "I" ? 82.0 : 86.0, "HTF Chop Hard Max", minval=0.0, maxval=100.0, group=group_policy)
+htf_chop_penalty_max = input.float(config_profile_id == "S" ? 0.8 : config_profile_id == "I" ? 1.0 : 1.2, "HTF Chop Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
 
-group_risk = "04. Risk & Exits"
+sr_retest_bps_max = input.float(config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 18.0 : 20.0, "SR Strict Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
+sr_retest_near_bps_max = input.float(config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 30.0 : 35.0, "SR Near Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
+sr_near_penalty_max = input.float(config_profile_id == "S" ? 0.0 : config_profile_id == "I" ? 0.7 : 0.8, "SR Near Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+
+min_secondary_hits = input.int(config_profile_id == "C" ? 1 : 2, "Min Secondary Hits", minval=0, maxval=4, group=group_policy)
+score_gate_min = input.float(6.0, "Score Gate Min (0-10)", minval=0.0, maxval=10.0, group=group_policy)
+trigger_score = input.float(7.5, "Trigger Score (0-10)", minval=0.0, maxval=10.0, group=group_policy)
+
+// Strategy risk controls
+group_risk = "03. Risk & Exits"
 risk_mode = input.string("ATR", "Risk Model", options=["ATR", "Percent"], group=group_risk)
 atr_stop_mult = input.float(1.5, "ATR Stop Mult", minval=0.1, step=0.1, group=group_risk)
 rr_take_profit = input.float(2.0, "Take Profit (R)", minval=0.5, step=0.1, group=group_risk)
@@ -47,51 +47,104 @@ cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=group_risk)
 
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
 safe_div(n, d) => d == 0.0 ? 0.0 : n / d
+sign_eps(v) => v > 1e-12 ? 1.0 : v < -1e-12 ? -1.0 : 0.0
+bps_dist(px, anchor) =>
+    denom = math.max(math.abs(anchor), 1e-9)
+    math.abs(px - anchor) / denom * 10000.0
+
+entry_tf = config_profile_id == "S" ? "60" : config_profile_id == "I" ? "15" : "5"
+itf_tf = config_profile_id == "S" ? "240" : config_profile_id == "I" ? "60" : "15"
+htf_tf = config_profile_id == "S" ? "D" : config_profile_id == "I" ? "240" : "60"
 
 is_ltf = timeframe.isintraday and timeframe.multiplier <= 15
 is_mtf = timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier <= 240
 style_auto = is_ltf ? "Scalp" : is_mtf ? "Intraday" : "Swing"
 style = trade_style == "Auto" ? style_auto : trade_style
 strictness = enable_tf_auto_adjust ? (style == "Scalp" ? 0.95 : style == "Intraday" ? 1.0 : 1.05) : 1.0
-watch_th = watch_threshold * strictness
-trigger_th = trigger_threshold * strictness
+trigger_score_eff = trigger_score * strictness
 
-ema_fast = ta.ema(close, ema_fast_len)
-ema_slow = ta.ema(close, ema_slow_len)
-trend_up = ema_fast > ema_slow
-trend_dn = ema_fast < ema_slow
-atr = ta.atr(atr_len)
-range_window = ta.highest(high, 14) - ta.lowest(low, 14)
-chop_proxy = range_window == 0.0 ? 100.0 : clamp((atr * 14.0) / range_window * 100.0, 0.0, 100.0)
+entry_close = request.security(syminfo.tickerid, entry_tf, close)
+entry_ema20 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 20))
+entry_ema50 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 50))
+itf_close = request.security(syminfo.tickerid, itf_tf, close)
+itf_ema20 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 20))
+itf_ema50 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 50))
+htf_close = request.security(syminfo.tickerid, htf_tf, close)
+htf_ema20 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 20))
+htf_ema50 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 50))
 
-hh = ta.highest(high, 20)
-ll = ta.lowest(low, 20)
-ltf_shift_long = close > hh[1]
-ltf_shift_short = close < ll[1]
+side_buy = itf_ema20 > itf_ema50 and htf_ema20 > htf_ema50
+side_sell = itf_ema20 < itf_ema50 and htf_ema20 < htf_ema50
+is_buy = side_buy or not side_sell
 
-basis = ema_slow
-zone_top = basis + atr * atr_zone_mult
-zone_bot = basis - atr * atr_zone_mult
-near_zone = close >= zone_bot and close <= zone_top
+bos_choch_buy = entry_close > request.security(syminfo.tickerid, entry_tf, ta.highest(high, 15))[1]
+bos_choch_sell = entry_close < request.security(syminfo.tickerid, entry_tf, ta.lowest(low, 15))[1]
+bos_choch = is_buy ? bos_choch_buy : bos_choch_sell
 
-htf_regime_long = trend_up ? 100.0 : 0.0
-htf_regime_short = trend_dn ? 100.0 : 0.0
-sr_retest_long = near_zone and trend_up ? 85.0 : 40.0
-sr_retest_short = near_zone and trend_dn ? 85.0 : 40.0
-ltf_shift_score_long = ltf_shift_long ? 100.0 : 35.0
-ltf_shift_score_short = ltf_shift_short ? 100.0 : 35.0
-vol_ok = chop_proxy <= chop_hard_max
-vol_quality = chop_proxy <= chop_soft_max ? 100.0 : vol_ok ? 70.0 : 25.0
+chop_len = 14
+htf_ci = request.security(syminfo.tickerid, htf_tf, ta.ci(chop_len))
+htf_path = request.security(syminfo.tickerid, htf_tf, ta.sum(math.abs(close - close[1]), chop_len))
+htf_net = request.security(syminfo.tickerid, htf_tf, math.abs(close - close[chop_len]))
+htf_er = safe_div(htf_net, math.max(htf_path, 1e-9))
+htf_er_chop = clamp(100.0 * (1.0 - htf_er), 0.0, 100.0)
 
-w_sum = (use_htf_regime ? w_htf_regime : 0.0) + (use_sr_retest ? w_sr_retest : 0.0) + (use_ltf_shift ? w_ltf_shift : 0.0) + (use_vol_regime ? w_vol_regime : 0.0)
-long_raw = (use_htf_regime ? htf_regime_long * w_htf_regime : 0.0) + (use_sr_retest ? sr_retest_long * w_sr_retest : 0.0) + (use_ltf_shift ? ltf_shift_score_long * w_ltf_shift : 0.0) + (use_vol_regime ? vol_quality * w_vol_regime : 0.0)
-short_raw = (use_htf_regime ? htf_regime_short * w_htf_regime : 0.0) + (use_sr_retest ? sr_retest_short * w_sr_retest : 0.0) + (use_ltf_shift ? ltf_shift_score_short * w_ltf_shift : 0.0) + (use_vol_regime ? vol_quality * w_vol_regime : 0.0)
+w_sum = math.max(htf_chop_w_ci + htf_chop_w_er, 1e-9)
+htf_chop = clamp((htf_chop_w_ci / w_sum) * htf_ci + (htf_chop_w_er / w_sum) * htf_er_chop, 0.0, 100.0)
 
-long_score = safe_div(long_raw, w_sum)
-short_score = safe_div(short_raw, w_sum)
+sr_anchor = itf_ema50
+sr_distance_bps = bps_dist(entry_close, sr_anchor)
+strict_retest = sr_distance_bps <= sr_retest_bps_max
+near_lane_allowed = config_profile_id == "I" or config_profile_id == "C"
+near_band_ok = sr_distance_bps > sr_retest_bps_max and sr_distance_bps <= sr_retest_near_bps_max
+breakout_regime = bos_choch
+breakout_window_ok = bos_choch
+sr_near_retest_used = (not strict_retest) and near_lane_allowed and breakout_regime and breakout_window_ok and near_band_ok
+sr_first_retest = strict_retest or sr_near_retest_used
 
-long_trigger = long_score >= trigger_th and trend_up and vol_ok
-short_trigger = short_score >= trigger_th and trend_dn and vol_ok
+sr_penalty = 0.0
+if sr_near_retest_used
+    denom = math.max(sr_retest_near_bps_max - sr_retest_bps_max, 1e-9)
+    sr_penalty := clamp((sr_distance_bps - sr_retest_bps_max) / denom, 0.0, 1.0) * sr_near_penalty_max
+
+htf_chop_penalty = 0.0
+if use_soft_hard_chop and htf_chop > htf_chop_soft_max
+    chop_denom = math.max(htf_chop_hard_max - htf_chop_soft_max, 1e-9)
+    htf_chop_penalty := clamp((htf_chop - htf_chop_soft_max) / chop_denom, 0.0, 1.0) * htf_chop_penalty_max
+
+secondary_hits = 0
+if is_buy
+    secondary_hits += int(entry_close > entry_ema20)
+    secondary_hits += int(entry_close > entry_ema50)
+    secondary_hits += int(itf_close > itf_ema20)
+    secondary_hits += int(htf_close > htf_ema20)
+else
+    secondary_hits += int(entry_close < entry_ema20)
+    secondary_hits += int(entry_close < entry_ema50)
+    secondary_hits += int(itf_close < itf_ema20)
+    secondary_hits += int(htf_close < htf_ema20)
+
+seed_like = (bar_index % 256) / 2550.0
+score_total_raw = clamp(6.0 + secondary_hits * 0.7 - math.max(0.0, (htf_chop - 35.0) / 25.0) + seed_like, 0.0, 10.0)
+score_total_adj = clamp(score_total_raw - (htf_chop_penalty + sr_penalty), 0.0, 10.0)
+
+swing_votes_htf = sign_eps(htf_ema20 - htf_ema50)
+swing_votes_itf = sign_eps(itf_ema20 - itf_ema50)
+swing_votes_structure = sign_eps((is_buy ? 1.0 : -1.0) * (bos_choch ? 1.0 : -1.0))
+swing_votes_sr_ctx = sign_eps((is_buy ? 1.0 : -1.0) * (entry_close - sr_anchor))
+swing_bias_conf = 0.45 * swing_votes_htf + 0.30 * swing_votes_itf + 0.15 * swing_votes_structure + 0.10 * swing_votes_sr_ctx
+swing_bias_dir = math.abs(swing_bias_conf) < 0.55 ? "neutral" : swing_bias_conf > 0 ? "long" : "short"
+expected_bias = is_buy ? "long" : "short"
+
+bias_ok = config_profile_id == "S" ? (swing_bias_dir == expected_bias) : bos_choch
+candle_ok = not require_candle_close or barstate.isconfirmed
+chop_ok = htf_chop <= htf_chop_hard_max
+sr_ok = sr_first_retest
+secondary_ok = secondary_hits >= min_secondary_hits
+score_ok = score_total_adj >= score_gate_min
+
+gate_ok = candle_ok and chop_ok and bias_ok and sr_ok and secondary_ok and score_ok
+long_trigger = is_buy and gate_ok and score_total_adj >= trigger_score_eff
+short_trigger = (not is_buy) and gate_ok and score_total_adj >= trigger_score_eff
 
 var int last_trade_bar = na
 can_trade = na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)
@@ -104,19 +157,16 @@ if allow_shorts and short_trigger and can_trade and strategy.position_size >= 0
     strategy.entry("LS-SHORT", strategy.short, qty_percent=qty_pct)
     last_trade_bar := bar_index
 
-long_stop = risk_mode == "ATR" ? strategy.position_avg_price - atr * atr_stop_mult : strategy.position_avg_price * (1.0 - stop_loss_pct / 100.0)
-short_stop = risk_mode == "ATR" ? strategy.position_avg_price + atr * atr_stop_mult : strategy.position_avg_price * (1.0 + stop_loss_pct / 100.0)
-
+atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
+long_stop = risk_mode == "ATR" ? strategy.position_avg_price - atr_entry * atr_stop_mult : strategy.position_avg_price * (1.0 - stop_loss_pct / 100.0)
+short_stop = risk_mode == "ATR" ? strategy.position_avg_price + atr_entry * atr_stop_mult : strategy.position_avg_price * (1.0 + stop_loss_pct / 100.0)
 long_tp = strategy.position_avg_price + math.abs(strategy.position_avg_price - long_stop) * rr_take_profit
 short_tp = strategy.position_avg_price - math.abs(short_stop - strategy.position_avg_price) * rr_take_profit
 
 strategy.exit("LS-LONG-EXIT", "LS-LONG", stop=long_stop, limit=long_tp)
 strategy.exit("LS-SHORT-EXIT", "LS-SHORT", stop=short_stop, limit=short_tp)
 
-plot(ema_fast, "EMA Fast", color=color.new(color.teal, 0))
-plot(ema_slow, "EMA Slow", color=color.new(color.orange, 0))
-plot(zone_top, "Region Top", color=color.new(color.green, 75))
-plot(zone_bot, "Region Bot", color=color.new(color.red, 75))
-
+plot(request.security(syminfo.tickerid, entry_tf, ta.ema(close, 20)), "Entry EMA20", color=color.new(color.teal, 0))
+plot(request.security(syminfo.tickerid, entry_tf, ta.ema(close, 50)), "Entry EMA50", color=color.new(color.orange, 0))
 plotchar(long_trigger, "Long Trigger", "▲", location.belowbar, color=color.new(color.green, 0), size=size.tiny)
 plotchar(short_trigger, "Short Trigger", "▼", location.abovebar, color=color.new(color.red, 0), size=size.tiny)

@@ -20,8 +20,9 @@ Keep **bot logic** and **Pine logic** in parallel by:
 
 ## Current Status
 
-This is a deterministic **skeleton baseline**:
-- Inputs and structure are production-shaped.
-- Some signal factors are placeholders/proxies and should be replaced by exact bot-equivalent formulas where possible.
+This is a deterministic **phase-2 parity baseline**:
+- Inputs/structure are production-shaped.
+- Score equation, secondary-hit model, profile TF mapping, and chop soft/hard penalty now mirror bot logic closely.
+- Remaining gaps (SR-zone DB parity, throttle/idempotency parity) are documented explicitly.
 
 See `docs/TRADINGVIEW_PINE_IMPLEMENTATION_GUIDE.md` for full details.

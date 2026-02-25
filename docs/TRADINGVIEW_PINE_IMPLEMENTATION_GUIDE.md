@@ -139,21 +139,52 @@ For controlled samples, compare:
 - watch/trigger classification
 - reject reasons (where representable)
 
-## 8) Limitations (Current Skeleton)
+## 8) Phase-2 parity mapping (implemented)
 
-- Some factor implementations are intentionally proxy-based and not yet exact mirror of paper-daemon internals.
-- Pine cannot directly import Python runtime outputs; parity is process/governance based.
-- TradingView strategy fills are simulated and sensitive to slippage/session assumptions.
+Current Pine scripts now mirror these bot-side behaviors more directly:
 
-## 9) Next Hardening Steps
+1. **Profile TF mapping (`C/I/S`)**
+   - `S`: `1D -> 4H -> 1H`
+   - `I`: `4H -> 1H -> 15m`
+   - `C`: `1H -> 15m -> 5m`
+   (entry TF uses first LTF trigger in profile)
 
-1. Replace proxy factors with exact deterministic formulas where feasible.
-2. Add regime/session filters aligned with production policy gates.
-3. Add optional `strategy.risk.max_drawdown` style controls.
-4. Add one-click profile presets (`C/I/S`) in Pine via grouped defaults.
-5. Add artifact template for reproducible backtest reports.
+2. **Side inference**
+   - buy when ITF+HTF EMA20 > EMA50
+   - sell when ITF+HTF EMA20 < EMA50
+   - default buy when mixed (matches daemon behavior)
 
-## 10) Source References
+3. **Secondary-hit counting (0..4)**
+   - buy: close > EMA20/50 on entry TF, ITF close > ITF EMA20, HTF close > HTF EMA20
+   - sell: inverse checks
+
+4. **HTF chop model**
+   - blended CHOP Index + ER-chop: `norm = w_ci*CI + w_er*ER_chop`
+   - soft/hard gating + penalty ramp to `htf_chop_penalty_max`
+
+5. **Score equation shape**
+   - `score_raw = clamp(6 + 0.7*secondary_hits - max(0, (htf_chop-35)/25) + tiny_tiebreaker, 0, 10)`
+   - `score_adj = clamp(score_raw - (htf_chop_penalty + sr_penalty), 0, 10)`
+
+6. **Gate approximation**
+   - candle-close, chop-hard, bias permission, SR retest pass, min secondary hits, score gate
+
+## 9) Remaining gaps vs daemon (known)
+
+- Pine cannot use bot SR zone DB directly; SR retest uses an ITF EMA50 proxy anchor.
+- Pine cannot access daemon idempotency/throttle state (cooldown/day caps/daily loss circuit) in the same way.
+- Deterministic tie-break seed is approximated from bar index, not daemon UUID seed source.
+- Strategy fills remain TradingView-simulated and sensitive to slippage/session assumptions.
+
+## 10) Next hardening steps
+
+1. Add external SR-level ingestion path (manual inputs or published levels) to replace EMA proxy.
+2. Add explicit session filters and exchange-hour templates per market.
+3. Add strategy-level drawdown guards + max-trades/day approximations.
+4. Add parity test checklist comparing sampled bot proposals vs Pine bar outputs.
+5. Add artifact template for reproducible long-window backtest reports.
+
+## 11) Source References
 
 - `liquidsniper/core/paper_policy.py`
 - `liquidsniper/core/replay_harness.py`
