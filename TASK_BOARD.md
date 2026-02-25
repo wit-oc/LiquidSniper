@@ -4,8 +4,7 @@ Status legend: [Now] [Next] [Later] [Blocked] [Done]
 
 ## [Now]
 - [ ] Execute full-scope plan in `docs/PAPER_MULTISTRATEGY_DELIVERY_PLAN_V1.md` (P0 safety + paper-only parallel lanes)
-- [ ] Reconcile lane automation to unresolved units only (avoid stale Task 19 re-proposals)
-- [ ] Task 18: Publish packaging-boundary decision ADR (integrated core vs separate execution service)
+- [x] Reconcile lane automation to unresolved units only (avoid stale Task 19 re-proposals) — selector rule landed (`scripts/select_daily_lane.py`) (2026-02-25)
 - [ ] Post-change evidence refresh: rerun targeted policy/daemon/replay/adversarial tests after daily-loss-breaker hardening
 - [ ] Paper soak unit: 1–2 week paper run with fixed tuning cadence + explicit kill/promotion criteria
 - [ ] SRV2-T0..T8: Execute `docs/SR_ENGINE_V2_SPEC.md` (HTF-anchored pivot-zone S/R engine with >=3 meaningful touches)
@@ -28,3 +27,4 @@ Status legend: [Now] [Next] [Later] [Blocked] [Done]
 - [x] Phase 0 dependency default/stub baseline landed (T1–T7) — fail-closed placeholders + operator dependency gates (2026-02-18)
 - [x] Paper implementation wave1 delivered Tasks 19–24, 14–17, and 26 with tests + evidence artifact (`initiatives/liquidsniper-paper-implementation-wave1-2026-02-18.md`) (2026-02-19)
 - [x] Daily-loss circuit breaker hard-wired as first paper gate (`RISK_DAILY_LOSS_CAP_BREACH`) with daemon/runbook/test updates (commit `b943f15`) (2026-02-20)
+- [x] Task 18 packaging-boundary ADR accepted (`docs/ADR_0018_EXECUTION_PACKAGING_BOUNDARY.md`) (2026-02-23)
