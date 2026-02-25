@@ -26,3 +26,15 @@ This is a deterministic **phase-2 parity baseline**:
 - Remaining gaps (SR-zone DB parity, throttle/idempotency parity) are documented explicitly.
 
 See `docs/TRADINGVIEW_PINE_IMPLEMENTATION_GUIDE.md` for full details.
+
+## Release Notes
+
+### v1-fidelity (new)
+- Added versioned mentorship-fidelity scripts (no v0 overwrite):
+  - `indicator/liquidsniper_confluence_indicator_v1_fidelity.pine`
+  - `strategy/liquidsniper_confluence_strategy_v1_fidelity.pine`
+- v1 emphasizes Foxian-aligned behavior: confluence stack scoring, swing-based BoS/CHoCH proxy, first-retest gating, and anti-chop filtering.
+- Added validation/governance docs:
+  - `docs/TRADINGVIEW_MENTORSHIP_FIDELITY_MAPPING_V1.md`
+  - `docs/TRADINGVIEW_V0_RETIREMENT_CRITERIA.md`
+  - `docs/TRADINGVIEW_V1_TEST_CHECKLIST.md`
