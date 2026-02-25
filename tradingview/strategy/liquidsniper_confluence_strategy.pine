@@ -24,15 +24,17 @@ use_soft_hard_chop = input.bool(true, "Use Soft/Hard Chop Penalty", group=group_
 htf_chop_w_ci = input.float(0.7, "HTF Chop Weight CI", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
 htf_chop_w_er = input.float(0.3, "HTF Chop Weight ER", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
 
-htf_chop_soft_max_base = input.float(68.0, "HTF Chop Soft Max (Base)", minval=0.0, maxval=100.0, group=group_policy)
-htf_chop_hard_max_base = input.float(82.0, "HTF Chop Hard Max (Base)", minval=0.0, maxval=100.0, group=group_policy)
-htf_chop_penalty_max_base = input.float(1.0, "HTF Chop Penalty Max (Base)", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+use_profile_presets = input.bool(true, "Use Profile Presets (recommended)", group=group_policy)
 
-sr_retest_bps_max_base = input.float(18.0, "SR Strict Retest Max (bps, Base)", minval=1.0, maxval=300.0, group=group_policy)
-sr_retest_near_bps_max_base = input.float(30.0, "SR Near Retest Max (bps, Base)", minval=1.0, maxval=300.0, group=group_policy)
-sr_near_penalty_max_base = input.float(0.7, "SR Near Penalty Max (Base)", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+manual_htf_chop_soft_max = input.float(68.0, "Manual HTF Chop Soft Max", minval=0.0, maxval=100.0, group=group_policy)
+manual_htf_chop_hard_max = input.float(82.0, "Manual HTF Chop Hard Max", minval=0.0, maxval=100.0, group=group_policy)
+manual_htf_chop_penalty_max = input.float(1.0, "Manual HTF Chop Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
 
-min_secondary_hits_base = input.int(2, "Min Secondary Hits (Base)", minval=0, maxval=4, group=group_policy)
+manual_sr_retest_bps_max = input.float(18.0, "Manual SR Strict Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
+manual_sr_retest_near_bps_max = input.float(30.0, "Manual SR Near Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
+manual_sr_near_penalty_max = input.float(0.7, "Manual SR Near Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+
+manual_min_secondary_hits = input.int(2, "Manual Min Secondary Hits", minval=0, maxval=4, group=group_policy)
 score_gate_min = input.float(6.0, "Score Gate Min (0-10)", minval=0.0, maxval=10.0, group=group_policy)
 trigger_score = input.float(7.5, "Trigger Score (0-10)", minval=0.0, maxval=10.0, group=group_policy)
 
@@ -56,14 +58,21 @@ entry_tf = config_profile_id == "S" ? "60" : config_profile_id == "I" ? "15" : "
 itf_tf = config_profile_id == "S" ? "240" : config_profile_id == "I" ? "60" : "15"
 htf_tf = config_profile_id == "S" ? "D" : config_profile_id == "I" ? "240" : "60"
 
-htf_chop_soft_max_eff = config_profile_id == "S" ? 62.0 : config_profile_id == "I" ? htf_chop_soft_max_base : 72.0
-htf_chop_hard_max_eff = config_profile_id == "S" ? 76.0 : config_profile_id == "I" ? htf_chop_hard_max_base : 86.0
-htf_chop_penalty_max_eff = config_profile_id == "S" ? 0.8 : config_profile_id == "I" ? htf_chop_penalty_max_base : 1.2
+preset_htf_chop_soft = config_profile_id == "S" ? 62.0 : config_profile_id == "I" ? 68.0 : 72.0
+preset_htf_chop_hard = config_profile_id == "S" ? 76.0 : config_profile_id == "I" ? 82.0 : 86.0
+preset_htf_chop_penalty = config_profile_id == "S" ? 0.8 : config_profile_id == "I" ? 1.0 : 1.2
+preset_sr_retest_bps = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 18.0 : 20.0
+preset_sr_retest_near_bps = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 30.0 : 35.0
+preset_sr_near_penalty = config_profile_id == "S" ? 0.0 : config_profile_id == "I" ? 0.7 : 0.8
+preset_min_secondary = config_profile_id == "C" ? 1 : 2
 
-sr_retest_bps_max_eff = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? sr_retest_bps_max_base : 20.0
-sr_retest_near_bps_max_eff = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? sr_retest_near_bps_max_base : 35.0
-sr_near_penalty_max_eff = config_profile_id == "S" ? 0.0 : config_profile_id == "I" ? sr_near_penalty_max_base : 0.8
-min_secondary_hits_eff = config_profile_id == "C" ? 1 : min_secondary_hits_base
+htf_chop_soft_max_eff = use_profile_presets ? preset_htf_chop_soft : manual_htf_chop_soft_max
+htf_chop_hard_max_eff = use_profile_presets ? preset_htf_chop_hard : manual_htf_chop_hard_max
+htf_chop_penalty_max_eff = use_profile_presets ? preset_htf_chop_penalty : manual_htf_chop_penalty_max
+sr_retest_bps_max_eff = use_profile_presets ? preset_sr_retest_bps : manual_sr_retest_bps_max
+sr_retest_near_bps_max_eff = use_profile_presets ? preset_sr_retest_near_bps : manual_sr_retest_near_bps_max
+sr_near_penalty_max_eff = use_profile_presets ? preset_sr_near_penalty : manual_sr_near_penalty_max
+min_secondary_hits_eff = use_profile_presets ? preset_min_secondary : manual_min_secondary_hits
 
 is_ltf = timeframe.isintraday and timeframe.multiplier <= 15
 is_mtf = timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier <= 240
