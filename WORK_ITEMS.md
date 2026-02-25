@@ -51,9 +51,9 @@ Completed in wave1:
 - [x] **[Done]** Task 23 — rate-limit budgets + circuit breakers + feed health events
 - [x] **[Done]** Task 24 — trigger-feed decoupling + traceability fields
 - [x] **[Done]** Task 26 — feed benchmark + gate evidence pack (`artifacts/paper_mvp/task17_26_gate_evidence.json`)
+- [x] **[Done]** Task 18 — packaging-boundary ADR accepted (`docs/ADR_0018_EXECUTION_PACKAGING_BOUNDARY.md`) (2026-02-23)
 
 Still open:
-- [ ] **[Now]** Task 18 — packaging boundary decision ADR (integrated vs separate execution core)
 - [ ] **[Next]** Task 25 — native Blofin adapter fallback (conditional on CCXT gap assessment)
 
 Recent safety hardening:
@@ -64,9 +64,9 @@ Recent safety hardening:
 ## Immediate execution sequence (post-cleanup)
 
 1. **Task board hygiene lane**
-   - Retarget daily-lane selector to unresolved work only.
+   - [x] Retarget daily-lane selector to unresolved work only (`scripts/select_daily_lane.py`, 2026-02-25).
 2. **Task 18 decision lane**
-   - Publish packaging-boundary ADR + fork triggers.
+   - [x] Publish packaging-boundary ADR + fork triggers (`docs/ADR_0018_EXECUTION_PACKAGING_BOUNDARY.md`, accepted 2026-02-23).
 3. **Evidence refresh lane**
    - Re-run targeted test/evidence suite after circuit-breaker changes.
 4. **Paper soak lane**
