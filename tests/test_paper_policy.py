@@ -16,7 +16,7 @@ def test_load_profile_policy_defaults(monkeypatch):
 def test_evaluate_gates_blocks_profile_conditions(monkeypatch):
     monkeypatch.setenv("LIQUIDSNIPER_PROFILE_ID", "S")
     monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "true")
-    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_MAX", "40")
+    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_HARD_MAX", "40")
     monkeypatch.setenv("LIQUIDSNIPER_MIN_SECONDARY_HITS", "2")
     policy = load_profile_policy()
 
@@ -87,3 +87,49 @@ def test_evaluate_gates_blocks_throttle_conditions(monkeypatch):
     assert "DAILY_CAP_REACHED" in out.reason_codes
     assert "ACTIVE_RISK_CAP_REACHED" in out.reason_codes
     assert "COOLDOWN_ACTIVE" in out.reason_codes
+
+
+def test_evaluate_gates_swing_bias_weighted_vote(monkeypatch):
+    monkeypatch.setenv("LIQUIDSNIPER_PROFILE_ID", "S")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_MIN_SECONDARY_HITS", "0")
+    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_HARD_MAX", "100")
+    monkeypatch.setenv("LIQUIDSNIPER_SWING_BIAS_NEUTRAL_BAND", "0.55")
+
+    policy = load_profile_policy()
+    state = ThrottleState.empty("2026-02-20")
+
+    blocked = evaluate_gates(
+        policy=policy,
+        state=state,
+        now=datetime(2026, 2, 20, 14, 35, tzinfo=timezone.utc),
+        idempotency_key="swing-1",
+        side="buy",
+        candle_closed=True,
+        candle_ts="2026-02-20T14:35:00+00:00",
+        htf_chop=10.0,
+        sr_first_retest=True,
+        sr_distance_bps=10.0,
+        bos_choch=False,
+        secondary_hits=3,
+        swing_votes={"v_htf": 1.0, "v_itf": -1.0, "v_structure": -1.0, "v_sr_context": 1.0},
+    )
+    assert "BIAS_NOT_PERMITTED" in blocked.reason_codes
+
+    allowed = evaluate_gates(
+        policy=policy,
+        state=state,
+        now=datetime(2026, 2, 20, 14, 36, tzinfo=timezone.utc),
+        idempotency_key="swing-2",
+        side="buy",
+        candle_closed=True,
+        candle_ts="2026-02-20T14:36:00+00:00",
+        htf_chop=10.0,
+        sr_first_retest=True,
+        sr_distance_bps=10.0,
+        bos_choch=True,
+        secondary_hits=3,
+        swing_votes={"v_htf": 1.0, "v_itf": 1.0, "v_structure": 1.0, "v_sr_context": 1.0},
+    )
+    assert "BIAS_NOT_PERMITTED" not in allowed.reason_codes

@@ -7,6 +7,24 @@ from liquidsniper.core.execution_boundary import ExecutionBoundary
 from liquidsniper.ops import paper_daemon
 
 
+def test_htf_chop_components_bounded_and_trend_sensitive() -> None:
+    closes_trend = [100 + i for i in range(40)]
+    highs_trend = [c + 0.5 for c in closes_trend]
+    lows_trend = [c - 0.5 for c in closes_trend]
+
+    trend = paper_daemon._compute_htf_chop_components(closes_trend, highs_trend, lows_trend, lookback=14)
+    assert 0.0 <= trend["ci"] <= 100.0
+    assert 0.0 <= trend["er"] <= 100.0
+    assert 0.0 <= trend["norm"] <= 100.0
+
+    closes_chop = [100 + (1 if i % 2 == 0 else -1) for i in range(40)]
+    highs_chop = [max(c, closes_chop[max(0, i - 1)]) + 0.4 for i, c in enumerate(closes_chop)]
+    lows_chop = [min(c, closes_chop[max(0, i - 1)]) - 0.4 for i, c in enumerate(closes_chop)]
+    chop = paper_daemon._compute_htf_chop_components(closes_chop, highs_chop, lows_chop, lookback=14)
+
+    assert chop["norm"] > trend["norm"]
+
+
 def test_close_confirm_backoff_schedule_and_timeout_without_prior_candle_fallback() -> None:
     calls: list[int] = []
 
@@ -186,16 +204,16 @@ def test_run_cycle_emits_candle_close_timeout_and_diagnostics(monkeypatch, tmp_p
     assert payload["matched_candle_open_ts"] is None
 
 
-def test_breakout_softening_only_when_breakout_regime_true(monkeypatch, tmp_path) -> None:
+def test_soft_hard_chop_mode_with_breakout_only_relaxing_sr(monkeypatch, tmp_path) -> None:
     health = tmp_path / "health.json"
     artifact_root = tmp_path / "artifacts"
 
     monkeypatch.setenv("LS_ARTIFACT_ROOT", str(artifact_root))
     monkeypatch.setenv("LIQUIDSNIPER_SYMBOLS", "BTCUSDT,ETHUSDT")
     monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_CANDLE_CLOSE", "false")
-    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_MAX", "50")
-    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_SOFTEN_POINTS", "8")
-    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", "false")
+    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_SOFT_MAX", "50")
+    monkeypatch.setenv("LIQUIDSNIPER_HTF_CHOP_HARD_MAX", "58")
+    monkeypatch.setenv("LIQUIDSNIPER_REQUIRE_SR_FIRST_RETEST", "true")
     monkeypatch.setenv("LIQUIDSNIPER_MIN_SECONDARY_HITS", "0")
     monkeypatch.setenv("LIQUIDSNIPER_COOLDOWN_SECONDS", "0")
     monkeypatch.setenv("LIQUIDSNIPER_DAILY_MAX_TRADES", "100")
@@ -208,11 +226,19 @@ def test_breakout_softening_only_when_breakout_regime_true(monkeypatch, tmp_path
             "candle_ts": f"2026-02-23T15:0{'0' if breakout else '5'}:00+00:00",
             "candle_closed": True,
             "htf_chop": 55.0,
-            "sr_first_retest": True,
-            "sr_distance_bps": 10.0,
+            "sr_first_retest": breakout,
+            "sr_retest_mode": "near_breakout" if breakout else "none",
+            "sr_near_retest_used": breakout,
+            "sr_penalty": 0.4 if breakout else 0.0,
+            "sr_distance_bps": 25.0,
             "bos_choch": True,
             "secondary_hits": 3,
             "breakout_regime": breakout,
+            "breakout_window_ok": breakout,
+            "htf_chop_ci": 55.0,
+            "htf_chop_er": 55.0,
+            "htf_chop_norm": 55.0,
+            "htf_chop_penalty": 0.0,
             "data_fetch_attempts": 2,
         }
 
@@ -226,10 +252,12 @@ def test_breakout_softening_only_when_breakout_regime_true(monkeypatch, tmp_path
 
     assert by_symbol["BTCUSDT"]["execution_decision"] == "executed"
     assert by_symbol["BTCUSDT"]["breakout_regime"] is True
-    assert by_symbol["BTCUSDT"]["htf_chop_mode"] == "breakout_softened"
+    assert by_symbol["BTCUSDT"]["htf_chop_mode"] == "soft_hard"
     assert by_symbol["BTCUSDT"]["htf_chop_threshold_effective"] == 58.0
+    assert by_symbol["BTCUSDT"]["sr_retest_mode"] == "near_breakout"
+    assert by_symbol["BTCUSDT"]["sr_near_retest_used"] is True
 
     assert by_symbol["ETHUSDT"]["proposal_decision"] == "rejected"
-    assert "HTF_CHOP_BLOCKED" in by_symbol["ETHUSDT"]["decision_reason_codes"]
+    assert "RETEST_REQUIRED" in by_symbol["ETHUSDT"]["decision_reason_codes"]
     assert by_symbol["ETHUSDT"]["breakout_regime"] is False
-    assert by_symbol["ETHUSDT"]["htf_chop_mode"] == "strict"
+    assert by_symbol["ETHUSDT"]["htf_chop_mode"] == "soft_hard"

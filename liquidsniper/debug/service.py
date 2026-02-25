@@ -157,6 +157,8 @@ def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "side": run.get("direction"),
                 "entry": run.get("entry"),
                 "confluence_score": run.get("score_total"),
+                "confluence_score_raw": run.get("score_total_raw"),
+                "confluence_score_adj": run.get("score_total_adj"),
                 "confluence_gate_passed": run.get("score_gate_passed"),
                 "confluence_hits": sec.get("actual"),
                 "confluence_min": sec.get("min"),
@@ -170,6 +172,14 @@ def _build_orders(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "sr_nearest_itf_level": sr.get("nearest_itf_level"),
                 "sr_first_retest_eligible": sr.get("first_retest_eligible"),
                 "sr_distance_bps": sr.get("distance_bps"),
+                "sr_retest_mode": run.get("sr_retest_mode") or sr.get("retest_mode"),
+                "sr_near_retest_used": run.get("sr_near_retest_used") or sr.get("near_retest_used"),
+                "sr_penalty": run.get("sr_penalty") or sr.get("sr_penalty"),
+                "htf_chop_ci": run.get("htf_chop_ci"),
+                "htf_chop_er": run.get("htf_chop_er"),
+                "htf_chop_norm": run.get("htf_chop_norm"),
+                "htf_chop_penalty": run.get("htf_chop_penalty"),
+                "swing_bias_votes": (run.get("bias_snapshot") or {}).get("votes") if isinstance(run.get("bias_snapshot"), dict) else {},
                 "test_id": _test_id_for_run(run),
             }
         )
