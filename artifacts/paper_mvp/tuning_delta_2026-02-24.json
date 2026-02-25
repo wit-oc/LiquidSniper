@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-02-25T02:20:30.597142+00:00",
+  "windows": {
+    "24h": {
+      "first_fail_distribution": {},
+      "funnel": {
+        "executed": 0,
+        "proposal_accepted": 0,
+        "score_gate_passed": 0,
+        "total": 0
+      },
+      "reason_distribution": {}
+    },
+    "6h": {
+      "first_fail_distribution": {},
+      "funnel": {
+        "executed": 0,
+        "proposal_accepted": 0,
+        "score_gate_passed": 0,
+        "total": 0
+      },
+      "reason_distribution": {}
+    }
+  }
+}
