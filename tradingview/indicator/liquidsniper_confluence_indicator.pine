@@ -28,16 +28,17 @@ use_soft_hard_chop = input.bool(true, "Use Soft/Hard Chop Penalty", group=group_
 htf_chop_w_ci = input.float(0.7, "HTF Chop Weight CI", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
 htf_chop_w_er = input.float(0.3, "HTF Chop Weight ER", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
 
-// Defaults mirror core policy per profile (C/I/S)
-htf_chop_soft_max = input.float(config_profile_id == "S" ? 62.0 : config_profile_id == "I" ? 68.0 : 72.0, "HTF Chop Soft Max", minval=0.0, maxval=100.0, group=group_policy)
-htf_chop_hard_max = input.float(config_profile_id == "S" ? 76.0 : config_profile_id == "I" ? 82.0 : 86.0, "HTF Chop Hard Max", minval=0.0, maxval=100.0, group=group_policy)
-htf_chop_penalty_max = input.float(config_profile_id == "S" ? 0.8 : config_profile_id == "I" ? 1.0 : 1.2, "HTF Chop Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+// Base input defaults must be compile-time constants in Pine.
+// Profile-based defaults are applied below via *_eff values.
+htf_chop_soft_max_base = input.float(68.0, "HTF Chop Soft Max (Base)", minval=0.0, maxval=100.0, group=group_policy)
+htf_chop_hard_max_base = input.float(82.0, "HTF Chop Hard Max (Base)", minval=0.0, maxval=100.0, group=group_policy)
+htf_chop_penalty_max_base = input.float(1.0, "HTF Chop Penalty Max (Base)", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
 
-sr_retest_bps_max = input.float(config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 18.0 : 20.0, "SR Strict Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
-sr_retest_near_bps_max = input.float(config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 30.0 : 35.0, "SR Near Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
-sr_near_penalty_max = input.float(config_profile_id == "S" ? 0.0 : config_profile_id == "I" ? 0.7 : 0.8, "SR Near Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+sr_retest_bps_max_base = input.float(18.0, "SR Strict Retest Max (bps, Base)", minval=1.0, maxval=300.0, group=group_policy)
+sr_retest_near_bps_max_base = input.float(30.0, "SR Near Retest Max (bps, Base)", minval=1.0, maxval=300.0, group=group_policy)
+sr_near_penalty_max_base = input.float(0.7, "SR Near Penalty Max (Base)", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
 
-min_secondary_hits = input.int(config_profile_id == "C" ? 1 : 2, "Min Secondary Hits", minval=0, maxval=4, group=group_policy)
+min_secondary_hits_base = input.int(2, "Min Secondary Hits (Base)", minval=0, maxval=4, group=group_policy)
 score_gate_min = input.float(6.0, "Score Gate Min (0-10)", minval=0.0, maxval=10.0, group=group_policy)
 watch_score = input.float(6.0, "Watch Score (0-10)", minval=0.0, maxval=10.0, group=group_policy)
 trigger_score = input.float(7.5, "Trigger Score (0-10)", minval=0.0, maxval=10.0, group=group_policy)
@@ -62,6 +63,16 @@ bps_dist(px, anchor) =>
 entry_tf = config_profile_id == "S" ? "60" : config_profile_id == "I" ? "15" : "5"     // first LTF trigger
 itf_tf = config_profile_id == "S" ? "240" : config_profile_id == "I" ? "60" : "15"
 htf_tf = config_profile_id == "S" ? "D" : config_profile_id == "I" ? "240" : "60"
+
+// Effective policy values (profile defaults unless you change Base inputs)
+htf_chop_soft_max_eff = config_profile_id == "S" ? 62.0 : config_profile_id == "I" ? htf_chop_soft_max_base : 72.0
+htf_chop_hard_max_eff = config_profile_id == "S" ? 76.0 : config_profile_id == "I" ? htf_chop_hard_max_base : 86.0
+htf_chop_penalty_max_eff = config_profile_id == "S" ? 0.8 : config_profile_id == "I" ? htf_chop_penalty_max_base : 1.2
+
+sr_retest_bps_max_eff = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? sr_retest_bps_max_base : 20.0
+sr_retest_near_bps_max_eff = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? sr_retest_near_bps_max_base : 35.0
+sr_near_penalty_max_eff = config_profile_id == "S" ? 0.0 : config_profile_id == "I" ? sr_near_penalty_max_base : 0.8
+min_secondary_hits_eff = config_profile_id == "C" ? 1 : min_secondary_hits_base
 
 // Style (for UX threshold scaling)
 is_ltf = timeframe.isintraday and timeframe.multiplier <= 15
@@ -116,9 +127,9 @@ htf_chop = clamp(w_ci * htf_ci + w_er * htf_er_chop, 0.0, 100.0)
 // Using ITF EMA50 as SR anchor approximation.
 sr_anchor = itf_ema50
 sr_distance_bps = bps_dist(entry_close, sr_anchor)
-strict_retest = sr_distance_bps <= sr_retest_bps_max
+strict_retest = sr_distance_bps <= sr_retest_bps_max_eff
 near_lane_allowed = config_profile_id == "I" or config_profile_id == "C"
-near_band_ok = sr_distance_bps > sr_retest_bps_max and sr_distance_bps <= sr_retest_near_bps_max
+near_band_ok = sr_distance_bps > sr_retest_bps_max_eff and sr_distance_bps <= sr_retest_near_bps_max_eff
 breakout_regime = bos_choch
 breakout_window_ok = bos_choch
 sr_near_retest_used = (not strict_retest) and near_lane_allowed and breakout_regime and breakout_window_ok and near_band_ok
@@ -126,15 +137,15 @@ sr_first_retest = strict_retest or sr_near_retest_used
 
 sr_penalty = 0.0
 if sr_near_retest_used
-    denom = math.max(sr_retest_near_bps_max - sr_retest_bps_max, 1e-9)
-    ratio = clamp((sr_distance_bps - sr_retest_bps_max) / denom, 0.0, 1.0)
-    sr_penalty := ratio * sr_near_penalty_max
+    denom = math.max(sr_retest_near_bps_max_eff - sr_retest_bps_max_eff, 1e-9)
+    ratio = clamp((sr_distance_bps - sr_retest_bps_max_eff) / denom, 0.0, 1.0)
+    sr_penalty := ratio * sr_near_penalty_max_eff
 
 htf_chop_penalty = 0.0
-if use_soft_hard_chop and htf_chop > htf_chop_soft_max
-    chop_denom = math.max(htf_chop_hard_max - htf_chop_soft_max, 1e-9)
-    chop_ratio = clamp((htf_chop - htf_chop_soft_max) / chop_denom, 0.0, 1.0)
-    htf_chop_penalty := chop_ratio * htf_chop_penalty_max
+if use_soft_hard_chop and htf_chop > htf_chop_soft_max_eff
+    chop_denom = math.max(htf_chop_hard_max_eff - htf_chop_soft_max_eff, 1e-9)
+    chop_ratio = clamp((htf_chop - htf_chop_soft_max_eff) / chop_denom, 0.0, 1.0)
+    htf_chop_penalty := chop_ratio * htf_chop_penalty_max_eff
 
 // Secondary hits mirror daemon counting
 secondary_hits = 0
@@ -169,9 +180,9 @@ swing_bias_dir = math.abs(swing_bias_conf) < swing_neutral_band ? "neutral" : sw
 
 bias_ok = config_profile_id == "S" ? (swing_bias_dir == bias_direction) : (bos_choch)
 candle_ok = not require_candle_close or barstate.isconfirmed
-chop_ok = htf_chop <= htf_chop_hard_max
+chop_ok = htf_chop <= htf_chop_hard_max_eff
 sr_ok = sr_first_retest
-secondary_ok = secondary_hits >= min_secondary_hits
+secondary_ok = secondary_hits >= min_secondary_hits_eff
 score_ok = score_total_adj >= score_gate_min
 
 gate_ok = candle_ok and chop_ok and bias_ok and sr_ok and secondary_ok and score_ok
