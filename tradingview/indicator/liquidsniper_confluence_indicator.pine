@@ -122,8 +122,11 @@ bos_choch = is_buy ? bos_choch_buy : bos_choch_sell
 
 // HTF chop components approximation (CI + ER-chop blend)
 chop_len = 14
-htf_ci = request.security(syminfo.tickerid, htf_tf, ta.ci(chop_len))
-htf_path = request.security(syminfo.tickerid, htf_tf, ta.sum(math.abs(close - close[1]), chop_len))
+htf_tr_sum = request.security(syminfo.tickerid, htf_tf, ta.sma(ta.tr(true), chop_len) * chop_len)
+htf_span = request.security(syminfo.tickerid, htf_tf, ta.highest(high, chop_len) - ta.lowest(low, chop_len))
+htf_ci_raw = htf_span <= 1e-9 ? 100.0 : 100.0 * math.log10(math.max(htf_tr_sum / htf_span, 1e-9)) / math.log10(chop_len)
+htf_ci = clamp(htf_ci_raw, 0.0, 100.0)
+htf_path = request.security(syminfo.tickerid, htf_tf, ta.sma(math.abs(close - close[1]), chop_len) * chop_len)
 htf_net = request.security(syminfo.tickerid, htf_tf, math.abs(close - close[chop_len]))
 htf_er = safe_div(htf_net, math.max(htf_path, 1e-9))
 htf_er_chop = clamp(100.0 * (1.0 - htf_er), 0.0, 100.0)
@@ -160,15 +163,15 @@ if use_soft_hard_chop and htf_chop > htf_chop_soft_max_eff
 // Secondary hits mirror daemon counting
 secondary_hits = 0
 if is_buy
-    secondary_hits += int(entry_close > entry_ema20)
-    secondary_hits += int(entry_close > entry_ema50)
-    secondary_hits += int(itf_close > itf_ema20)
-    secondary_hits += int(htf_close > htf_ema20)
+    secondary_hits += (entry_close > entry_ema20 ? 1 : 0)
+    secondary_hits += (entry_close > entry_ema50 ? 1 : 0)
+    secondary_hits += (itf_close > itf_ema20 ? 1 : 0)
+    secondary_hits += (htf_close > htf_ema20 ? 1 : 0)
 else
-    secondary_hits += int(entry_close < entry_ema20)
-    secondary_hits += int(entry_close < entry_ema50)
-    secondary_hits += int(itf_close < itf_ema20)
-    secondary_hits += int(htf_close < htf_ema20)
+    secondary_hits += (entry_close < entry_ema20 ? 1 : 0)
+    secondary_hits += (entry_close < entry_ema50 ? 1 : 0)
+    secondary_hits += (itf_close < itf_ema20 ? 1 : 0)
+    secondary_hits += (htf_close < htf_ema20 ? 1 : 0)
 
 // Score formula mirrors daemon shape
 // score_total_raw = clamp(6.0 + secondary*0.7 - max(0,(htf_chop-35)/25) + tie_breaker, 0, 10)
@@ -214,8 +217,7 @@ p_top = plot(show_regions ? zone_top : na, "SR Proxy Top", color=color.new(color
 p_bot = plot(show_regions ? zone_bot : na, "SR Proxy Bot", color=color.new(color.red, 70))
 fill(p_top, p_bot, color=color.new(color.blue, 92), title="SR Proxy Region")
 
-if show_bg_regime
-    bgcolor(style == "Scalp" ? color.new(color.yellow, 92) : style == "Intraday" ? color.new(color.blue, 94) : color.new(color.purple, 94))
+bgcolor(show_bg_regime ? (style == "Scalp" ? color.new(color.yellow, 92) : style == "Intraday" ? color.new(color.blue, 94) : color.new(color.purple, 94)) : na)
 
 if show_watch_labels and long_watch and not long_trigger
     label.new(bar_index, low, "LONG WATCH\nS=" + str.tostring(score_total_adj, "#.00"), style=label.style_label_up, color=color.new(color.green, 60), textcolor=color.white)
