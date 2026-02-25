@@ -44,6 +44,9 @@ risk_mode = input.string("ATR", "Risk Model", options=["ATR", "Percent"], group=
 atr_stop_mult = input.float(1.5, "ATR Stop Mult", minval=0.1, step=0.1, group=group_risk)
 rr_take_profit = input.float(2.0, "Take Profit (R)", minval=0.5, step=0.1, group=group_risk)
 stop_loss_pct = input.float(0.7, "Stop Loss % (Percent mode)", minval=0.1, step=0.1, group=group_risk)
+be_enabled = input.bool(true, "Enable Break-even Stop", group=group_risk)
+be_trigger_r = input.float(1.0, "Break-even Trigger (R)", minval=0.1, step=0.1, group=group_risk)
+be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, group=group_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=group_risk)
 
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
@@ -178,10 +181,32 @@ if allow_shorts and short_trigger and can_trade and strategy.position_size >= 0
     last_trade_bar := bar_index
 
 atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
-long_stop = risk_mode == "ATR" ? strategy.position_avg_price - atr_entry * atr_stop_mult : strategy.position_avg_price * (1.0 - stop_loss_pct / 100.0)
-short_stop = risk_mode == "ATR" ? strategy.position_avg_price + atr_entry * atr_stop_mult : strategy.position_avg_price * (1.0 + stop_loss_pct / 100.0)
-long_tp = strategy.position_avg_price + math.abs(strategy.position_avg_price - long_stop) * rr_take_profit
-short_tp = strategy.position_avg_price - math.abs(short_stop - strategy.position_avg_price) * rr_take_profit
+long_stop_initial = risk_mode == "ATR" ? strategy.position_avg_price - atr_entry * atr_stop_mult : strategy.position_avg_price * (1.0 - stop_loss_pct / 100.0)
+short_stop_initial = risk_mode == "ATR" ? strategy.position_avg_price + atr_entry * atr_stop_mult : strategy.position_avg_price * (1.0 + stop_loss_pct / 100.0)
+
+long_risk_dist = math.abs(strategy.position_avg_price - long_stop_initial)
+short_risk_dist = math.abs(short_stop_initial - strategy.position_avg_price)
+long_be_trigger_px = strategy.position_avg_price + long_risk_dist * be_trigger_r
+short_be_trigger_px = strategy.position_avg_price - short_risk_dist * be_trigger_r
+long_be_stop = strategy.position_avg_price * (1.0 + be_offset_pct / 100.0)
+short_be_stop = strategy.position_avg_price * (1.0 - be_offset_pct / 100.0)
+
+var bool long_be_active = false
+var bool short_be_active = false
+if strategy.position_size == 0
+    long_be_active := false
+    short_be_active := false
+
+if be_enabled and strategy.position_size > 0 and high >= long_be_trigger_px
+    long_be_active := true
+if be_enabled and strategy.position_size < 0 and low <= short_be_trigger_px
+    short_be_active := true
+
+long_stop = long_be_active ? math.max(long_stop_initial, long_be_stop) : long_stop_initial
+short_stop = short_be_active ? math.min(short_stop_initial, short_be_stop) : short_stop_initial
+
+long_tp = strategy.position_avg_price + long_risk_dist * rr_take_profit
+short_tp = strategy.position_avg_price - short_risk_dist * rr_take_profit
 
 strategy.exit("LS-LONG-EXIT", "LS-LONG", stop=long_stop, limit=long_tp)
 strategy.exit("LS-SHORT-EXIT", "LS-SHORT", stop=short_stop, limit=short_tp)

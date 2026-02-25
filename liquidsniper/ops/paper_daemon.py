@@ -300,11 +300,23 @@ def _close_open_positions_for_symbol(state: ThrottleState, *, symbol: str, mark_
         if entry <= 0.0 or stop <= 0.0 or risk <= 0.0 or not tp_levels:
             continue
 
+        tp1 = float(tp_levels[0])
         tp2 = float(tp_levels[-1])
         stop_state = str(pos.get("stop_state") or "initial")
         exit_reason: str | None = None
         exit_price: float | None = None
         tp_hit_level: float | None = None
+
+        # Promote to breakeven only when price reaches TP1-equivalent, not by cycle age.
+        if stop_state != "be":
+            if side == "buy" and mark_price >= tp1:
+                pos["stop_state"] = "be"
+                pos["tp1_ts"] = now.isoformat()
+                stop_state = "be"
+            elif side != "buy" and mark_price <= tp1:
+                pos["stop_state"] = "be"
+                pos["tp1_ts"] = now.isoformat()
+                stop_state = "be"
 
         if side == "buy":
             if mark_price >= tp2:
@@ -980,13 +992,15 @@ def _build_proposal(
     score = round(max(0.0, min(10.0, score_total_raw - score_penalty)), 2)
 
     risk_usd = float(os.getenv("LIQUIDSNIPER_RISK_USD_PER_TRADE", "25"))
-    pnl_usd = round(((seed[2] - 128) / 128.0) * risk_usd * 0.20, 2)
+    diagnostic_pnl_seed_usd = round(((seed[2] - 128) / 128.0) * risk_usd * 0.20, 2)
 
     trace_id = f"paper-{now_iso.replace(':', '').replace('-', '')}-{strategy}-{symbol.lower()}"
     idempotency_key = f"paper-{profile_policy.profile_id}-{symbol}-{market_snapshot['candle_ts']}"
     intent_id = str(uuid5(NAMESPACE_URL, idempotency_key))
 
     strategy_id = {"I": "intraday", "C": "scalp", "S": "swing"}.get(profile_policy.profile_id, "intraday")
+
+    tp_levels = [round(entry * 1.01, 4), round(entry * 1.02, 4)] if side == "buy" else [round(entry * 0.99, 4), round(entry * 0.98, 4)]
 
     proposal: dict[str, object] = {
         "trace_id": trace_id,
@@ -997,9 +1011,10 @@ def _build_proposal(
         "direction": side,
         "entry": entry,
         "stop_loss_initial": round(entry * (0.985 if side == "buy" else 1.015), 4),
-        "tp_levels": [round(entry * 1.01, 4), round(entry * 1.02, 4)],
+        "tp_levels": tp_levels,
         "risk_usd": risk_usd,
-        "pnl_usd": pnl_usd,
+        "pnl_usd": 0.0,
+        "diagnostic_pnl_seed_usd": diagnostic_pnl_seed_usd,
         "anchor_profile_id": profile_policy.profile_id,
         "htf_anchor_tf": profile_policy.htf_anchor_tf,
         "score_total_raw": round(score_total_raw, 4),
@@ -1077,7 +1092,8 @@ def _run_lane_cycle(
     blocked = 0
 
     _backfill_open_position_metadata(state)
-    promoted_count, promoted_ids = _promote_positions_to_be(state, now=now, cycle_count=cycle_count)
+    # BE promotion now happens on price event (TP1 touch) inside close evaluation, not by cycle age.
+    promoted_count, promoted_ids = 0, []
 
     for symbol in symbols:
         attempted += 1
