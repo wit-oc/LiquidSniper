@@ -1,0 +1,167 @@
+//@version=5
+indicator("LiquidSniper Confluence Indicator", overlay=true, max_labels_count=500)
+
+// ------------------------------------------------------
+// LiquidSniper Pine Foundation
+// - Indicator-first manual trading workflow
+// - Weighted confluence, watch + trigger states
+// - Profile parity metadata for bot/Pine alignment
+// ------------------------------------------------------
+
+// ========== 00) Metadata ==========
+group_meta = "00. Metadata"
+ls_version = input.string("tv-indicator-v0.1.0", "Logic Version", group=group_meta)
+config_profile_id = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=group_meta)
+show_debug = input.bool(false, "Show Debug Table", group=group_meta)
+
+// ========== 01) Mode & Timeframe ==========
+group_mode = "01. Mode"
+trade_style = input.string("Auto", "Trade Style", options=["Auto", "Scalp", "Intraday", "Swing"], group=group_mode)
+enable_tf_auto_adjust = input.bool(true, "Enable TF Auto-Adjust", group=group_mode)
+
+// ========== 02) Core Inputs ==========
+group_core = "02. Core"
+ema_fast_len = input.int(20, "ITF Fast EMA", minval=1, group=group_core)
+ema_slow_len = input.int(50, "ITF Slow EMA", minval=2, group=group_core)
+atr_len = input.int(14, "ATR Length", minval=1, group=group_core)
+atr_zone_mult = input.float(1.0, "ATR Zone Mult", minval=0.1, step=0.1, group=group_core)
+chop_soft_max = input.float(68.0, "HTF Chop Soft Max", minval=0.0, maxval=100.0, group=group_core)
+chop_hard_max = input.float(82.0, "HTF Chop Hard Max", minval=0.0, maxval=100.0, group=group_core)
+
+watch_threshold = input.float(60.0, "Watch Threshold", minval=0.0, maxval=100.0, group=group_core)
+trigger_threshold = input.float(75.0, "Trigger Threshold", minval=0.0, maxval=100.0, group=group_core)
+
+// ========== 03) Weighted Confluence ==========
+group_weights = "03. Weights"
+use_htf_regime = input.bool(true, "Use HTF Regime", group=group_weights)
+w_htf_regime = input.float(35.0, "Weight HTF Regime", step=0.5, group=group_weights)
+use_sr_retest = input.bool(true, "Use SR Retest", group=group_weights)
+w_sr_retest = input.float(30.0, "Weight SR Retest", step=0.5, group=group_weights)
+use_ltf_shift = input.bool(true, "Use LTF Structure Shift", group=group_weights)
+w_ltf_shift = input.float(20.0, "Weight LTF Shift", step=0.5, group=group_weights)
+use_vol_regime = input.bool(true, "Use Volatility Regime", group=group_weights)
+w_vol_regime = input.float(15.0, "Weight Vol Regime", step=0.5, group=group_weights)
+
+// ========== 04) Visuals ==========
+group_vis = "04. Visuals"
+show_regions = input.bool(true, "Show Region Band", group=group_vis)
+show_watch_labels = input.bool(true, "Show Watch Labels", group=group_vis)
+show_trigger_labels = input.bool(true, "Show Trigger Labels", group=group_vis)
+show_bg_regime = input.bool(true, "Background by Trade Style", group=group_vis)
+
+// ---------- helpers ----------
+clamp(v, lo, hi) =>
+    math.max(lo, math.min(hi, v))
+
+safe_div(n, d) =>
+    d == 0.0 ? 0.0 : n / d
+
+is_ltf = timeframe.isintraday and timeframe.multiplier <= 15
+is_mtf = timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier <= 240
+style_auto = is_ltf ? "Scalp" : is_mtf ? "Intraday" : "Swing"
+style = trade_style == "Auto" ? style_auto : trade_style
+
+strictness = enable_tf_auto_adjust ? (style == "Scalp" ? 0.95 : style == "Intraday" ? 1.0 : 1.05) : 1.0
+watch_th = watch_threshold * strictness
+trigger_th = trigger_threshold * strictness
+
+// ---------- proxy factor scores (replace with exact bot equivalents over time) ----------
+ema_fast = ta.ema(close, ema_fast_len)
+ema_slow = ta.ema(close, ema_slow_len)
+trend_up = ema_fast > ema_slow
+trend_dn = ema_fast < ema_slow
+
+atr = ta.atr(atr_len)
+range_window = ta.highest(high, 14) - ta.lowest(low, 14)
+chop_proxy = range_window == 0.0 ? 100.0 : clamp((atr * 14.0) / range_window * 100.0, 0.0, 100.0)
+
+hh = ta.highest(high, 20)
+ll = ta.lowest(low, 20)
+ltf_shift_long = close > hh[1]
+ltf_shift_short = close < ll[1]
+
+basis = ema_slow
+zone_top = basis + atr * atr_zone_mult
+zone_bot = basis - atr * atr_zone_mult
+near_zone = close >= zone_bot and close <= zone_top
+
+htf_regime_long = trend_up ? 100.0 : 0.0
+htf_regime_short = trend_dn ? 100.0 : 0.0
+sr_retest_long = near_zone and trend_up ? 85.0 : 40.0
+sr_retest_short = near_zone and trend_dn ? 85.0 : 40.0
+ltf_shift_score_long = ltf_shift_long ? 100.0 : 35.0
+ltf_shift_score_short = ltf_shift_short ? 100.0 : 35.0
+
+vol_ok = chop_proxy <= chop_hard_max
+vol_quality = chop_proxy <= chop_soft_max ? 100.0 : vol_ok ? 70.0 : 25.0
+vol_regime_long = vol_quality
+vol_regime_short = vol_quality
+
+w_sum = (use_htf_regime ? w_htf_regime : 0.0) + (use_sr_retest ? w_sr_retest : 0.0) + (use_ltf_shift ? w_ltf_shift : 0.0) + (use_vol_regime ? w_vol_regime : 0.0)
+
+long_raw = (use_htf_regime ? htf_regime_long * w_htf_regime : 0.0) +
+     (use_sr_retest ? sr_retest_long * w_sr_retest : 0.0) +
+     (use_ltf_shift ? ltf_shift_score_long * w_ltf_shift : 0.0) +
+     (use_vol_regime ? vol_regime_long * w_vol_regime : 0.0)
+
+short_raw = (use_htf_regime ? htf_regime_short * w_htf_regime : 0.0) +
+     (use_sr_retest ? sr_retest_short * w_sr_retest : 0.0) +
+     (use_ltf_shift ? ltf_shift_score_short * w_ltf_shift : 0.0) +
+     (use_vol_regime ? vol_regime_short * w_vol_regime : 0.0)
+
+long_score = safe_div(long_raw, w_sum)
+short_score = safe_div(short_raw, w_sum)
+
+long_watch = long_score >= watch_th
+short_watch = short_score >= watch_th
+long_trigger = long_score >= trigger_th and trend_up and vol_ok
+short_trigger = short_score >= trigger_th and trend_dn and vol_ok
+
+// ---------- plots ----------
+plot(ema_fast, "EMA Fast", color=color.new(color.teal, 0))
+plot(ema_slow, "EMA Slow", color=color.new(color.orange, 0))
+
+p_top = plot(show_regions ? zone_top : na, "Region Top", color=color.new(color.green, 70))
+p_bot = plot(show_regions ? zone_bot : na, "Region Bot", color=color.new(color.red, 70))
+fill(p_top, p_bot, color=color.new(color.blue, 92), title="Region")
+
+if show_bg_regime
+    bgcolor(style == "Scalp" ? color.new(color.yellow, 92) : style == "Intraday" ? color.new(color.blue, 94) : color.new(color.purple, 94))
+
+if show_watch_labels and long_watch and not long_trigger
+    label.new(bar_index, low, "LONG WATCH\n" + str.tostring(long_score, "#.0"), style=label.style_label_up, color=color.new(color.green, 55), textcolor=color.white)
+if show_watch_labels and short_watch and not short_trigger
+    label.new(bar_index, high, "SHORT WATCH\n" + str.tostring(short_score, "#.0"), style=label.style_label_down, color=color.new(color.red, 55), textcolor=color.white)
+
+if show_trigger_labels and long_trigger
+    label.new(bar_index, low, "LONG TRIGGER\n" + str.tostring(long_score, "#.0"), style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white)
+if show_trigger_labels and short_trigger
+    label.new(bar_index, high, "SHORT TRIGGER\n" + str.tostring(short_score, "#.0"), style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white)
+
+// ---------- alerts ----------
+alertcondition(long_watch, "LS Long Watch", "LiquidSniper LONG WATCH {{ticker}} {{interval}}")
+alertcondition(short_watch, "LS Short Watch", "LiquidSniper SHORT WATCH {{ticker}} {{interval}}")
+alertcondition(long_trigger, "LS Long Trigger", "LiquidSniper LONG TRIGGER {{ticker}} {{interval}}")
+alertcondition(short_trigger, "LS Short Trigger", "LiquidSniper SHORT TRIGGER {{ticker}} {{interval}}")
+
+// ---------- debug table ----------
+if show_debug
+    var table t = table.new(position.top_right, 2, 9, border_width=1)
+    table.cell(t, 0, 0, "Version")
+    table.cell(t, 1, 0, ls_version)
+    table.cell(t, 0, 1, "Profile")
+    table.cell(t, 1, 1, config_profile_id)
+    table.cell(t, 0, 2, "Style")
+    table.cell(t, 1, 2, style)
+    table.cell(t, 0, 3, "LongScore")
+    table.cell(t, 1, 3, str.tostring(long_score, "#.0"))
+    table.cell(t, 0, 4, "ShortScore")
+    table.cell(t, 1, 4, str.tostring(short_score, "#.0"))
+    table.cell(t, 0, 5, "WatchTh")
+    table.cell(t, 1, 5, str.tostring(watch_th, "#.0"))
+    table.cell(t, 0, 6, "TriggerTh")
+    table.cell(t, 1, 6, str.tostring(trigger_th, "#.0"))
+    table.cell(t, 0, 7, "CHOP")
+    table.cell(t, 1, 7, str.tostring(chop_proxy, "#.0"))
+    table.cell(t, 0, 8, "TF")
+    table.cell(t, 1, 8, timeframe.period)

@@ -1,0 +1,78 @@
+{
+  "version": "tv-config-v0.1.0",
+  "source_of_truth": "Mirror from liquidsniper/core/paper_policy.py and replay_harness.py",
+  "profiles": {
+    "S": {
+      "name": "swing",
+      "timeframes": {
+        "htf_anchor_tf": "1D",
+        "itf_tf": "4H",
+        "ltf_trigger_tfs": ["1H", "15m"]
+      },
+      "gates": {
+        "htf_chop_soft_max": 62.0,
+        "htf_chop_hard_max": 76.0,
+        "htf_chop_penalty_max": 0.8,
+        "min_secondary_confluence_hits": 2
+      },
+      "weights": {
+        "htf_regime": 35.0,
+        "sr_retest": 30.0,
+        "ltf_structure_shift": 20.0,
+        "volatility_regime": 15.0
+      },
+      "thresholds": {
+        "watch": 60.0,
+        "trigger": 75.0
+      }
+    },
+    "I": {
+      "name": "intraday",
+      "timeframes": {
+        "htf_anchor_tf": "4H",
+        "itf_tf": "1H",
+        "ltf_trigger_tfs": ["15m", "5m"]
+      },
+      "gates": {
+        "htf_chop_soft_max": 68.0,
+        "htf_chop_hard_max": 82.0,
+        "htf_chop_penalty_max": 1.0,
+        "min_secondary_confluence_hits": 2
+      },
+      "weights": {
+        "htf_regime": 35.0,
+        "sr_retest": 30.0,
+        "ltf_structure_shift": 20.0,
+        "volatility_regime": 15.0
+      },
+      "thresholds": {
+        "watch": 60.0,
+        "trigger": 75.0
+      }
+    },
+    "C": {
+      "name": "scalp",
+      "timeframes": {
+        "htf_anchor_tf": "1H",
+        "itf_tf": "15m",
+        "ltf_trigger_tfs": ["5m", "1m"]
+      },
+      "gates": {
+        "htf_chop_soft_max": 72.0,
+        "htf_chop_hard_max": 86.0,
+        "htf_chop_penalty_max": 1.2,
+        "min_secondary_confluence_hits": 1
+      },
+      "weights": {
+        "htf_regime": 35.0,
+        "sr_retest": 30.0,
+        "ltf_structure_shift": 20.0,
+        "volatility_regime": 15.0
+      },
+      "thresholds": {
+        "watch": 60.0,
+        "trigger": 75.0
+      }
+    }
+  }
+}

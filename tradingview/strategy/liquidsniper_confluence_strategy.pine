@@ -1,0 +1,122 @@
+//@version=5
+strategy("LiquidSniper Confluence Strategy", overlay=true, initial_capital=10000, commission_type=strategy.commission.percent, commission_value=0.05, max_labels_count=500)
+
+// ------------------------------------------------------
+// Strategy wrapper for LiquidSniper confluence signals.
+// Keeps signal model close to indicator, then applies
+// deterministic entry/exit/risk for backtesting.
+// ------------------------------------------------------
+
+group_meta = "00. Metadata"
+ls_version = input.string("tv-strategy-v0.1.0", "Logic Version", group=group_meta)
+config_profile_id = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=group_meta)
+
+group_mode = "01. Mode"
+trade_style = input.string("Auto", "Trade Style", options=["Auto", "Scalp", "Intraday", "Swing"], group=group_mode)
+enable_tf_auto_adjust = input.bool(true, "Enable TF Auto-Adjust", group=group_mode)
+allow_longs = input.bool(true, "Allow Longs", group=group_mode)
+allow_shorts = input.bool(true, "Allow Shorts", group=group_mode)
+
+group_signal = "02. Signal Inputs"
+ema_fast_len = input.int(20, "ITF Fast EMA", minval=1, group=group_signal)
+ema_slow_len = input.int(50, "ITF Slow EMA", minval=2, group=group_signal)
+atr_len = input.int(14, "ATR Length", minval=1, group=group_signal)
+atr_zone_mult = input.float(1.0, "ATR Zone Mult", minval=0.1, step=0.1, group=group_signal)
+chop_soft_max = input.float(68.0, "HTF Chop Soft Max", minval=0.0, maxval=100.0, group=group_signal)
+chop_hard_max = input.float(82.0, "HTF Chop Hard Max", minval=0.0, maxval=100.0, group=group_signal)
+watch_threshold = input.float(60.0, "Watch Threshold", minval=0.0, maxval=100.0, group=group_signal)
+trigger_threshold = input.float(75.0, "Trigger Threshold", minval=0.0, maxval=100.0, group=group_signal)
+
+group_weights = "03. Confluence Weights"
+use_htf_regime = input.bool(true, "Use HTF Regime", group=group_weights)
+w_htf_regime = input.float(35.0, "Weight HTF Regime", step=0.5, group=group_weights)
+use_sr_retest = input.bool(true, "Use SR Retest", group=group_weights)
+w_sr_retest = input.float(30.0, "Weight SR Retest", step=0.5, group=group_weights)
+use_ltf_shift = input.bool(true, "Use LTF Shift", group=group_weights)
+w_ltf_shift = input.float(20.0, "Weight LTF Shift", step=0.5, group=group_weights)
+use_vol_regime = input.bool(true, "Use Vol Regime", group=group_weights)
+w_vol_regime = input.float(15.0, "Weight Vol Regime", step=0.5, group=group_weights)
+
+group_risk = "04. Risk & Exits"
+risk_mode = input.string("ATR", "Risk Model", options=["ATR", "Percent"], group=group_risk)
+atr_stop_mult = input.float(1.5, "ATR Stop Mult", minval=0.1, step=0.1, group=group_risk)
+rr_take_profit = input.float(2.0, "Take Profit (R)", minval=0.5, step=0.1, group=group_risk)
+stop_loss_pct = input.float(0.7, "Stop Loss % (Percent mode)", minval=0.1, step=0.1, group=group_risk)
+qty_pct = input.float(10.0, "Position Size %", minval=0.1, maxval=100.0, step=0.1, group=group_risk)
+cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=group_risk)
+
+clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+safe_div(n, d) => d == 0.0 ? 0.0 : n / d
+
+is_ltf = timeframe.isintraday and timeframe.multiplier <= 15
+is_mtf = timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier <= 240
+style_auto = is_ltf ? "Scalp" : is_mtf ? "Intraday" : "Swing"
+style = trade_style == "Auto" ? style_auto : trade_style
+strictness = enable_tf_auto_adjust ? (style == "Scalp" ? 0.95 : style == "Intraday" ? 1.0 : 1.05) : 1.0
+watch_th = watch_threshold * strictness
+trigger_th = trigger_threshold * strictness
+
+ema_fast = ta.ema(close, ema_fast_len)
+ema_slow = ta.ema(close, ema_slow_len)
+trend_up = ema_fast > ema_slow
+trend_dn = ema_fast < ema_slow
+atr = ta.atr(atr_len)
+range_window = ta.highest(high, 14) - ta.lowest(low, 14)
+chop_proxy = range_window == 0.0 ? 100.0 : clamp((atr * 14.0) / range_window * 100.0, 0.0, 100.0)
+
+hh = ta.highest(high, 20)
+ll = ta.lowest(low, 20)
+ltf_shift_long = close > hh[1]
+ltf_shift_short = close < ll[1]
+
+basis = ema_slow
+zone_top = basis + atr * atr_zone_mult
+zone_bot = basis - atr * atr_zone_mult
+near_zone = close >= zone_bot and close <= zone_top
+
+htf_regime_long = trend_up ? 100.0 : 0.0
+htf_regime_short = trend_dn ? 100.0 : 0.0
+sr_retest_long = near_zone and trend_up ? 85.0 : 40.0
+sr_retest_short = near_zone and trend_dn ? 85.0 : 40.0
+ltf_shift_score_long = ltf_shift_long ? 100.0 : 35.0
+ltf_shift_score_short = ltf_shift_short ? 100.0 : 35.0
+vol_ok = chop_proxy <= chop_hard_max
+vol_quality = chop_proxy <= chop_soft_max ? 100.0 : vol_ok ? 70.0 : 25.0
+
+w_sum = (use_htf_regime ? w_htf_regime : 0.0) + (use_sr_retest ? w_sr_retest : 0.0) + (use_ltf_shift ? w_ltf_shift : 0.0) + (use_vol_regime ? w_vol_regime : 0.0)
+long_raw = (use_htf_regime ? htf_regime_long * w_htf_regime : 0.0) + (use_sr_retest ? sr_retest_long * w_sr_retest : 0.0) + (use_ltf_shift ? ltf_shift_score_long * w_ltf_shift : 0.0) + (use_vol_regime ? vol_quality * w_vol_regime : 0.0)
+short_raw = (use_htf_regime ? htf_regime_short * w_htf_regime : 0.0) + (use_sr_retest ? sr_retest_short * w_sr_retest : 0.0) + (use_ltf_shift ? ltf_shift_score_short * w_ltf_shift : 0.0) + (use_vol_regime ? vol_quality * w_vol_regime : 0.0)
+
+long_score = safe_div(long_raw, w_sum)
+short_score = safe_div(short_raw, w_sum)
+
+long_trigger = long_score >= trigger_th and trend_up and vol_ok
+short_trigger = short_score >= trigger_th and trend_dn and vol_ok
+
+var int last_trade_bar = na
+can_trade = na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)
+
+if allow_longs and long_trigger and can_trade and strategy.position_size <= 0
+    strategy.entry("LS-LONG", strategy.long, qty_percent=qty_pct)
+    last_trade_bar := bar_index
+
+if allow_shorts and short_trigger and can_trade and strategy.position_size >= 0
+    strategy.entry("LS-SHORT", strategy.short, qty_percent=qty_pct)
+    last_trade_bar := bar_index
+
+long_stop = risk_mode == "ATR" ? strategy.position_avg_price - atr * atr_stop_mult : strategy.position_avg_price * (1.0 - stop_loss_pct / 100.0)
+short_stop = risk_mode == "ATR" ? strategy.position_avg_price + atr * atr_stop_mult : strategy.position_avg_price * (1.0 + stop_loss_pct / 100.0)
+
+long_tp = strategy.position_avg_price + math.abs(strategy.position_avg_price - long_stop) * rr_take_profit
+short_tp = strategy.position_avg_price - math.abs(short_stop - strategy.position_avg_price) * rr_take_profit
+
+strategy.exit("LS-LONG-EXIT", "LS-LONG", stop=long_stop, limit=long_tp)
+strategy.exit("LS-SHORT-EXIT", "LS-SHORT", stop=short_stop, limit=short_tp)
+
+plot(ema_fast, "EMA Fast", color=color.new(color.teal, 0))
+plot(ema_slow, "EMA Slow", color=color.new(color.orange, 0))
+plot(zone_top, "Region Top", color=color.new(color.green, 75))
+plot(zone_bot, "Region Bot", color=color.new(color.red, 75))
+
+plotchar(long_trigger, "Long Trigger", "▲", location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotchar(short_trigger, "Short Trigger", "▼", location.abovebar, color=color.new(color.red, 0), size=size.tiny)
