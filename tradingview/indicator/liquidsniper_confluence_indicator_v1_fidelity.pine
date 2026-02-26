@@ -24,13 +24,22 @@ retest_window_bars = input.int(24, "Retest Window Bars", minval=3, maxval=300, g
 retest_bps = input.float(20.0, "Retest Zone (bps)", minval=2.0, maxval=250.0, group=g_logic)
 chop_ci_max = input.float(61.0, "HTF Chop CI Max", minval=20.0, maxval=80.0, group=g_logic)
 chop_adx_min = input.float(17.0, "HTF Trend ADX Min", minval=5.0, maxval=60.0, group=g_logic)
+enable_short_adx_bump = input.bool(false, "Enable Short-side ADX Bump", group=g_logic)
+short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, step=0.5, group=g_logic)
 watch_score = input.float(6.0, "Watch Score Min", minval=0.0, maxval=10.0, group=g_logic)
 trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
+
+g_time = "01b. Time Filters"
+enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
+blocked_session = input.session("0800-1100", "Blocked Session", group=g_time)
+blocked_tz = input.string("America/New_York", "Blocked Session Timezone", group=g_time)
 
 g_vis = "02. Visuals"
 show_sr_zone = input.bool(true, "Show Retest Zone", group=g_vis)
 show_watch_labels = input.bool(true, "Show Watch Labels", group=g_vis)
 show_trigger_labels = input.bool(true, "Show Trigger Labels", group=g_vis)
+show_transition_only = input.bool(true, "Label On Transitions Only", group=g_vis)
+label_cooldown_bars = input.int(0, "Label Cooldown Bars", minval=0, group=g_vis)
 
 // ===== Helpers =====
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
@@ -98,7 +107,9 @@ htf_span = request.security(syminfo.tickerid, htf_tf, ta.highest(high, chop_len)
 htf_ci_raw = htf_span <= 1e-9 ? 100.0 : 100.0 * math.log10(math.max(htf_tr_sum / htf_span, 1e-9)) / math.log10(chop_len)
 htf_ci = clamp(htf_ci_raw, 0.0, 100.0)
 htf_adx = request.security(syminfo.tickerid, htf_tf, adx_calc(14))
-chop_ok = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
+short_adx_min_effective = chop_adx_min + (enable_short_adx_bump ? short_adx_bump : 0.0)
+chop_ok_long = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
+chop_ok_short = htf_ci <= chop_ci_max and htf_adx >= short_adx_min_effective
 
 // ===== First retest engine (on ITF EMA50 as dynamic SR proxy) =====
 sr_anchor = itf_ema50
@@ -161,7 +172,7 @@ score_long += trend_long ? 2.0 : 0.0
 score_long += (bos_up or choch_up) ? 2.0 : 0.0
 score_long += long_first_retest ? 2.0 : 0.0
 score_long += ema_stack_long ? 1.0 : 0.0
-score_long += chop_ok ? 1.0 : 0.0
+score_long += chop_ok_long ? 1.0 : 0.0
 score_long += candle_ok ? 1.0 : 0.0
 score_long += entry_close > sr_anchor ? 1.0 : 0.0
 
@@ -170,14 +181,17 @@ score_short += trend_short ? 2.0 : 0.0
 score_short += (bos_down or choch_down) ? 2.0 : 0.0
 score_short += short_first_retest ? 2.0 : 0.0
 score_short += ema_stack_short ? 1.0 : 0.0
-score_short += chop_ok ? 1.0 : 0.0
+score_short += chop_ok_short ? 1.0 : 0.0
 score_short += candle_ok ? 1.0 : 0.0
 score_short += entry_close < sr_anchor ? 1.0 : 0.0
 
-long_watch = score_long >= watch_score and candle_ok
-short_watch = score_short >= watch_score and candle_ok
-long_trigger = score_long >= trigger_score and candle_ok and chop_ok and trend_dir >= 0
-short_trigger = score_short >= trigger_score and candle_ok and chop_ok and trend_dir <= 0
+in_blocked_session = not na(time(timeframe.period, blocked_session, blocked_tz))
+time_ok = not enable_time_block or not in_blocked_session
+
+long_watch = score_long >= watch_score and candle_ok and time_ok
+short_watch = score_short >= watch_score and candle_ok and time_ok
+long_trigger = score_long >= trigger_score and candle_ok and chop_ok_long and trend_dir >= 0 and time_ok
+short_trigger = score_short >= trigger_score and candle_ok and chop_ok_short and trend_dir <= 0 and time_ok
 
 // ===== Plots / labels / alerts =====
 plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
@@ -188,15 +202,34 @@ p_top = plot(show_sr_zone ? zone_top : na, "Retest Zone Top", color=color.new(co
 p_bot = plot(show_sr_zone ? zone_bot : na, "Retest Zone Bottom", color=color.new(color.red, 70))
 fill(p_top, p_bot, color=color.new(color.blue, 92), title="Retest Zone")
 
-if show_watch_labels and long_watch and not long_trigger
-    label.new(bar_index, low, "LONG WATCH\nS=" + str.tostring(score_long, "#.0"), style=label.style_label_up, color=color.new(color.green, 70), textcolor=color.white)
-if show_watch_labels and short_watch and not short_trigger
-    label.new(bar_index, high, "SHORT WATCH\nS=" + str.tostring(score_short, "#.0"), style=label.style_label_down, color=color.new(color.red, 70), textcolor=color.white)
+long_watch_edge = long_watch and not long_watch[1]
+short_watch_edge = short_watch and not short_watch[1]
+long_trigger_edge = long_trigger and not long_trigger[1]
+short_trigger_edge = short_trigger and not short_trigger[1]
 
-if show_trigger_labels and long_trigger
+var int last_label_long_watch = na
+var int last_label_short_watch = na
+var int last_label_long_trigger = na
+var int last_label_short_trigger = na
+
+can_label_long_watch = na(last_label_long_watch) or (bar_index - last_label_long_watch > label_cooldown_bars)
+can_label_short_watch = na(last_label_short_watch) or (bar_index - last_label_short_watch > label_cooldown_bars)
+can_label_long_trigger = na(last_label_long_trigger) or (bar_index - last_label_long_trigger > label_cooldown_bars)
+can_label_short_trigger = na(last_label_short_trigger) or (bar_index - last_label_short_trigger > label_cooldown_bars)
+
+if show_watch_labels and long_watch and not long_trigger and can_label_long_watch and (not show_transition_only or long_watch_edge)
+    label.new(bar_index, low, "LONG WATCH\nS=" + str.tostring(score_long, "#.0"), style=label.style_label_up, color=color.new(color.green, 70), textcolor=color.white)
+    last_label_long_watch := bar_index
+if show_watch_labels and short_watch and not short_trigger and can_label_short_watch and (not show_transition_only or short_watch_edge)
+    label.new(bar_index, high, "SHORT WATCH\nS=" + str.tostring(score_short, "#.0"), style=label.style_label_down, color=color.new(color.red, 70), textcolor=color.white)
+    last_label_short_watch := bar_index
+
+if show_trigger_labels and long_trigger and can_label_long_trigger and (not show_transition_only or long_trigger_edge)
     label.new(bar_index, low, "LONG TRIGGER\nS=" + str.tostring(score_long, "#.0"), style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white)
-if show_trigger_labels and short_trigger
+    last_label_long_trigger := bar_index
+if show_trigger_labels and short_trigger and can_label_short_trigger and (not show_transition_only or short_trigger_edge)
     label.new(bar_index, high, "SHORT TRIGGER\nS=" + str.tostring(score_short, "#.0"), style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white)
+    last_label_short_trigger := bar_index
 
 alertcondition(long_watch, "LS v1 Long Watch", "LiquidSniper v1 LONG WATCH {{ticker}} {{interval}}")
 alertcondition(short_watch, "LS v1 Short Watch", "LiquidSniper v1 SHORT WATCH {{ticker}} {{interval}}")
@@ -215,8 +248,8 @@ if show_debug
     table.cell(t, 1, 3, (bos_up ? "Y" : "N") + "/" + (bos_down ? "Y" : "N"))
     table.cell(t, 0, 4, "CHoCH Up/Down")
     table.cell(t, 1, 4, (choch_up ? "Y" : "N") + "/" + (choch_down ? "Y" : "N"))
-    table.cell(t, 0, 5, "Chop OK")
-    table.cell(t, 1, 5, chop_ok ? "Y" : "N")
+    table.cell(t, 0, 5, "Chop OK L/S")
+    table.cell(t, 1, 5, (chop_ok_long ? "Y" : "N") + "/" + (chop_ok_short ? "Y" : "N"))
     table.cell(t, 0, 6, "HTF CI")
     table.cell(t, 1, 6, str.tostring(htf_ci, "#.0"))
     table.cell(t, 0, 7, "HTF ADX")
