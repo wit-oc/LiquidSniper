@@ -31,6 +31,16 @@ be_trigger_r = input.float(1.0, "Break-even Trigger (R)", minval=0.1, step=0.1, 
 be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, group=g_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
 
+sizing_mode = input.string("percent_of_equity", "Sizing Mode", options=["percent_of_equity", "risk_based"], group=g_risk)
+risk_pct_low_conf = input.float(1.0, "Risk % (Low Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+risk_pct_high_conf = input.float(5.0, "Risk % (High Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+high_conf_score_threshold = input.float(8.0, "High Confluence Score Threshold", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+enable_profile_risk_cap = input.bool(true, "Enable Profile Risk Cap", group=g_risk)
+enable_manual_profile_risk_caps = input.bool(false, "Manual Profile Risk Cap Overrides", group=g_risk)
+profile_cap_c = input.float(1.0, "Profile C Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+profile_cap_i = input.float(5.0, "Profile I Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+profile_cap_s = input.float(5.0, "Profile S Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
 adx_calc(len) =>
     up = ta.change(high)
@@ -42,6 +52,9 @@ adx_calc(len) =>
     minus = 100.0 * ta.rma(minus_dm, len) / math.max(trur, 1e-9)
     dx = 100.0 * math.abs(plus - minus) / math.max(plus + minus, 1e-9)
     ta.rma(dx, len)
+
+safe_nonneg(v) =>
+    na(v) ? 0.0 : math.max(v, 0.0)
 
 entry_tf = profile == "S" ? "60" : profile == "I" ? "15" : "5"
 itf_tf = profile == "S" ? "240" : profile == "I" ? "60" : "15"
@@ -164,18 +177,53 @@ score_short += entry_close < sr_anchor ? 1.0 : 0.0
 long_trigger = allow_longs and score_long >= trigger_score and candle_ok and chop_ok and trend_dir >= 0
 short_trigger = allow_shorts and score_short >= trigger_score and candle_ok and chop_ok and trend_dir <= 0
 
+selected_score = long_trigger ? score_long : short_trigger ? score_short : 0.0
+is_high_conf = selected_score >= high_conf_score_threshold
+base_risk_pct = is_high_conf ? risk_pct_high_conf : risk_pct_low_conf
+profile_cap_default = profile == "C" ? 1.0 : profile == "I" ? 5.0 : 5.0
+profile_cap_selected = profile == "C" ? profile_cap_c : profile == "I" ? profile_cap_i : profile_cap_s
+profile_risk_cap = enable_manual_profile_risk_caps ? profile_cap_selected : profile_cap_default
+risk_pct_effective = enable_profile_risk_cap ? math.min(base_risk_pct, profile_risk_cap) : base_risk_pct
+risk_pct_effective := safe_nonneg(risk_pct_effective)
+
+atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
+
+long_stop_ref = na(last_swing_low) ? (entry_close - atr_entry * atr_stop_mult) : math.min(last_swing_low, entry_close - atr_entry * 0.5)
+short_stop_ref = na(last_swing_high) ? (entry_close + atr_entry * atr_stop_mult) : math.max(last_swing_high, entry_close + atr_entry * 0.5)
+
+min_stop_distance = math.max(entry_close * 1e-6, syminfo.mintick)
+long_stop_distance = math.abs(entry_close - long_stop_ref)
+short_stop_distance = math.abs(short_stop_ref - entry_close)
+long_stop_valid = not na(long_stop_distance) and not na(long_stop_ref) and long_stop_distance >= min_stop_distance
+short_stop_valid = not na(short_stop_distance) and not na(short_stop_ref) and short_stop_distance >= min_stop_distance
+
+risk_budget_usd = strategy.equity * (risk_pct_effective / 100.0)
+risk_budget_valid = not na(risk_budget_usd) and risk_budget_usd > 0
+long_qty_calc = long_stop_valid and risk_budget_valid ? (risk_budget_usd / long_stop_distance) : na
+short_qty_calc = short_stop_valid and risk_budget_valid ? (risk_budget_usd / short_stop_distance) : na
+long_qty_valid = not na(long_qty_calc) and long_qty_calc > 0
+short_qty_valid = not na(short_qty_calc) and short_qty_calc > 0
+
 var int last_trade_bar = na
 can_trade = na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)
 
 if long_trigger and can_trade and strategy.position_size <= 0
-    strategy.entry("LSV1-LONG", strategy.long)
-    last_trade_bar := bar_index
+    if sizing_mode == "risk_based"
+        if long_qty_valid
+            strategy.entry("LSV1-LONG", strategy.long, qty=long_qty_calc)
+            last_trade_bar := bar_index
+    else
+        strategy.entry("LSV1-LONG", strategy.long)
+        last_trade_bar := bar_index
 
 if short_trigger and can_trade and strategy.position_size >= 0
-    strategy.entry("LSV1-SHORT", strategy.short)
-    last_trade_bar := bar_index
-
-atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
+    if sizing_mode == "risk_based"
+        if short_qty_valid
+            strategy.entry("LSV1-SHORT", strategy.short, qty=short_qty_calc)
+            last_trade_bar := bar_index
+    else
+        strategy.entry("LSV1-SHORT", strategy.short)
+        last_trade_bar := bar_index
 
 long_invalidation = na(last_swing_low) ? (strategy.position_avg_price - atr_entry * atr_stop_mult) : math.min(last_swing_low, strategy.position_avg_price - atr_entry * 0.5)
 short_invalidation = na(last_swing_high) ? (strategy.position_avg_price + atr_entry * atr_stop_mult) : math.max(last_swing_high, strategy.position_avg_price + atr_entry * 0.5)

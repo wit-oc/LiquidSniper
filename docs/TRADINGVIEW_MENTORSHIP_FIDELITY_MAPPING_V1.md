@@ -64,7 +64,32 @@ Scope: Rule-by-rule mapping from Foxian mentorship intent into Pine behavior, wi
 
 ---
 
+## Risk-tier mapping + profile-cap rationale (v1.1 update)
+
+To better align execution risk with confluence quality while preserving deterministic backtests:
+
+- Strategy adds `sizing_mode`:
+  - `percent_of_equity` (legacy behavior)
+  - `risk_based` (new)
+- In `risk_based`, per-trade qty is derived from invalidation distance:
+  - `risk_usd = strategy.equity * risk_pct_effective`
+  - `qty = risk_usd / stop_distance`
+- Confluence-tiered risk:
+  - Low-confidence trades use `risk_pct_low_conf` (default 1%)
+  - High-confidence trades use `risk_pct_high_conf` (default 5%)
+  - High-confidence is determined by `high_conf_score_threshold` (default 8.0)
+- Optional profile cap (`enable_profile_risk_cap`) constrains risk by profile intent:
+  - C max 1%
+  - I max 5%
+  - S max 5%
+  - Manual override inputs allow explicit cap changes without altering defaults.
+
+Why this mapping:
+- Preserves mentorship emphasis that risk should respect invalidation (distance-to-stop aware sizing).
+- Keeps profile behavior coherent with conservative/intraday/swing posture.
+- Maintains deterministic and auditable behavior through explicit thresholds and caps.
+
 ## Net assessment
 
-- **Operationally aligned** with mentorship backbone on confluence stacking, MTF context, structure framing, first-retest focus, and chop avoidance.
+- **Operationally aligned** with mentorship backbone on confluence stacking, MTF context, structure framing, first-retest focus, chop avoidance, and now invalidation-aware risk sizing.
 - **Not yet full discretionary parity** due to Pine-only constraints around hand-drawn SR/OB/Fib and context-driven TP selection.

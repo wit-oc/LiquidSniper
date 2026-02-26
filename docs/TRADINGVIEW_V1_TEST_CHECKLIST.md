@@ -68,7 +68,41 @@ Required aggregate metrics (v1 vs v0):
 - [ ] Profit factor >= 95% of v0 (target >= 100%)
 - [ ] Max drawdown <= 105% of v0
 
-## 6) Alert plumbing checks
+## 6) Risk-sizing validation block (v1.1)
+Run these in TradingView Strategy Tester using `liquidsniper_confluence_strategy_v1_fidelity.pine`:
+
+- [ ] **RS-B0** (baseline legacy sizing):
+  - `sizing_mode=percent_of_equity`
+  - Capture that default percent-of-equity behavior is unchanged.
+- [ ] **RS-HC1** (high-confluence tier):
+  - `sizing_mode=risk_based`
+  - `risk_pct_low_conf=1.0`
+  - `risk_pct_high_conf=5.0`
+  - `high_conf_score_threshold=8.0`
+  - Confirm trades with score >= threshold size near 5% risk before cap.
+- [ ] **RS-CAP1** (profile cap enforcement):
+  - `enable_profile_risk_cap=true`
+  - `enable_manual_profile_risk_caps=false` (default caps C=1%, I=5%, S=5%)
+  - Confirm C-profile high-confluence setups are capped at 1% risk.
+
+Capture fields (add to run notes/log):
+- `sizing_mode`
+- `risk_pct_low_conf`
+- `risk_pct_high_conf`
+- `high_conf_score_threshold`
+- `enable_profile_risk_cap`
+- `enable_manual_profile_risk_caps`
+- `profile_cap_c`, `profile_cap_i`, `profile_cap_s`
+- `profile`
+- `risk_pct_effective` observed for representative low/high-confluence entries
+- Sample stop distance + computed qty sanity check (`qty ≈ risk_usd / stop_distance`)
+
+Required metrics:
+- [ ] RS-B0 reproduces legacy behavior (no unexpected order-size drift)
+- [ ] RS-HC1 applies 1%/5% tiering by score threshold
+- [ ] RS-CAP1 enforces profile cap as configured
+
+## 7) Alert plumbing checks
 - [ ] Create alert for `LS v1 Long Watch`
 - [ ] Create alert for `LS v1 Short Watch`
 - [ ] Create alert for `LS v1 Long Trigger`
@@ -77,7 +111,7 @@ Required aggregate metrics (v1 vs v0):
 Required metrics:
 - **Alert creation success = 4/4**
 
-## 7) Sign-off block
+## 8) Sign-off block
 - Tester:
 - Date:
 - TradingView account/workspace:

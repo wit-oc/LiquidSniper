@@ -38,3 +38,12 @@ See `docs/TRADINGVIEW_PINE_IMPLEMENTATION_GUIDE.md` for full details.
   - `docs/TRADINGVIEW_MENTORSHIP_FIDELITY_MAPPING_V1.md`
   - `docs/TRADINGVIEW_V0_RETIREMENT_CRITERIA.md`
   - `docs/TRADINGVIEW_V1_TEST_CHECKLIST.md`
+
+### v1.1 risk-sizing update
+- Strategy now supports `sizing_mode` with legacy `percent_of_equity` and new `risk_based` sizing.
+- `risk_based` mode sizes entries from invalidation distance (`qty = risk_usd / stop_distance`) with defensive guards for invalid/near-zero stops.
+- Added confluence-tiered risk controls:
+  - Low confidence default risk = 1%
+  - High confidence default risk = 5%
+  - Threshold-controlled high-confidence routing.
+- Added optional profile risk caps (default C=1%, I=5%, S=5%) plus manual cap override inputs.
