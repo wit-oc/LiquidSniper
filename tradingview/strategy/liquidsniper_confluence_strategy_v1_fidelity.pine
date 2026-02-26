@@ -20,15 +20,26 @@ retest_window_bars = input.int(24, "Retest Window Bars", minval=3, maxval=300, g
 retest_bps = input.float(20.0, "Retest Zone (bps)", minval=2.0, maxval=250.0, group=g_logic)
 chop_ci_max = input.float(61.0, "HTF Chop CI Max", minval=20.0, maxval=80.0, group=g_logic)
 chop_adx_min = input.float(17.0, "HTF Trend ADX Min", minval=5.0, maxval=60.0, group=g_logic)
+enable_short_adx_bump = input.bool(false, "Enable Short-side ADX Bump", group=g_logic)
+short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, step=0.5, group=g_logic)
 trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
+
+g_time = "01b. Time Filters"
+enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
+blocked_session = input.session("0800-1100", "Blocked Session", group=g_time)
+blocked_tz = input.string("America/New_York", "Blocked Session Timezone", group=g_time)
 
 
 g_risk = "02. Risk"
 rr_target = input.float(2.0, "Risk:Reward Target", minval=1.0, step=0.1, group=g_risk)
 atr_stop_mult = input.float(1.4, "ATR Stop Mult (fallback)", minval=0.5, step=0.1, group=g_risk)
+enable_short_stop_mult = input.bool(false, "Enable Short-side Stop Multiplier", group=g_risk)
+short_stop_mult_factor = input.float(0.9, "Short Stop Mult Factor", minval=0.1, maxval=2.0, step=0.05, group=g_risk)
 be_enabled = input.bool(true, "Enable Break-even Stop", group=g_risk)
 be_trigger_r = input.float(1.0, "Break-even Trigger (R)", minval=0.1, step=0.1, group=g_risk)
 be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, group=g_risk)
+enable_time_stop = input.bool(false, "Enable Time Stop", group=g_risk)
+max_bars_in_trade = input.int(12, "Max Bars In Trade", minval=1, group=g_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
 
 sizing_mode = input.string("percent_of_equity", "Sizing Mode", options=["percent_of_equity", "risk_based"], group=g_risk)
@@ -103,7 +114,9 @@ htf_span = request.security(syminfo.tickerid, htf_tf, ta.highest(high, chop_len)
 htf_ci_raw = htf_span <= 1e-9 ? 100.0 : 100.0 * math.log10(math.max(htf_tr_sum / htf_span, 1e-9)) / math.log10(chop_len)
 htf_ci = clamp(htf_ci_raw, 0.0, 100.0)
 htf_adx = request.security(syminfo.tickerid, htf_tf, adx_calc(14))
-chop_ok = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
+short_adx_min_effective = chop_adx_min + (enable_short_adx_bump ? short_adx_bump : 0.0)
+chop_ok_long = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
+chop_ok_short = htf_ci <= chop_ci_max and htf_adx >= short_adx_min_effective
 
 sr_anchor = itf_ema50
 zone_half = sr_anchor * (retest_bps / 10000.0)
@@ -161,7 +174,7 @@ score_long += trend_long ? 2.0 : 0.0
 score_long += (bos_up or choch_up) ? 2.0 : 0.0
 score_long += long_first_retest ? 2.0 : 0.0
 score_long += ema_stack_long ? 1.0 : 0.0
-score_long += chop_ok ? 1.0 : 0.0
+score_long += chop_ok_long ? 1.0 : 0.0
 score_long += candle_ok ? 1.0 : 0.0
 score_long += entry_close > sr_anchor ? 1.0 : 0.0
 
@@ -170,12 +183,15 @@ score_short += trend_short ? 2.0 : 0.0
 score_short += (bos_down or choch_down) ? 2.0 : 0.0
 score_short += short_first_retest ? 2.0 : 0.0
 score_short += ema_stack_short ? 1.0 : 0.0
-score_short += chop_ok ? 1.0 : 0.0
+score_short += chop_ok_short ? 1.0 : 0.0
 score_short += candle_ok ? 1.0 : 0.0
 score_short += entry_close < sr_anchor ? 1.0 : 0.0
 
-long_trigger = allow_longs and score_long >= trigger_score and candle_ok and chop_ok and trend_dir >= 0
-short_trigger = allow_shorts and score_short >= trigger_score and candle_ok and chop_ok and trend_dir <= 0
+in_blocked_session = not na(time(timeframe.period, blocked_session, blocked_tz))
+time_ok = not enable_time_block or not in_blocked_session
+
+long_trigger = allow_longs and score_long >= trigger_score and candle_ok and chop_ok_long and trend_dir >= 0 and time_ok
+short_trigger = allow_shorts and score_short >= trigger_score and candle_ok and chop_ok_short and trend_dir <= 0 and time_ok
 
 selected_score = long_trigger ? score_long : short_trigger ? score_short : 0.0
 is_high_conf = selected_score >= high_conf_score_threshold
@@ -188,8 +204,9 @@ risk_pct_effective := safe_nonneg(risk_pct_effective)
 
 atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
 
+short_atr_mult_effective = enable_short_stop_mult ? atr_stop_mult * short_stop_mult_factor : atr_stop_mult
 long_stop_ref = na(last_swing_low) ? (entry_close - atr_entry * atr_stop_mult) : math.min(last_swing_low, entry_close - atr_entry * 0.5)
-short_stop_ref = na(last_swing_high) ? (entry_close + atr_entry * atr_stop_mult) : math.max(last_swing_high, entry_close + atr_entry * 0.5)
+short_stop_ref = na(last_swing_high) ? (entry_close + atr_entry * short_atr_mult_effective) : math.max(last_swing_high, entry_close + atr_entry * 0.5)
 
 min_stop_distance = math.max(entry_close * 1e-6, syminfo.mintick)
 long_stop_distance = math.abs(entry_close - long_stop_ref)
@@ -205,6 +222,7 @@ long_qty_valid = not na(long_qty_calc) and long_qty_calc > 0
 short_qty_valid = not na(short_qty_calc) and short_qty_calc > 0
 
 var int last_trade_bar = na
+var int position_entry_bar = na
 can_trade = na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)
 
 if long_trigger and can_trade and strategy.position_size <= 0
@@ -225,8 +243,21 @@ if short_trigger and can_trade and strategy.position_size >= 0
         strategy.entry("LSV1-SHORT", strategy.short)
         last_trade_bar := bar_index
 
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    position_entry_bar := bar_index
+if strategy.position_size == 0
+    position_entry_bar := na
+
+if enable_time_stop and strategy.position_size != 0 and not na(position_entry_bar)
+    bars_held = bar_index - position_entry_bar
+    if bars_held >= max_bars_in_trade
+        if strategy.position_size > 0
+            strategy.close("LSV1-LONG", comment="TIME_STOP")
+        if strategy.position_size < 0
+            strategy.close("LSV1-SHORT", comment="TIME_STOP")
+
 long_invalidation = na(last_swing_low) ? (strategy.position_avg_price - atr_entry * atr_stop_mult) : math.min(last_swing_low, strategy.position_avg_price - atr_entry * 0.5)
-short_invalidation = na(last_swing_high) ? (strategy.position_avg_price + atr_entry * atr_stop_mult) : math.max(last_swing_high, strategy.position_avg_price + atr_entry * 0.5)
+short_invalidation = na(last_swing_high) ? (strategy.position_avg_price + atr_entry * short_atr_mult_effective) : math.max(last_swing_high, strategy.position_avg_price + atr_entry * 0.5)
 
 long_risk = math.max(strategy.position_avg_price - long_invalidation, atr_entry * 0.2)
 short_risk = math.max(short_invalidation - strategy.position_avg_price, atr_entry * 0.2)
