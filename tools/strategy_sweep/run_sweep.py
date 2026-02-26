@@ -100,6 +100,7 @@ def main() -> None:
     ap.add_argument("--samples", type=int, default=80, help="max combinations sampled per profile")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default=str(HERE / "outputs"))
+    ap.add_argument("--only-profiles", default="C,I,S", help="comma-separated profiles to run, e.g. I")
     args = ap.parse_args()
 
     out_dir = Path(args.out)
@@ -116,7 +117,10 @@ def main() -> None:
         "seed": args.seed,
     }
 
-    for i, profile in enumerate(["C", "I", "S"]):
+    selected = [p.strip() for p in args.only_profiles.split(",") if p.strip()]
+    for i, profile in enumerate(selected):
+        if profile not in profiles:
+            raise ValueError(f"Unknown profile '{profile}'. Available: {sorted(profiles.keys())}")
         result_rows = run_profile(profile, profiles[profile], rows, args.samples, args.seed + i * 1000)
         write_csv(out_dir / f"leaderboard_{profile}.csv", result_rows)
 
