@@ -47,3 +47,8 @@ See `docs/TRADINGVIEW_PINE_IMPLEMENTATION_GUIDE.md` for full details.
   - High confidence default risk = 5%
   - Threshold-controlled high-confidence routing.
 - Added optional profile risk caps (default C=1%, I=5%, S=5%) plus manual cap override inputs.
+
+### Python sweep scaffold
+- Added parameter sweep tooling under `tools/strategy_sweep/` for Pine v1 structure testing.
+- Includes profile-aware sweeps (`C/I/S`), leaderboard exports, run manifests, and TradingView shortlist export.
+- Start with `tools/strategy_sweep/README.md`.

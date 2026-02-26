@@ -1,0 +1,74 @@
+{
+  "C": {
+    "constraints": {
+      "profile_risk_cap_pct": 1.0,
+      "max_notional_pct": 100.0,
+      "initial_equity": 10000.0
+    },
+    "params": {
+      "structure_swing_len": {"type": "int", "min": 2, "max": 4, "step": 1},
+      "retest_window_bars": {"type": "int", "min": 16, "max": 30, "step": 2},
+      "retest_bps": {"type": "float", "min": 10.0, "max": 24.0, "step": 2.0},
+      "chop_ci_max": {"type": "float", "min": 56.0, "max": 66.0, "step": 2.0},
+      "chop_adx_min": {"type": "float", "min": 16.0, "max": 24.0, "step": 2.0},
+      "trigger_score": {"type": "float", "min": 6.8, "max": 8.0, "step": 0.2},
+      "rr_target": {"type": "float", "min": 1.8, "max": 2.4, "step": 0.2},
+      "be_enabled": {"value": 1},
+      "be_trigger_r": {"type": "float", "min": 0.8, "max": 1.2, "step": 0.2},
+      "be_offset_pct": {"type": "float", "min": 0.0, "max": 0.1, "step": 0.05},
+      "cooldown_bars": {"type": "int", "min": 2, "max": 5, "step": 1},
+      "sizing_mode": {"value": "risk_based"},
+      "risk_pct_low_conf": {"type": "float", "min": 0.4, "max": 1.0, "step": 0.2},
+      "risk_pct_high_conf": {"type": "float", "min": 0.6, "max": 1.2, "step": 0.2},
+      "high_conf_score_threshold": {"type": "float", "min": 7.8, "max": 8.6, "step": 0.2}
+    }
+  },
+  "I": {
+    "constraints": {
+      "profile_risk_cap_pct": 5.0,
+      "max_notional_pct": 130.0,
+      "initial_equity": 10000.0
+    },
+    "params": {
+      "structure_swing_len": {"type": "int", "min": 2, "max": 5, "step": 1},
+      "retest_window_bars": {"type": "int", "min": 18, "max": 36, "step": 3},
+      "retest_bps": {"type": "float", "min": 12.0, "max": 30.0, "step": 2.0},
+      "chop_ci_max": {"type": "float", "min": 58.0, "max": 66.0, "step": 2.0},
+      "chop_adx_min": {"type": "float", "min": 14.0, "max": 24.0, "step": 2.0},
+      "trigger_score": {"type": "float", "min": 6.8, "max": 8.2, "step": 0.2},
+      "rr_target": {"type": "float", "min": 1.8, "max": 2.8, "step": 0.2},
+      "be_enabled": {"value": 1},
+      "be_trigger_r": {"type": "float", "min": 0.8, "max": 1.4, "step": 0.2},
+      "be_offset_pct": {"type": "float", "min": 0.0, "max": 0.2, "step": 0.05},
+      "cooldown_bars": {"type": "int", "min": 2, "max": 6, "step": 1},
+      "sizing_mode": {"value": "risk_based"},
+      "risk_pct_low_conf": {"type": "float", "min": 0.8, "max": 2.0, "step": 0.2},
+      "risk_pct_high_conf": {"type": "float", "min": 2.0, "max": 5.0, "step": 0.5},
+      "high_conf_score_threshold": {"type": "float", "min": 7.8, "max": 8.8, "step": 0.2}
+    }
+  },
+  "S": {
+    "constraints": {
+      "profile_risk_cap_pct": 5.0,
+      "max_notional_pct": 180.0,
+      "initial_equity": 10000.0
+    },
+    "params": {
+      "structure_swing_len": {"type": "int", "min": 3, "max": 6, "step": 1},
+      "retest_window_bars": {"type": "int", "min": 20, "max": 44, "step": 4},
+      "retest_bps": {"type": "float", "min": 14.0, "max": 40.0, "step": 2.0},
+      "chop_ci_max": {"type": "float", "min": 60.0, "max": 70.0, "step": 2.0},
+      "chop_adx_min": {"type": "float", "min": 12.0, "max": 22.0, "step": 2.0},
+      "trigger_score": {"type": "float", "min": 6.6, "max": 8.0, "step": 0.2},
+      "rr_target": {"type": "float", "min": 1.6, "max": 2.6, "step": 0.2},
+      "be_enabled": {"value": 1},
+      "be_trigger_r": {"type": "float", "min": 0.6, "max": 1.2, "step": 0.2},
+      "be_offset_pct": {"type": "float", "min": 0.0, "max": 0.2, "step": 0.05},
+      "cooldown_bars": {"type": "int", "min": 2, "max": 8, "step": 1},
+      "sizing_mode": {"value": "risk_based"},
+      "risk_pct_low_conf": {"type": "float", "min": 1.0, "max": 3.0, "step": 0.5},
+      "risk_pct_high_conf": {"type": "float", "min": 3.0, "max": 8.0, "step": 0.5},
+      "high_conf_score_threshold": {"type": "float", "min": 7.6, "max": 8.8, "step": 0.2}
+    }
+  }
+}
