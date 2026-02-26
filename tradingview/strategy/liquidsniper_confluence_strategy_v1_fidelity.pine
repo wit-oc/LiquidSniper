@@ -26,6 +26,9 @@ trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, g
 g_risk = "02. Risk"
 rr_target = input.float(2.0, "Risk:Reward Target", minval=1.0, step=0.1, group=g_risk)
 atr_stop_mult = input.float(1.4, "ATR Stop Mult (fallback)", minval=0.5, step=0.1, group=g_risk)
+be_enabled = input.bool(true, "Enable Break-even Stop", group=g_risk)
+be_trigger_r = input.float(1.0, "Break-even Trigger (R)", minval=0.1, step=0.1, group=g_risk)
+be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, group=g_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
 
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
@@ -183,8 +186,27 @@ short_risk = math.max(short_invalidation - strategy.position_avg_price, atr_entr
 long_tp = strategy.position_avg_price + long_risk * rr_target
 short_tp = strategy.position_avg_price - short_risk * rr_target
 
-strategy.exit("LSV1-LONG-EXIT", "LSV1-LONG", stop=long_invalidation, limit=long_tp)
-strategy.exit("LSV1-SHORT-EXIT", "LSV1-SHORT", stop=short_invalidation, limit=short_tp)
+long_be_trigger_px = strategy.position_avg_price + long_risk * be_trigger_r
+short_be_trigger_px = strategy.position_avg_price - short_risk * be_trigger_r
+long_be_stop = strategy.position_avg_price * (1.0 + be_offset_pct / 100.0)
+short_be_stop = strategy.position_avg_price * (1.0 - be_offset_pct / 100.0)
+
+var bool long_be_active = false
+var bool short_be_active = false
+if strategy.position_size == 0
+    long_be_active := false
+    short_be_active := false
+
+if be_enabled and strategy.position_size > 0 and high >= long_be_trigger_px
+    long_be_active := true
+if be_enabled and strategy.position_size < 0 and low <= short_be_trigger_px
+    short_be_active := true
+
+long_stop_eff = long_be_active ? math.max(long_invalidation, long_be_stop) : long_invalidation
+short_stop_eff = short_be_active ? math.min(short_invalidation, short_be_stop) : short_invalidation
+
+strategy.exit("LSV1-LONG-EXIT", "LSV1-LONG", stop=long_stop_eff, limit=long_tp)
+strategy.exit("LSV1-SHORT-EXIT", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp)
 
 plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
 plot(entry_ema50, "Entry EMA50", color=color.new(color.orange, 0))
