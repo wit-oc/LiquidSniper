@@ -1,0 +1,7 @@
+{
+  "data": "data/sample_ohlcv.csv",
+  "profiles": "tools/strategy_sweep/profiles.yaml",
+  "samples": 80,
+  "seed": 42,
+  "out": "tools/strategy_sweep/outputs"
+}

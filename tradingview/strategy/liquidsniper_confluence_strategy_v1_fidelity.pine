@@ -1,0 +1,294 @@
+//@version=5
+strategy("LiquidSniper Confluence Strategy v1 (Mentorship Fidelity)", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, commission_type=strategy.commission.percent, commission_value=0.05, max_labels_count=500)
+
+// ------------------------------------------------------
+// LiquidSniper Pine Strategy v1 - Mentorship fidelity pass
+// Mirrors v1 indicator signal model and adds deterministic
+// execution with fixed invalidation + single full TP.
+// ------------------------------------------------------
+
+g_meta = "00. Metadata"
+ls_version = input.string("tv-strategy-v1.0.0-fidelity", "Logic Version", group=g_meta)
+profile = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=g_meta)
+allow_longs = input.bool(true, "Allow Longs", group=g_meta)
+allow_shorts = input.bool(true, "Allow Shorts", group=g_meta)
+
+g_logic = "01. Logic"
+require_candle_close = input.bool(true, "Require Candle Close", group=g_logic)
+structure_swing_len = input.int(3, "Structure Swing Length", minval=2, maxval=10, group=g_logic)
+retest_window_bars = input.int(24, "Retest Window Bars", minval=3, maxval=300, group=g_logic)
+retest_bps = input.float(20.0, "Retest Zone (bps)", minval=2.0, maxval=250.0, group=g_logic)
+chop_ci_max = input.float(61.0, "HTF Chop CI Max", minval=20.0, maxval=80.0, group=g_logic)
+chop_adx_min = input.float(17.0, "HTF Trend ADX Min", minval=5.0, maxval=60.0, group=g_logic)
+enable_short_adx_bump = input.bool(false, "Enable Short-side ADX Bump", group=g_logic)
+short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, step=0.5, group=g_logic)
+trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
+
+g_time = "01b. Time Filters"
+enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
+blocked_session = input.session("0800-1100", "Blocked Session", group=g_time)
+blocked_tz = input.string("America/New_York", "Blocked Session Timezone", group=g_time)
+
+
+g_risk = "02. Risk"
+rr_target = input.float(2.0, "Risk:Reward Target", minval=1.0, step=0.1, group=g_risk)
+atr_stop_mult = input.float(1.4, "ATR Stop Mult (fallback)", minval=0.5, step=0.1, group=g_risk)
+enable_short_stop_mult = input.bool(false, "Enable Short-side Stop Multiplier", group=g_risk)
+short_stop_mult_factor = input.float(0.9, "Short Stop Mult Factor", minval=0.1, maxval=2.0, step=0.05, group=g_risk)
+be_enabled = input.bool(true, "Enable Break-even Stop", group=g_risk)
+be_trigger_r = input.float(1.0, "Break-even Trigger (R)", minval=0.1, step=0.1, group=g_risk)
+be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, group=g_risk)
+enable_time_stop = input.bool(false, "Enable Time Stop", group=g_risk)
+max_bars_in_trade = input.int(12, "Max Bars In Trade", minval=1, group=g_risk)
+cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
+
+sizing_mode = input.string("percent_of_equity", "Sizing Mode", options=["percent_of_equity", "risk_based"], group=g_risk)
+risk_pct_low_conf = input.float(1.0, "Risk % (Low Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+risk_pct_high_conf = input.float(5.0, "Risk % (High Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+high_conf_score_threshold = input.float(8.0, "High Confluence Score Threshold", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+enable_profile_risk_cap = input.bool(true, "Enable Profile Risk Cap", group=g_risk)
+enable_manual_profile_risk_caps = input.bool(false, "Manual Profile Risk Cap Overrides", group=g_risk)
+profile_cap_c = input.float(1.0, "Profile C Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+profile_cap_i = input.float(5.0, "Profile I Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+profile_cap_s = input.float(5.0, "Profile S Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+
+clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+adx_calc(len) =>
+    up = ta.change(high)
+    down = -ta.change(low)
+    plus_dm = up > down and up > 0 ? up : 0.0
+    minus_dm = down > up and down > 0 ? down : 0.0
+    trur = ta.rma(ta.tr(true), len)
+    plus = 100.0 * ta.rma(plus_dm, len) / math.max(trur, 1e-9)
+    minus = 100.0 * ta.rma(minus_dm, len) / math.max(trur, 1e-9)
+    dx = 100.0 * math.abs(plus - minus) / math.max(plus + minus, 1e-9)
+    ta.rma(dx, len)
+
+safe_nonneg(v) =>
+    na(v) ? 0.0 : math.max(v, 0.0)
+
+entry_tf = profile == "S" ? "60" : profile == "I" ? "15" : "5"
+itf_tf = profile == "S" ? "240" : profile == "I" ? "60" : "15"
+htf_tf = profile == "S" ? "D" : profile == "I" ? "240" : "60"
+
+entry_close = request.security(syminfo.tickerid, entry_tf, close)
+entry_high = request.security(syminfo.tickerid, entry_tf, high)
+entry_low = request.security(syminfo.tickerid, entry_tf, low)
+entry_ema20 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 20))
+entry_ema50 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 50))
+itf_ema20 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 20))
+itf_ema50 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 50))
+htf_ema20 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 20))
+htf_ema50 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 50))
+
+trend_long = itf_ema20 > itf_ema50 and htf_ema20 > htf_ema50
+trend_short = itf_ema20 < itf_ema50 and htf_ema20 < htf_ema50
+trend_dir = trend_long ? 1 : trend_short ? -1 : 0
+
+piv_hi = ta.pivothigh(entry_high, structure_swing_len, structure_swing_len)
+piv_lo = ta.pivotlow(entry_low, structure_swing_len, structure_swing_len)
+
+var float last_swing_high = na
+var float last_swing_low = na
+if not na(piv_hi)
+    last_swing_high := piv_hi
+if not na(piv_lo)
+    last_swing_low := piv_lo
+
+bos_up = not na(last_swing_high) and entry_close > last_swing_high
+bos_down = not na(last_swing_low) and entry_close < last_swing_low
+
+var int structure_dir = 0
+prior_structure_dir = structure_dir
+if bos_up
+    structure_dir := 1
+if bos_down
+    structure_dir := -1
+
+choch_up = bos_up and prior_structure_dir == -1
+choch_down = bos_down and prior_structure_dir == 1
+
+chop_len = 14
+htf_tr_sum = request.security(syminfo.tickerid, htf_tf, ta.sma(ta.tr(true), chop_len) * chop_len)
+htf_span = request.security(syminfo.tickerid, htf_tf, ta.highest(high, chop_len) - ta.lowest(low, chop_len))
+htf_ci_raw = htf_span <= 1e-9 ? 100.0 : 100.0 * math.log10(math.max(htf_tr_sum / htf_span, 1e-9)) / math.log10(chop_len)
+htf_ci = clamp(htf_ci_raw, 0.0, 100.0)
+htf_adx = request.security(syminfo.tickerid, htf_tf, adx_calc(14))
+short_adx_min_effective = chop_adx_min + (enable_short_adx_bump ? short_adx_bump : 0.0)
+chop_ok_long = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
+chop_ok_short = htf_ci <= chop_ci_max and htf_adx >= short_adx_min_effective
+
+sr_anchor = itf_ema50
+zone_half = sr_anchor * (retest_bps / 10000.0)
+zone_top = sr_anchor + zone_half
+zone_bot = sr_anchor - zone_half
+
+touch_zone = entry_high >= zone_bot and entry_low <= zone_top
+zone_touch_event = touch_zone and not touch_zone[1]
+
+var bool long_retest_armed = false
+var bool short_retest_armed = false
+var int long_retest_count = 0
+var int short_retest_count = 0
+var int bars_since_long_bos = 1000000
+var int bars_since_short_bos = 1000000
+
+bars_since_long_bos += 1
+bars_since_short_bos += 1
+
+if bos_up
+    long_retest_armed := true
+    long_retest_count := 0
+    bars_since_long_bos := 0
+    short_retest_armed := false
+if bos_down
+    short_retest_armed := true
+    short_retest_count := 0
+    bars_since_short_bos := 0
+    long_retest_armed := false
+
+if bars_since_long_bos > retest_window_bars
+    long_retest_armed := false
+if bars_since_short_bos > retest_window_bars
+    short_retest_armed := false
+
+long_first_retest = false
+short_first_retest = false
+if zone_touch_event and long_retest_armed and trend_dir >= 0
+    long_retest_count += 1
+    long_first_retest := long_retest_count == 1
+    if long_retest_count >= 1
+        long_retest_armed := false
+if zone_touch_event and short_retest_armed and trend_dir <= 0
+    short_retest_count += 1
+    short_first_retest := short_retest_count == 1
+    if short_retest_count >= 1
+        short_retest_armed := false
+
+candle_ok = not require_candle_close or barstate.isconfirmed
+ema_stack_long = entry_close > entry_ema20 and entry_ema20 > entry_ema50
+ema_stack_short = entry_close < entry_ema20 and entry_ema20 < entry_ema50
+
+score_long = 0.0
+score_long += trend_long ? 2.0 : 0.0
+score_long += (bos_up or choch_up) ? 2.0 : 0.0
+score_long += long_first_retest ? 2.0 : 0.0
+score_long += ema_stack_long ? 1.0 : 0.0
+score_long += chop_ok_long ? 1.0 : 0.0
+score_long += candle_ok ? 1.0 : 0.0
+score_long += entry_close > sr_anchor ? 1.0 : 0.0
+
+score_short = 0.0
+score_short += trend_short ? 2.0 : 0.0
+score_short += (bos_down or choch_down) ? 2.0 : 0.0
+score_short += short_first_retest ? 2.0 : 0.0
+score_short += ema_stack_short ? 1.0 : 0.0
+score_short += chop_ok_short ? 1.0 : 0.0
+score_short += candle_ok ? 1.0 : 0.0
+score_short += entry_close < sr_anchor ? 1.0 : 0.0
+
+in_blocked_session = not na(time(timeframe.period, blocked_session, blocked_tz))
+time_ok = not enable_time_block or not in_blocked_session
+
+long_trigger = allow_longs and score_long >= trigger_score and candle_ok and chop_ok_long and trend_dir >= 0 and time_ok
+short_trigger = allow_shorts and score_short >= trigger_score and candle_ok and chop_ok_short and trend_dir <= 0 and time_ok
+
+selected_score = long_trigger ? score_long : short_trigger ? score_short : 0.0
+is_high_conf = selected_score >= high_conf_score_threshold
+base_risk_pct = is_high_conf ? risk_pct_high_conf : risk_pct_low_conf
+profile_cap_default = profile == "C" ? 1.0 : profile == "I" ? 5.0 : 5.0
+profile_cap_selected = profile == "C" ? profile_cap_c : profile == "I" ? profile_cap_i : profile_cap_s
+profile_risk_cap = enable_manual_profile_risk_caps ? profile_cap_selected : profile_cap_default
+risk_pct_effective = enable_profile_risk_cap ? math.min(base_risk_pct, profile_risk_cap) : base_risk_pct
+risk_pct_effective := safe_nonneg(risk_pct_effective)
+
+atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
+
+short_atr_mult_effective = enable_short_stop_mult ? atr_stop_mult * short_stop_mult_factor : atr_stop_mult
+long_stop_ref = na(last_swing_low) ? (entry_close - atr_entry * atr_stop_mult) : math.min(last_swing_low, entry_close - atr_entry * 0.5)
+short_stop_ref = na(last_swing_high) ? (entry_close + atr_entry * short_atr_mult_effective) : math.max(last_swing_high, entry_close + atr_entry * 0.5)
+
+min_stop_distance = math.max(entry_close * 1e-6, syminfo.mintick)
+long_stop_distance = math.abs(entry_close - long_stop_ref)
+short_stop_distance = math.abs(short_stop_ref - entry_close)
+long_stop_valid = not na(long_stop_distance) and not na(long_stop_ref) and long_stop_distance >= min_stop_distance
+short_stop_valid = not na(short_stop_distance) and not na(short_stop_ref) and short_stop_distance >= min_stop_distance
+
+risk_budget_usd = strategy.equity * (risk_pct_effective / 100.0)
+risk_budget_valid = not na(risk_budget_usd) and risk_budget_usd > 0
+long_qty_calc = long_stop_valid and risk_budget_valid ? (risk_budget_usd / long_stop_distance) : na
+short_qty_calc = short_stop_valid and risk_budget_valid ? (risk_budget_usd / short_stop_distance) : na
+long_qty_valid = not na(long_qty_calc) and long_qty_calc > 0
+short_qty_valid = not na(short_qty_calc) and short_qty_calc > 0
+
+var int last_trade_bar = na
+var int position_entry_bar = na
+can_trade = na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)
+
+if long_trigger and can_trade and strategy.position_size <= 0
+    if sizing_mode == "risk_based"
+        if long_qty_valid
+            strategy.entry("LSV1-LONG", strategy.long, qty=long_qty_calc)
+            last_trade_bar := bar_index
+    else
+        strategy.entry("LSV1-LONG", strategy.long)
+        last_trade_bar := bar_index
+
+if short_trigger and can_trade and strategy.position_size >= 0
+    if sizing_mode == "risk_based"
+        if short_qty_valid
+            strategy.entry("LSV1-SHORT", strategy.short, qty=short_qty_calc)
+            last_trade_bar := bar_index
+    else
+        strategy.entry("LSV1-SHORT", strategy.short)
+        last_trade_bar := bar_index
+
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    position_entry_bar := bar_index
+if strategy.position_size == 0
+    position_entry_bar := na
+
+if enable_time_stop and strategy.position_size != 0 and not na(position_entry_bar)
+    bars_held = bar_index - position_entry_bar
+    if bars_held >= max_bars_in_trade
+        if strategy.position_size > 0
+            strategy.close("LSV1-LONG", comment="TIME_STOP")
+        if strategy.position_size < 0
+            strategy.close("LSV1-SHORT", comment="TIME_STOP")
+
+long_invalidation = na(last_swing_low) ? (strategy.position_avg_price - atr_entry * atr_stop_mult) : math.min(last_swing_low, strategy.position_avg_price - atr_entry * 0.5)
+short_invalidation = na(last_swing_high) ? (strategy.position_avg_price + atr_entry * short_atr_mult_effective) : math.max(last_swing_high, strategy.position_avg_price + atr_entry * 0.5)
+
+long_risk = math.max(strategy.position_avg_price - long_invalidation, atr_entry * 0.2)
+short_risk = math.max(short_invalidation - strategy.position_avg_price, atr_entry * 0.2)
+
+long_tp = strategy.position_avg_price + long_risk * rr_target
+short_tp = strategy.position_avg_price - short_risk * rr_target
+
+long_be_trigger_px = strategy.position_avg_price + long_risk * be_trigger_r
+short_be_trigger_px = strategy.position_avg_price - short_risk * be_trigger_r
+long_be_stop = strategy.position_avg_price * (1.0 + be_offset_pct / 100.0)
+short_be_stop = strategy.position_avg_price * (1.0 - be_offset_pct / 100.0)
+
+var bool long_be_active = false
+var bool short_be_active = false
+if strategy.position_size == 0
+    long_be_active := false
+    short_be_active := false
+
+if be_enabled and strategy.position_size > 0 and high >= long_be_trigger_px
+    long_be_active := true
+if be_enabled and strategy.position_size < 0 and low <= short_be_trigger_px
+    short_be_active := true
+
+long_stop_eff = long_be_active ? math.max(long_invalidation, long_be_stop) : long_invalidation
+short_stop_eff = short_be_active ? math.min(short_invalidation, short_be_stop) : short_invalidation
+
+strategy.exit("LSV1-LONG-EXIT", "LSV1-LONG", stop=long_stop_eff, limit=long_tp)
+strategy.exit("LSV1-SHORT-EXIT", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp)
+
+plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
+plot(entry_ema50, "Entry EMA50", color=color.new(color.orange, 0))
+plot(sr_anchor, "ITF EMA50 SR Anchor", color=color.new(color.blue, 20))
+plotchar(long_trigger, "Long Trigger", "▲", location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotchar(short_trigger, "Short Trigger", "▼", location.abovebar, color=color.new(color.red, 0), size=size.tiny)

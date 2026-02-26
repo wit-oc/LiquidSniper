@@ -1,0 +1,268 @@
+//@version=5
+indicator("LiquidSniper Confluence Indicator", overlay=true, max_labels_count=500)
+
+// ------------------------------------------------------
+// LiquidSniper Pine - Phase 2 parity pass
+// Mirrors bot concepts where Pine can represent them:
+// - Profile TF mapping (C/I/S)
+// - Side inference from ITF/HTF EMA alignment
+// - Secondary hit counting
+// - HTF chop (CI + ER-chop blended)
+// - Score formula + penalties (raw -> adjusted)
+// ------------------------------------------------------
+
+group_meta = "00. Metadata"
+ls_version = input.string("tv-indicator-v0.2.0", "Logic Version", group=group_meta)
+config_profile_id = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=group_meta)
+show_debug = input.bool(false, "Show Debug Table", group=group_meta)
+
+// Runtime style handling
+group_mode = "01. Mode"
+trade_style = input.string("Auto", "Trade Style", options=["Auto", "Scalp", "Intraday", "Swing"], group=group_mode)
+enable_tf_auto_adjust = input.bool(true, "Enable TF Auto-Adjust", group=group_mode)
+
+// Score/risk knobs aligned to bot model
+group_policy = "02. Policy & Score"
+require_candle_close = input.bool(true, "Require Candle Close", group=group_policy)
+use_soft_hard_chop = input.bool(true, "Use Soft/Hard Chop Penalty", group=group_policy)
+htf_chop_w_ci = input.float(0.7, "HTF Chop Weight CI", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
+htf_chop_w_er = input.float(0.3, "HTF Chop Weight ER", minval=0.0, maxval=1.0, step=0.05, group=group_policy)
+
+use_profile_presets = input.bool(true, "Use Profile Presets (recommended)", group=group_policy)
+
+// Manual overrides (used when profile presets are disabled).
+manual_htf_chop_soft_max = input.float(68.0, "Manual HTF Chop Soft Max", minval=0.0, maxval=100.0, group=group_policy)
+manual_htf_chop_hard_max = input.float(82.0, "Manual HTF Chop Hard Max", minval=0.0, maxval=100.0, group=group_policy)
+manual_htf_chop_penalty_max = input.float(1.0, "Manual HTF Chop Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+
+manual_sr_retest_bps_max = input.float(18.0, "Manual SR Strict Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
+manual_sr_retest_near_bps_max = input.float(30.0, "Manual SR Near Retest Max (bps)", minval=1.0, maxval=300.0, group=group_policy)
+manual_sr_near_penalty_max = input.float(0.7, "Manual SR Near Penalty Max", minval=0.0, maxval=3.0, step=0.1, group=group_policy)
+
+manual_min_secondary_hits = input.int(2, "Manual Min Secondary Hits", minval=0, maxval=4, group=group_policy)
+score_gate_min = input.float(6.0, "Score Gate Min (0-10)", minval=0.0, maxval=10.0, group=group_policy)
+watch_score = input.float(6.0, "Watch Score (0-10)", minval=0.0, maxval=10.0, group=group_policy)
+trigger_score = input.float(7.5, "Trigger Score (0-10)", minval=0.0, maxval=10.0, group=group_policy)
+
+// Visuals
+group_vis = "03. Visuals"
+show_regions = input.bool(true, "Show SR Proxy Band", group=group_vis)
+show_watch_labels = input.bool(true, "Show Watch Labels", group=group_vis)
+show_trigger_labels = input.bool(true, "Show Trigger Labels", group=group_vis)
+show_bg_regime = input.bool(true, "Background by Trade Style", group=group_vis)
+
+// ---------- helpers ----------
+clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+safe_div(n, d) => d == 0.0 ? 0.0 : n / d
+sign_eps(v) => v > 1e-12 ? 1.0 : v < -1e-12 ? -1.0 : 0.0
+
+bps_dist(px, anchor) =>
+    denom = math.max(math.abs(anchor), 1e-9)
+    math.abs(px - anchor) / denom * 10000.0
+
+// Profile TF mapping from bot defaults
+entry_tf = config_profile_id == "S" ? "60" : config_profile_id == "I" ? "15" : "5"     // first LTF trigger
+itf_tf = config_profile_id == "S" ? "240" : config_profile_id == "I" ? "60" : "15"
+htf_tf = config_profile_id == "S" ? "D" : config_profile_id == "I" ? "240" : "60"
+
+// Effective policy values.
+// - If presets ON: use profile defaults baked into script.
+// - If presets OFF: use manual inputs.
+preset_htf_chop_soft = config_profile_id == "S" ? 62.0 : config_profile_id == "I" ? 68.0 : 72.0
+preset_htf_chop_hard = config_profile_id == "S" ? 76.0 : config_profile_id == "I" ? 82.0 : 86.0
+preset_htf_chop_penalty = config_profile_id == "S" ? 0.8 : config_profile_id == "I" ? 1.0 : 1.2
+preset_sr_retest_bps = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 18.0 : 20.0
+preset_sr_retest_near_bps = config_profile_id == "S" ? 35.0 : config_profile_id == "I" ? 30.0 : 35.0
+preset_sr_near_penalty = config_profile_id == "S" ? 0.0 : config_profile_id == "I" ? 0.7 : 0.8
+preset_min_secondary = config_profile_id == "C" ? 1 : 2
+
+htf_chop_soft_max_eff = use_profile_presets ? preset_htf_chop_soft : manual_htf_chop_soft_max
+htf_chop_hard_max_eff = use_profile_presets ? preset_htf_chop_hard : manual_htf_chop_hard_max
+htf_chop_penalty_max_eff = use_profile_presets ? preset_htf_chop_penalty : manual_htf_chop_penalty_max
+sr_retest_bps_max_eff = use_profile_presets ? preset_sr_retest_bps : manual_sr_retest_bps_max
+sr_retest_near_bps_max_eff = use_profile_presets ? preset_sr_retest_near_bps : manual_sr_retest_near_bps_max
+sr_near_penalty_max_eff = use_profile_presets ? preset_sr_near_penalty : manual_sr_near_penalty_max
+min_secondary_hits_eff = use_profile_presets ? preset_min_secondary : manual_min_secondary_hits
+
+// Style (for UX threshold scaling)
+is_ltf = timeframe.isintraday and timeframe.multiplier <= 15
+is_mtf = timeframe.isintraday and timeframe.multiplier > 15 and timeframe.multiplier <= 240
+style_auto = is_ltf ? "Scalp" : is_mtf ? "Intraday" : "Swing"
+style = trade_style == "Auto" ? style_auto : trade_style
+strictness = enable_tf_auto_adjust ? (style == "Scalp" ? 0.95 : style == "Intraday" ? 1.0 : 1.05) : 1.0
+watch_score_eff = watch_score * strictness
+trigger_score_eff = trigger_score * strictness
+
+// ---------- multi-timeframe data ----------
+entry_close = request.security(syminfo.tickerid, entry_tf, close)
+entry_high = request.security(syminfo.tickerid, entry_tf, high)
+entry_low = request.security(syminfo.tickerid, entry_tf, low)
+entry_ema20 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 20))
+entry_ema50 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 50))
+
+itf_close = request.security(syminfo.tickerid, itf_tf, close)
+itf_ema20 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 20))
+itf_ema50 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 50))
+
+htf_close = request.security(syminfo.tickerid, htf_tf, close)
+htf_high = request.security(syminfo.tickerid, htf_tf, high)
+htf_low = request.security(syminfo.tickerid, htf_tf, low)
+htf_ema20 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 20))
+htf_ema50 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 50))
+
+// Side inference mirrors daemon: aligned up => buy, aligned down => sell, else buy
+side_buy = itf_ema20 > itf_ema50 and htf_ema20 > htf_ema50
+side_sell = itf_ema20 < itf_ema50 and htf_ema20 < htf_ema50
+is_buy = side_buy or not side_sell
+
+// BoS/CHoCH proxy on entry TF (close > prev 15 highs for buy, inverse for sell)
+bos_choch_buy = entry_close > request.security(syminfo.tickerid, entry_tf, ta.highest(high, 15))[1]
+bos_choch_sell = entry_close < request.security(syminfo.tickerid, entry_tf, ta.lowest(low, 15))[1]
+bos_choch = is_buy ? bos_choch_buy : bos_choch_sell
+
+// HTF chop components approximation (CI + ER-chop blend)
+chop_len = 14
+htf_tr_sum = request.security(syminfo.tickerid, htf_tf, ta.sma(ta.tr(true), chop_len) * chop_len)
+htf_span = request.security(syminfo.tickerid, htf_tf, ta.highest(high, chop_len) - ta.lowest(low, chop_len))
+htf_ci_raw = htf_span <= 1e-9 ? 100.0 : 100.0 * math.log10(math.max(htf_tr_sum / htf_span, 1e-9)) / math.log10(chop_len)
+htf_ci = clamp(htf_ci_raw, 0.0, 100.0)
+htf_path = request.security(syminfo.tickerid, htf_tf, ta.sma(math.abs(close - close[1]), chop_len) * chop_len)
+htf_net = request.security(syminfo.tickerid, htf_tf, math.abs(close - close[chop_len]))
+htf_er = safe_div(htf_net, math.max(htf_path, 1e-9))
+htf_er_chop = clamp(100.0 * (1.0 - htf_er), 0.0, 100.0)
+
+w_sum = math.max(htf_chop_w_ci + htf_chop_w_er, 1e-9)
+w_ci = htf_chop_w_ci / w_sum
+w_er = htf_chop_w_er / w_sum
+htf_chop = clamp(w_ci * htf_ci + w_er * htf_er_chop, 0.0, 100.0)
+
+// SR first-retest proxy (Pine cannot read bot SR DB directly)
+// Using ITF EMA50 as SR anchor approximation.
+sr_anchor = itf_ema50
+sr_distance_bps = bps_dist(entry_close, sr_anchor)
+strict_retest = sr_distance_bps <= sr_retest_bps_max_eff
+near_lane_allowed = config_profile_id == "I" or config_profile_id == "C"
+near_band_ok = sr_distance_bps > sr_retest_bps_max_eff and sr_distance_bps <= sr_retest_near_bps_max_eff
+breakout_regime = bos_choch
+breakout_window_ok = bos_choch
+sr_near_retest_used = (not strict_retest) and near_lane_allowed and breakout_regime and breakout_window_ok and near_band_ok
+sr_first_retest = strict_retest or sr_near_retest_used
+
+sr_penalty = 0.0
+if sr_near_retest_used
+    denom = math.max(sr_retest_near_bps_max_eff - sr_retest_bps_max_eff, 1e-9)
+    ratio = clamp((sr_distance_bps - sr_retest_bps_max_eff) / denom, 0.0, 1.0)
+    sr_penalty := ratio * sr_near_penalty_max_eff
+
+htf_chop_penalty = 0.0
+if use_soft_hard_chop and htf_chop > htf_chop_soft_max_eff
+    chop_denom = math.max(htf_chop_hard_max_eff - htf_chop_soft_max_eff, 1e-9)
+    chop_ratio = clamp((htf_chop - htf_chop_soft_max_eff) / chop_denom, 0.0, 1.0)
+    htf_chop_penalty := chop_ratio * htf_chop_penalty_max_eff
+
+// Secondary hits mirror daemon counting
+secondary_hits = 0
+if is_buy
+    secondary_hits += (entry_close > entry_ema20 ? 1 : 0)
+    secondary_hits += (entry_close > entry_ema50 ? 1 : 0)
+    secondary_hits += (itf_close > itf_ema20 ? 1 : 0)
+    secondary_hits += (htf_close > htf_ema20 ? 1 : 0)
+else
+    secondary_hits += (entry_close < entry_ema20 ? 1 : 0)
+    secondary_hits += (entry_close < entry_ema50 ? 1 : 0)
+    secondary_hits += (itf_close < itf_ema20 ? 1 : 0)
+    secondary_hits += (htf_close < htf_ema20 ? 1 : 0)
+
+// Score formula mirrors daemon shape
+// score_total_raw = clamp(6.0 + secondary*0.7 - max(0,(htf_chop-35)/25) + tie_breaker, 0, 10)
+seed_like = (bar_index % 256) / 2550.0
+score_total_raw = clamp(6.0 + secondary_hits * 0.7 - math.max(0.0, (htf_chop - 35.0) / 25.0) + seed_like, 0.0, 10.0)
+score_penalty = htf_chop_penalty + sr_penalty
+score_total_adj = clamp(score_total_raw - score_penalty, 0.0, 10.0)
+
+// Gate approximation in Pine
+bias_direction = is_buy ? "long" : "short"
+swing_votes_htf = sign_eps(htf_ema20 - htf_ema50)
+swing_votes_itf = sign_eps(itf_ema20 - itf_ema50)
+swing_votes_structure = sign_eps((is_buy ? 1.0 : -1.0) * (bos_choch ? 1.0 : -1.0))
+swing_votes_sr_ctx = sign_eps((is_buy ? 1.0 : -1.0) * (entry_close - sr_anchor))
+
+swing_bias_conf = 0.45 * swing_votes_htf + 0.30 * swing_votes_itf + 0.15 * swing_votes_structure + 0.10 * swing_votes_sr_ctx
+swing_neutral_band = 0.55
+swing_bias_dir = math.abs(swing_bias_conf) < swing_neutral_band ? "neutral" : swing_bias_conf > 0 ? "long" : "short"
+
+bias_ok = config_profile_id == "S" ? (swing_bias_dir == bias_direction) : (bos_choch)
+candle_ok = not require_candle_close or barstate.isconfirmed
+chop_ok = htf_chop <= htf_chop_hard_max_eff
+sr_ok = sr_first_retest
+secondary_ok = secondary_hits >= min_secondary_hits_eff
+score_ok = score_total_adj >= score_gate_min
+
+gate_ok = candle_ok and chop_ok and bias_ok and sr_ok and secondary_ok and score_ok
+
+long_watch = is_buy and score_total_adj >= watch_score_eff and candle_ok
+short_watch = (not is_buy) and score_total_adj >= watch_score_eff and candle_ok
+long_trigger = is_buy and gate_ok and score_total_adj >= trigger_score_eff
+short_trigger = (not is_buy) and gate_ok and score_total_adj >= trigger_score_eff
+
+// Region plotting (SR proxy band)
+atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
+zone_top = sr_anchor + atr_entry
+zone_bot = sr_anchor - atr_entry
+
+plot(request.security(syminfo.tickerid, entry_tf, ta.ema(close, 20)), "Entry EMA20", color=color.new(color.teal, 0))
+plot(request.security(syminfo.tickerid, entry_tf, ta.ema(close, 50)), "Entry EMA50", color=color.new(color.orange, 0))
+
+p_top = plot(show_regions ? zone_top : na, "SR Proxy Top", color=color.new(color.green, 70))
+p_bot = plot(show_regions ? zone_bot : na, "SR Proxy Bot", color=color.new(color.red, 70))
+fill(p_top, p_bot, color=color.new(color.blue, 92), title="SR Proxy Region")
+
+bgcolor(show_bg_regime ? (style == "Scalp" ? color.new(color.yellow, 92) : style == "Intraday" ? color.new(color.blue, 94) : color.new(color.purple, 94)) : na)
+
+if show_watch_labels and long_watch and not long_trigger
+    label.new(bar_index, low, "LONG WATCH\nS=" + str.tostring(score_total_adj, "#.00"), style=label.style_label_up, color=color.new(color.green, 60), textcolor=color.white)
+if show_watch_labels and short_watch and not short_trigger
+    label.new(bar_index, high, "SHORT WATCH\nS=" + str.tostring(score_total_adj, "#.00"), style=label.style_label_down, color=color.new(color.red, 60), textcolor=color.white)
+
+if show_trigger_labels and long_trigger
+    label.new(bar_index, low, "LONG TRIGGER\nS=" + str.tostring(score_total_adj, "#.00"), style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white)
+if show_trigger_labels and short_trigger
+    label.new(bar_index, high, "SHORT TRIGGER\nS=" + str.tostring(score_total_adj, "#.00"), style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white)
+
+alertcondition(long_watch, "LS Long Watch", "LiquidSniper LONG WATCH {{ticker}} {{interval}}")
+alertcondition(short_watch, "LS Short Watch", "LiquidSniper SHORT WATCH {{ticker}} {{interval}}")
+alertcondition(long_trigger, "LS Long Trigger", "LiquidSniper LONG TRIGGER {{ticker}} {{interval}}")
+alertcondition(short_trigger, "LS Short Trigger", "LiquidSniper SHORT TRIGGER {{ticker}} {{interval}}")
+
+if show_debug
+    var table t = table.new(position.top_right, 2, 15, border_width=1)
+    table.cell(t, 0, 0, "Version")
+    table.cell(t, 1, 0, ls_version)
+    table.cell(t, 0, 1, "Profile")
+    table.cell(t, 1, 1, config_profile_id)
+    table.cell(t, 0, 2, "Side")
+    table.cell(t, 1, 2, is_buy ? "buy" : "sell")
+    table.cell(t, 0, 3, "Sec Hits")
+    table.cell(t, 1, 3, str.tostring(secondary_hits))
+    table.cell(t, 0, 4, "Chop")
+    table.cell(t, 1, 4, str.tostring(htf_chop, "#.00"))
+    table.cell(t, 0, 5, "Chop Pen")
+    table.cell(t, 1, 5, str.tostring(htf_chop_penalty, "#.00"))
+    table.cell(t, 0, 6, "SR Dist bps")
+    table.cell(t, 1, 6, str.tostring(sr_distance_bps, "#.0"))
+    table.cell(t, 0, 7, "SR Pen")
+    table.cell(t, 1, 7, str.tostring(sr_penalty, "#.00"))
+    table.cell(t, 0, 8, "Score Raw")
+    table.cell(t, 1, 8, str.tostring(score_total_raw, "#.00"))
+    table.cell(t, 0, 9, "Score Adj")
+    table.cell(t, 1, 9, str.tostring(score_total_adj, "#.00"))
+    table.cell(t, 0, 10, "Gate")
+    table.cell(t, 1, 10, gate_ok ? "PASS" : "BLOCK")
+    table.cell(t, 0, 11, "Bias OK")
+    table.cell(t, 1, 11, bias_ok ? "Y" : "N")
+    table.cell(t, 0, 12, "SR OK")
+    table.cell(t, 1, 12, sr_ok ? "Y" : "N")
+    table.cell(t, 0, 13, "Sec OK")
+    table.cell(t, 1, 13, secondary_ok ? "Y" : "N")
+    table.cell(t, 0, 14, "TF")
+    table.cell(t, 1, 14, timeframe.period)
