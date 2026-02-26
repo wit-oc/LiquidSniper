@@ -29,6 +29,16 @@ atr_stop_mult = input.float(1.4, "ATR Stop Mult (fallback)", minval=0.5, step=0.
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
 
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+adx_calc(len) =>
+    up = ta.change(high)
+    down = -ta.change(low)
+    plus_dm = up > down and up > 0 ? up : 0.0
+    minus_dm = down > up and down > 0 ? down : 0.0
+    trur = ta.rma(ta.tr(true), len)
+    plus = 100.0 * ta.rma(plus_dm, len) / math.max(trur, 1e-9)
+    minus = 100.0 * ta.rma(minus_dm, len) / math.max(trur, 1e-9)
+    dx = 100.0 * math.abs(plus - minus) / math.max(plus + minus, 1e-9)
+    ta.rma(dx, len)
 
 entry_tf = profile == "S" ? "60" : profile == "I" ? "15" : "5"
 itf_tf = profile == "S" ? "240" : profile == "I" ? "60" : "15"
@@ -76,7 +86,7 @@ htf_tr_sum = request.security(syminfo.tickerid, htf_tf, ta.sma(ta.tr(true), chop
 htf_span = request.security(syminfo.tickerid, htf_tf, ta.highest(high, chop_len) - ta.lowest(low, chop_len))
 htf_ci_raw = htf_span <= 1e-9 ? 100.0 : 100.0 * math.log10(math.max(htf_tr_sum / htf_span, 1e-9)) / math.log10(chop_len)
 htf_ci = clamp(htf_ci_raw, 0.0, 100.0)
-htf_adx = request.security(syminfo.tickerid, htf_tf, ta.adx(14))
+htf_adx = request.security(syminfo.tickerid, htf_tf, adx_calc(14))
 chop_ok = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
 
 sr_anchor = itf_ema50
