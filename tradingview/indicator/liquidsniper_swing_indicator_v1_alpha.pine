@@ -13,8 +13,9 @@ indicator("LiquidSniper Swing Indicator v1 (TV Alpha)", overlay=true, max_labels
 
 // ===== Inputs =====
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-indicator-v1.0.0-alpha", "Logic Version", group=g_meta)
-profile = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=g_meta)
+ls_version = input.string("tv-swing-indicator-v1.0.1-alpha", "Logic Version", group=g_meta)
+profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
+swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 show_debug = input.bool(false, "Show Debug Table", group=g_meta)
 
 g_logic = "01. Logic"
@@ -28,6 +29,7 @@ enable_short_adx_bump = input.bool(false, "Enable Short-side ADX Bump", group=g_
 short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, step=0.5, group=g_logic)
 watch_score = input.float(6.0, "Watch Score Min", minval=0.0, maxval=10.0, group=g_logic)
 trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
+require_first_retest = input.bool(false, "Require First Retest (Hard Gate)", group=g_logic)
 
 g_time = "01b. Time Filters"
 enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
@@ -56,9 +58,9 @@ adx_calc(len) =>
 safe_div(n, d) => d == 0.0 ? 0.0 : n / d
 
 // ===== Profile TF map =====
-entry_tf = profile == "S" ? "60" : profile == "I" ? "15" : "5"
-itf_tf = profile == "S" ? "240" : profile == "I" ? "60" : "15"
-htf_tf = profile == "S" ? "D" : profile == "I" ? "240" : "60"
+entry_tf = "D"
+itf_tf = swing_tf_stack == "D/W/M" ? "W" : "D"
+htf_tf = swing_tf_stack == "D/W/M" ? "M" : "W"
 
 // ===== MTF baselines =====
 entry_close = request.security(syminfo.tickerid, entry_tf, close)
@@ -150,13 +152,13 @@ if bars_since_short_bos > retest_window_bars
 long_first_retest = false
 short_first_retest = false
 
-if zone_touch_event and long_retest_armed and trend_dir >= 0
+if zone_touch_event and long_retest_armed and trend_dir == 1
     long_retest_count += 1
     long_first_retest := long_retest_count == 1
     if long_retest_count >= 1
         long_retest_armed := false
 
-if zone_touch_event and short_retest_armed and trend_dir <= 0
+if zone_touch_event and short_retest_armed and trend_dir == -1
     short_retest_count += 1
     short_first_retest := short_retest_count == 1
     if short_retest_count >= 1
@@ -201,18 +203,18 @@ RC_TM = "TM" // timing/session gate fail
 RC_SR = "SR" // structure/retest fail
 
 // Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
-hg1_long = trend_dir >= 0
+hg1_long = trend_dir == 1
 hg2_long = chop_ok_long
 hg3_long = candle_ok
 hg4_long = score_long >= trigger_score
-hg5_long = long_first_retest // TODO: replace with stricter first-qualified-retest model when finalized
+hg5_long = (not require_first_retest) or long_first_retest // mentorship: major confluence, optional hard gate
 rg_long = time_ok
 
-hg1_short = trend_dir <= 0
+hg1_short = trend_dir == -1
 hg2_short = chop_ok_short
 hg3_short = candle_ok
 hg4_short = score_short >= trigger_score
-hg5_short = short_first_retest // TODO: replace with stricter first-qualified-retest model when finalized
+hg5_short = (not require_first_retest) or short_first_retest // mentorship: major confluence, optional hard gate
 rg_short = time_ok
 
 long_gate_pass = hg1_long and hg2_long and hg3_long and hg4_long and hg5_long and rg_long

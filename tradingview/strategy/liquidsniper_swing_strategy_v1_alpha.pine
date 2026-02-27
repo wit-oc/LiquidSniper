@@ -8,8 +8,9 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.0.0-alpha", "Logic Version", group=g_meta)
-profile = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.0.1-alpha", "Logic Version", group=g_meta)
+profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
+swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
 allow_shorts = input.bool(true, "Allow Shorts", group=g_meta)
 
@@ -23,6 +24,7 @@ chop_adx_min = input.float(17.0, "HTF Trend ADX Min", minval=5.0, maxval=60.0, g
 enable_short_adx_bump = input.bool(false, "Enable Short-side ADX Bump", group=g_logic)
 short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, step=0.5, group=g_logic)
 trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
+require_first_retest = input.bool(false, "Require First Retest (Hard Gate)", group=g_logic)
 
 g_time = "01b. Time Filters"
 enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
@@ -45,6 +47,9 @@ enable_daily_loss_cb = input.bool(true, "Enable Daily Loss Circuit Breaker", gro
 max_daily_loss_r = input.float(2.0, "Max Daily Loss (R)", minval=0.1, step=0.1, group=g_risk)
 enable_daily_trade_cap = input.bool(false, "Enable Daily Trade Cap", group=g_risk)
 max_daily_trades = input.int(3, "Max Trades Per Day", minval=1, group=g_risk)
+min_stop_atr_floor = input.float(0.35, "Min Stop Distance (ATR x)", minval=0.05, step=0.05, group=g_risk)
+min_stop_pct_floor = input.float(0.25, "Min Stop Distance (%)", minval=0.01, step=0.01, group=g_risk)
+min_position_notional = input.float(25.0, "Min Position Notional (USDT)", minval=0.0, step=1.0, group=g_risk)
 
 sizing_mode = input.string("percent_of_equity", "Sizing Mode", options=["percent_of_equity", "risk_based"], group=g_risk)
 risk_pct_low_conf = input.float(1.0, "Risk % (Low Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
@@ -71,9 +76,9 @@ adx_calc(len) =>
 safe_nonneg(v) =>
     na(v) ? 0.0 : math.max(v, 0.0)
 
-entry_tf = profile == "S" ? "60" : profile == "I" ? "15" : "5"
-itf_tf = profile == "S" ? "240" : profile == "I" ? "60" : "15"
-htf_tf = profile == "S" ? "D" : profile == "I" ? "240" : "60"
+entry_tf = "D"
+itf_tf = swing_tf_stack == "D/W/M" ? "W" : "D"
+htf_tf = swing_tf_stack == "D/W/M" ? "M" : "W"
 
 entry_close = request.security(syminfo.tickerid, entry_tf, close)
 entry_high = request.security(syminfo.tickerid, entry_tf, high)
@@ -158,12 +163,12 @@ if bars_since_short_bos > retest_window_bars
 
 long_first_retest = false
 short_first_retest = false
-if zone_touch_event and long_retest_armed and trend_dir >= 0
+if zone_touch_event and long_retest_armed and trend_dir == 1
     long_retest_count += 1
     long_first_retest := long_retest_count == 1
     if long_retest_count >= 1
         long_retest_armed := false
-if zone_touch_event and short_retest_armed and trend_dir <= 0
+if zone_touch_event and short_retest_armed and trend_dir == -1
     short_retest_count += 1
     short_first_retest := short_retest_count == 1
     if short_retest_count >= 1
@@ -204,17 +209,17 @@ RC_TM = "TM"
 RC_SR = "SR"
 
 // Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
-hg1_long = allow_longs and trend_dir >= 0
+hg1_long = allow_longs and trend_dir == 1
 hg2_long = chop_ok_long
 hg3_long = candle_ok
 hg4_long = score_long >= trigger_score
-hg5_long = long_first_retest // TODO: replace with stricter qualified-retest signal
+hg5_long = (not require_first_retest) or long_first_retest // mentorship: major confluence, optional hard gate
 
-hg1_short = allow_shorts and trend_dir <= 0
+hg1_short = allow_shorts and trend_dir == -1
 hg2_short = chop_ok_short
 hg3_short = candle_ok
 hg4_short = score_short >= trigger_score
-hg5_short = short_first_retest // TODO: replace with stricter qualified-retest signal
+hg5_short = (not require_first_retest) or short_first_retest // mentorship: major confluence, optional hard gate
 
 long_hg_pass = hg1_long and hg2_long and hg3_long and hg4_long and hg5_long
 short_hg_pass = hg1_short and hg2_short and hg3_short and hg4_short and hg5_short
@@ -239,7 +244,7 @@ short_atr_mult_effective = enable_short_stop_mult ? atr_stop_mult * short_stop_m
 long_stop_ref = na(last_swing_low) ? (entry_close - atr_entry * atr_stop_mult) : math.min(last_swing_low, entry_close - atr_entry * 0.5)
 short_stop_ref = na(last_swing_high) ? (entry_close + atr_entry * short_atr_mult_effective) : math.max(last_swing_high, entry_close + atr_entry * 0.5)
 
-min_stop_distance = math.max(entry_close * 1e-6, syminfo.mintick)
+min_stop_distance = math.max(math.max(entry_close * (min_stop_pct_floor / 100.0), atr_entry * min_stop_atr_floor), syminfo.mintick * 2.0)
 long_stop_distance = math.abs(entry_close - long_stop_ref)
 short_stop_distance = math.abs(short_stop_ref - entry_close)
 long_stop_valid = not na(long_stop_distance) and not na(long_stop_ref) and long_stop_distance >= min_stop_distance
@@ -249,8 +254,10 @@ risk_budget_usd = strategy.equity * (risk_pct_effective / 100.0)
 risk_budget_valid = not na(risk_budget_usd) and risk_budget_usd > 0
 long_qty_calc = long_stop_valid and risk_budget_valid ? (risk_budget_usd / long_stop_distance) : na
 short_qty_calc = short_stop_valid and risk_budget_valid ? (risk_budget_usd / short_stop_distance) : na
-long_qty_valid = not na(long_qty_calc) and long_qty_calc > 0
-short_qty_valid = not na(short_qty_calc) and short_qty_calc > 0
+long_position_notional = not na(long_qty_calc) ? long_qty_calc * entry_close : na
+short_position_notional = not na(short_qty_calc) ? short_qty_calc * entry_close : na
+long_qty_valid = not na(long_qty_calc) and long_qty_calc > 0 and (na(long_position_notional) ? false : long_position_notional >= min_position_notional)
+short_qty_valid = not na(short_qty_calc) and short_qty_calc > 0 and (na(short_position_notional) ? false : short_position_notional >= min_position_notional)
 
 var int last_trade_bar = na
 var int position_entry_bar = na
@@ -291,7 +298,7 @@ all_reasons = (score_long >= score_short ? all_reasons_long : all_reasons_short)
 
 can_trade = (na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)) and not daily_loss_hit and not daily_trade_cap_hit
 
-if long_trigger and can_trade and strategy.position_size <= 0
+if long_trigger and can_trade and strategy.position_size == 0
     if sizing_mode == "risk_based"
         if long_qty_valid
             strategy.entry("LSV1-LONG", strategy.long, qty=long_qty_calc)
@@ -304,7 +311,7 @@ if long_trigger and can_trade and strategy.position_size <= 0
         day_trade_count += 1
         entry_risk_budget_usd := risk_budget_usd
 
-if short_trigger and can_trade and strategy.position_size >= 0
+if short_trigger and can_trade and strategy.position_size == 0
     if sizing_mode == "risk_based"
         if short_qty_valid
             strategy.entry("LSV1-SHORT", strategy.short, qty=short_qty_calc)
