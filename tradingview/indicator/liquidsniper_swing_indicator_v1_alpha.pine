@@ -1,5 +1,5 @@
 //@version=5
-indicator("LiquidSniper Confluence Indicator v1 (Mentorship Fidelity)", overlay=true, max_labels_count=500)
+indicator("LiquidSniper Swing Indicator v1 (TV Alpha)", overlay=true, max_labels_count=500)
 
 // ------------------------------------------------------
 // LiquidSniper Pine v1 - Mentorship fidelity pass
@@ -13,7 +13,7 @@ indicator("LiquidSniper Confluence Indicator v1 (Mentorship Fidelity)", overlay=
 
 // ===== Inputs =====
 g_meta = "00. Metadata"
-ls_version = input.string("tv-indicator-v1.0.0-fidelity", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-indicator-v1.0.0-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S)", options=["C", "I", "S"], group=g_meta)
 show_debug = input.bool(false, "Show Debug Table", group=g_meta)
 
@@ -190,8 +190,50 @@ time_ok = not enable_time_block or not in_blocked_session
 
 long_watch = score_long >= watch_score and candle_ok and time_ok
 short_watch = score_short >= watch_score and candle_ok and time_ok
-long_trigger = score_long >= trigger_score and candle_ok and chop_ok_long and trend_dir >= 0 and time_ok
-short_trigger = score_short >= trigger_score and candle_ok and chop_ok_short and trend_dir <= 0 and time_ok
+
+// ===== Daily Swing v1 TV Alpha scaffold =====
+// Reason code constants
+RC_OK = "OK"
+RC_HG = "HG" // hard gate fail
+RC_BG = "BG" // behavioral gate fail (TODO when behavioral model is wired)
+RC_RG = "RG" // risk gate fail
+RC_TM = "TM" // timing/session gate fail
+RC_SR = "SR" // structure/retest fail
+
+// Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
+hg1_long = trend_dir >= 0
+hg2_long = chop_ok_long
+hg3_long = candle_ok
+hg4_long = score_long >= trigger_score
+hg5_long = long_first_retest // TODO: replace with stricter first-qualified-retest model when finalized
+rg_long = time_ok
+
+hg1_short = trend_dir <= 0
+hg2_short = chop_ok_short
+hg3_short = candle_ok
+hg4_short = score_short >= trigger_score
+hg5_short = short_first_retest // TODO: replace with stricter first-qualified-retest model when finalized
+rg_short = time_ok
+
+long_gate_pass = hg1_long and hg2_long and hg3_long and hg4_long and hg5_long and rg_long
+short_gate_pass = hg1_short and hg2_short and hg3_short and hg4_short and hg5_short and rg_short
+
+first_fail_reason_long = not hg1_long ? RC_HG : not hg2_long ? RC_HG : not hg3_long ? RC_HG : not hg4_long ? RC_HG : not hg5_long ? RC_SR : not rg_long ? RC_TM : RC_OK
+first_fail_reason_short = not hg1_short ? RC_HG : not hg2_short ? RC_HG : not hg3_short ? RC_HG : not hg4_short ? RC_HG : not hg5_short ? RC_SR : not rg_short ? RC_TM : RC_OK
+all_reasons_long = (hg1_long ? "" : "HG-1,") + (hg2_long ? "" : "HG-2,") + (hg3_long ? "" : "HG-3,") + (hg4_long ? "" : "HG-4,") + (hg5_long ? "" : "HG-5/SR,") + (rg_long ? "" : "RG/TM,")
+all_reasons_short = (hg1_short ? "" : "HG-1,") + (hg2_short ? "" : "HG-2,") + (hg3_short ? "" : "HG-3,") + (hg4_short ? "" : "HG-4,") + (hg5_short ? "" : "HG-5/SR,") + (rg_short ? "" : "RG/TM,")
+
+long_trigger = long_gate_pass
+short_trigger = short_gate_pass
+
+decision = long_trigger ? "LONG_TRIGGER" : short_trigger ? "SHORT_TRIGGER" : "NO_TRADE"
+first_fail_reason = long_watch ? first_fail_reason_long : short_watch ? first_fail_reason_short : (score_long >= score_short ? first_fail_reason_long : first_fail_reason_short)
+all_reasons = long_watch ? all_reasons_long : short_watch ? all_reasons_short : (score_long >= score_short ? all_reasons_long : all_reasons_short)
+projected_r = long_trigger or short_trigger ? 1.0 : 0.0 // TODO: wire real projected R from strategy risk model
+flag_tp1 = false // indicator-only scaffold
+flag_tp2 = false // indicator-only scaffold
+flag_tp3 = false // indicator-only scaffold
+flag_be = false // indicator-only scaffold
 
 // ===== Plots / labels / alerts =====
 plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
@@ -237,7 +279,7 @@ alertcondition(long_trigger, "LS v1 Long Trigger", "LiquidSniper v1 LONG TRIGGER
 alertcondition(short_trigger, "LS v1 Short Trigger", "LiquidSniper v1 SHORT TRIGGER {{ticker}} {{interval}}")
 
 if show_debug
-    var table t = table.new(position.top_right, 2, 14, border_width=1)
+    var table t = table.new(position.top_right, 2, 20, border_width=1)
     table.cell(t, 0, 0, "Version")
     table.cell(t, 1, 0, ls_version)
     table.cell(t, 0, 1, "Profile")
@@ -266,3 +308,15 @@ if show_debug
     table.cell(t, 1, 12, (long_trigger ? "Y" : "N") + "/" + (short_trigger ? "Y" : "N"))
     table.cell(t, 0, 13, "TF")
     table.cell(t, 1, 13, timeframe.period)
+    table.cell(t, 0, 14, "Decision")
+    table.cell(t, 1, 14, decision)
+    table.cell(t, 0, 15, "First Fail")
+    table.cell(t, 1, 15, first_fail_reason)
+    table.cell(t, 0, 16, "All Reasons")
+    table.cell(t, 1, 16, all_reasons)
+    table.cell(t, 0, 17, "Projected R")
+    table.cell(t, 1, 17, str.tostring(projected_r, "#.00"))
+    table.cell(t, 0, 18, "TP1/2/3")
+    table.cell(t, 1, 18, (flag_tp1 ? "Y" : "N") + "/" + (flag_tp2 ? "Y" : "N") + "/" + (flag_tp3 ? "Y" : "N"))
+    table.cell(t, 0, 19, "BE")
+    table.cell(t, 1, 19, flag_be ? "Y" : "N")
