@@ -41,6 +41,10 @@ be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, g
 enable_time_stop = input.bool(false, "Enable Time Stop", group=g_risk)
 max_bars_in_trade = input.int(12, "Max Bars In Trade", minval=1, group=g_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
+enable_daily_loss_cb = input.bool(true, "Enable Daily Loss Circuit Breaker", group=g_risk)
+max_daily_loss_r = input.float(2.0, "Max Daily Loss (R)", minval=0.1, step=0.1, group=g_risk)
+enable_daily_trade_cap = input.bool(false, "Enable Daily Trade Cap", group=g_risk)
+max_daily_trades = input.int(3, "Max Trades Per Day", minval=1, group=g_risk)
 
 sizing_mode = input.string("percent_of_equity", "Sizing Mode", options=["percent_of_equity", "risk_based"], group=g_risk)
 risk_pct_low_conf = input.float(1.0, "Risk % (Low Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
@@ -190,10 +194,37 @@ score_short += entry_close < sr_anchor ? 1.0 : 0.0
 in_blocked_session = not na(time(timeframe.period, blocked_session, blocked_tz))
 time_ok = not enable_time_block or not in_blocked_session
 
-long_trigger = allow_longs and score_long >= trigger_score and candle_ok and chop_ok_long and trend_dir >= 0 and time_ok
-short_trigger = allow_shorts and score_short >= trigger_score and candle_ok and chop_ok_short and trend_dir <= 0 and time_ok
+// ===== Daily Swing v1 TV Alpha scaffold =====
+// Reason code constants
+RC_OK = "OK"
+RC_HG = "HG"
+RC_BG = "BG" // TODO: wire behavior gates once telemetry model is finalized
+RC_RG = "RG"
+RC_TM = "TM"
+RC_SR = "SR"
 
-selected_score = long_trigger ? score_long : short_trigger ? score_short : 0.0
+// Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
+hg1_long = allow_longs and trend_dir >= 0
+hg2_long = chop_ok_long
+hg3_long = candle_ok
+hg4_long = score_long >= trigger_score
+hg5_long = long_first_retest // TODO: replace with stricter qualified-retest signal
+
+hg1_short = allow_shorts and trend_dir <= 0
+hg2_short = chop_ok_short
+hg3_short = candle_ok
+hg4_short = score_short >= trigger_score
+hg5_short = short_first_retest // TODO: replace with stricter qualified-retest signal
+
+long_hg_pass = hg1_long and hg2_long and hg3_long and hg4_long and hg5_long
+short_hg_pass = hg1_short and hg2_short and hg3_short and hg4_short and hg5_short
+
+first_fail_reason_long = not hg1_long ? RC_HG : not hg2_long ? RC_HG : not hg3_long ? RC_HG : not hg4_long ? RC_HG : not hg5_long ? RC_SR : RC_OK
+first_fail_reason_short = not hg1_short ? RC_HG : not hg2_short ? RC_HG : not hg3_short ? RC_HG : not hg4_short ? RC_HG : not hg5_short ? RC_SR : RC_OK
+all_reasons_long = (hg1_long ? "" : "HG-1,") + (hg2_long ? "" : "HG-2,") + (hg3_long ? "" : "HG-3,") + (hg4_long ? "" : "HG-4,") + (hg5_long ? "" : "HG-5/SR,")
+all_reasons_short = (hg1_short ? "" : "HG-1,") + (hg2_short ? "" : "HG-2,") + (hg3_short ? "" : "HG-3,") + (hg4_short ? "" : "HG-4,") + (hg5_short ? "" : "HG-5/SR,")
+
+selected_score = long_hg_pass ? score_long : short_hg_pass ? score_short : 0.0
 is_high_conf = selected_score >= high_conf_score_threshold
 base_risk_pct = is_high_conf ? risk_pct_high_conf : risk_pct_low_conf
 profile_cap_default = profile == "C" ? 1.0 : profile == "I" ? 5.0 : 5.0
@@ -223,25 +254,68 @@ short_qty_valid = not na(short_qty_calc) and short_qty_calc > 0
 
 var int last_trade_bar = na
 var int position_entry_bar = na
-can_trade = na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)
+var float entry_risk_budget_usd = na
+var float prior_netprofit = na
+
+curr_day = dayofyear(time)
+var int day_key = curr_day
+var int day_trade_count = 0
+var float day_realized_r = 0.0
+if day_key != curr_day
+    day_key := curr_day
+    day_trade_count := 0
+    day_realized_r := 0.0
+
+if na(prior_netprofit)
+    prior_netprofit := strategy.netprofit
+
+just_closed = strategy.position_size == 0 and strategy.position_size[1] != 0
+if just_closed
+    pnl_delta = strategy.netprofit - prior_netprofit
+    realized_r_delta = na(entry_risk_budget_usd) or entry_risk_budget_usd <= 0 ? 0.0 : pnl_delta / entry_risk_budget_usd
+    day_realized_r += realized_r_delta
+
+prior_netprofit := strategy.netprofit
+
+daily_loss_hit = enable_daily_loss_cb and day_realized_r <= -math.abs(max_daily_loss_r)
+daily_trade_cap_hit = enable_daily_trade_cap and day_trade_count >= max_daily_trades
+rg_long = time_ok and not daily_loss_hit and not daily_trade_cap_hit
+rg_short = time_ok and not daily_loss_hit and not daily_trade_cap_hit
+
+long_trigger = long_hg_pass and rg_long
+short_trigger = short_hg_pass and rg_short
+
+decision = long_trigger ? "LONG_TRIGGER" : short_trigger ? "SHORT_TRIGGER" : "NO_TRADE"
+first_fail_reason = long_hg_pass and not rg_long ? RC_RG : short_hg_pass and not rg_short ? RC_RG : (score_long >= score_short ? first_fail_reason_long : first_fail_reason_short)
+all_reasons = (score_long >= score_short ? all_reasons_long : all_reasons_short) + (rg_long and rg_short ? "" : "RG,")
+
+can_trade = (na(last_trade_bar) or (bar_index - last_trade_bar > cooldown_bars)) and not daily_loss_hit and not daily_trade_cap_hit
 
 if long_trigger and can_trade and strategy.position_size <= 0
     if sizing_mode == "risk_based"
         if long_qty_valid
             strategy.entry("LSV1-LONG", strategy.long, qty=long_qty_calc)
             last_trade_bar := bar_index
+            day_trade_count += 1
+            entry_risk_budget_usd := risk_budget_usd
     else
         strategy.entry("LSV1-LONG", strategy.long)
         last_trade_bar := bar_index
+        day_trade_count += 1
+        entry_risk_budget_usd := risk_budget_usd
 
 if short_trigger and can_trade and strategy.position_size >= 0
     if sizing_mode == "risk_based"
         if short_qty_valid
             strategy.entry("LSV1-SHORT", strategy.short, qty=short_qty_calc)
             last_trade_bar := bar_index
+            day_trade_count += 1
+            entry_risk_budget_usd := risk_budget_usd
     else
         strategy.entry("LSV1-SHORT", strategy.short)
         last_trade_bar := bar_index
+        day_trade_count += 1
+        entry_risk_budget_usd := risk_budget_usd
 
 if strategy.position_size != 0 and strategy.position_size[1] == 0
     position_entry_bar := bar_index
@@ -262,33 +336,81 @@ short_invalidation = na(last_swing_high) ? (strategy.position_avg_price + atr_en
 long_risk = math.max(strategy.position_avg_price - long_invalidation, atr_entry * 0.2)
 short_risk = math.max(short_invalidation - strategy.position_avg_price, atr_entry * 0.2)
 
-long_tp = strategy.position_avg_price + long_risk * rr_target
-short_tp = strategy.position_avg_price - short_risk * rr_target
+// TP ladder scaffold (3 TP), TP1 -> BE, no runner beyond TP3
+long_tp1 = strategy.position_avg_price + long_risk * 1.0
+long_tp2 = strategy.position_avg_price + long_risk * 2.0
+long_tp3 = strategy.position_avg_price + long_risk * math.max(3.0, rr_target)
+short_tp1 = strategy.position_avg_price - short_risk * 1.0
+short_tp2 = strategy.position_avg_price - short_risk * 2.0
+short_tp3 = strategy.position_avg_price - short_risk * math.max(3.0, rr_target)
 
-long_be_trigger_px = strategy.position_avg_price + long_risk * be_trigger_r
-short_be_trigger_px = strategy.position_avg_price - short_risk * be_trigger_r
+long_be_trigger_px = strategy.position_avg_price + long_risk * 1.0
+short_be_trigger_px = strategy.position_avg_price - short_risk * 1.0
 long_be_stop = strategy.position_avg_price * (1.0 + be_offset_pct / 100.0)
 short_be_stop = strategy.position_avg_price * (1.0 - be_offset_pct / 100.0)
 
+var bool long_tp1_hit = false
+var bool long_tp2_hit = false
+var bool long_tp3_hit = false
+var bool short_tp1_hit = false
+var bool short_tp2_hit = false
+var bool short_tp3_hit = false
 var bool long_be_active = false
 var bool short_be_active = false
+
 if strategy.position_size == 0
+    long_tp1_hit := false
+    long_tp2_hit := false
+    long_tp3_hit := false
+    short_tp1_hit := false
+    short_tp2_hit := false
+    short_tp3_hit := false
     long_be_active := false
     short_be_active := false
 
-if be_enabled and strategy.position_size > 0 and high >= long_be_trigger_px
+if strategy.position_size > 0
+    long_tp1_hit := long_tp1_hit or high >= long_tp1
+    long_tp2_hit := long_tp2_hit or high >= long_tp2
+    long_tp3_hit := long_tp3_hit or high >= long_tp3
+if strategy.position_size < 0
+    short_tp1_hit := short_tp1_hit or low <= short_tp1
+    short_tp2_hit := short_tp2_hit or low <= short_tp2
+    short_tp3_hit := short_tp3_hit or low <= short_tp3
+
+if be_enabled and strategy.position_size > 0 and (high >= long_be_trigger_px or long_tp1_hit)
     long_be_active := true
-if be_enabled and strategy.position_size < 0 and low <= short_be_trigger_px
+if be_enabled and strategy.position_size < 0 and (low <= short_be_trigger_px or short_tp1_hit)
     short_be_active := true
 
 long_stop_eff = long_be_active ? math.max(long_invalidation, long_be_stop) : long_invalidation
 short_stop_eff = short_be_active ? math.min(short_invalidation, short_be_stop) : short_invalidation
 
-strategy.exit("LSV1-LONG-EXIT", "LSV1-LONG", stop=long_stop_eff, limit=long_tp)
-strategy.exit("LSV1-SHORT-EXIT", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp)
+strategy.exit("LSV1-LONG-TP1", "LSV1-LONG", stop=long_stop_eff, limit=long_tp1, qty_percent=33)
+strategy.exit("LSV1-LONG-TP2", "LSV1-LONG", stop=long_stop_eff, limit=long_tp2, qty_percent=33)
+strategy.exit("LSV1-LONG-TP3", "LSV1-LONG", stop=long_stop_eff, limit=long_tp3, qty_percent=34)
+strategy.exit("LSV1-SHORT-TP1", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp1, qty_percent=33)
+strategy.exit("LSV1-SHORT-TP2", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp2, qty_percent=33)
+strategy.exit("LSV1-SHORT-TP3", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp3, qty_percent=34)
+
+if strategy.position_size > 0 and long_tp3_hit
+    strategy.close("LSV1-LONG", comment="TP3_FLAT")
+if strategy.position_size < 0 and short_tp3_hit
+    strategy.close("LSV1-SHORT", comment="TP3_FLAT")
+
+projected_r = long_trigger or short_trigger ? math.max(3.0, rr_target) : 0.0
 
 plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
 plot(entry_ema50, "Entry EMA50", color=color.new(color.orange, 0))
 plot(sr_anchor, "ITF EMA50 SR Anchor", color=color.new(color.blue, 20))
 plotchar(long_trigger, "Long Trigger", "▲", location.belowbar, color=color.new(color.green, 0), size=size.tiny)
 plotchar(short_trigger, "Short Trigger", "▼", location.abovebar, color=color.new(color.red, 0), size=size.tiny)
+plotchar(long_be_active or short_be_active, "BE Active", "B", location.top, color=color.new(color.yellow, 0), size=size.tiny)
+plotchar(long_tp1_hit or short_tp1_hit, "TP1 Hit", "1", location.top, color=color.new(color.green, 0), size=size.tiny)
+plotchar(long_tp2_hit or short_tp2_hit, "TP2 Hit", "2", location.top, color=color.new(color.green, 0), size=size.tiny)
+plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=color.new(color.green, 0), size=size.tiny)
+
+// Diagnostic emission fields (scaffold)
+// decision, first_fail_reason, all_reasons, projected_r, tp/be flags
+label_diag = decision + " | FF=" + first_fail_reason + " | AR=" + all_reasons + " | pR=" + str.tostring(projected_r, "#.00") + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0")
+if barstate.islast
+    label.new(bar_index, close, label_diag, style=label.style_none, textcolor=color.new(color.gray, 70))
