@@ -296,7 +296,8 @@ if short_retest_state > 0 and not na(short_break_bot) and not na(short_break_bar
         short_retest_state := 0
         short_cons_bars := 0
 
-candle_ok = not require_candle_close or barstate.isconfirmed
+bar_closed = time_close <= timenow
+candle_ok = not require_candle_close or bar_closed
 ema_stack_long = entry_close > entry_ema20 and entry_ema20 > entry_ema50
 ema_stack_short = entry_close < entry_ema20 and entry_ema20 < entry_ema50
 
@@ -362,7 +363,7 @@ var int diag_fail_hg4 = 0
 var int diag_fail_hg5 = 0
 var int diag_fail_hg6 = 0
 
-if barstate.isconfirmed
+if bar_closed
     prefer_long = score_long >= score_short
     diag_candidates += 1
     if prefer_long
@@ -588,7 +589,7 @@ plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=colo
 // decision, first_fail_reason, all_reasons, projected_r, tp/be flags
 label_diag = decision + " | FF=" + first_fail_reason + " | AR=" + all_reasons + " | pR=" + str.tostring(projected_r, "#.00") + " | SRa=" + str.tostring(active_zone_count) + " | dR=" + str.tostring(nearest_res_dist_pct, "#.##") + " | dS=" + str.tostring(nearest_sup_dist_pct, "#.##") + " | WF=" + str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6) + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0")
 var label diag_label = na
-if barstate.isconfirmed
+if bar_closed
     if na(diag_label)
         diag_label := label.new(bar_index, close, label_diag, style=label.style_none, textcolor=color.new(color.gray, 70))
     else
