@@ -13,7 +13,7 @@ indicator("LiquidSniper Swing Indicator v1 (TV Alpha)", overlay=true, max_labels
 
 // ===== Inputs =====
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-indicator-v1.0.1-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-indicator-v1.1.0-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 show_debug = input.bool(false, "Show Debug Table", group=g_meta)
@@ -30,6 +30,20 @@ short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, ste
 watch_score = input.float(6.0, "Watch Score Min", minval=0.0, maxval=10.0, group=g_logic)
 trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
 require_first_retest = input.bool(false, "Require First Retest (Hard Gate)", group=g_logic)
+
+// Pass 1: true SR zone engine
+// Pass 2: wire zones into gates + first-retest state machine
+g_sr = "01c. SR Zones"
+sr_zone_half_bps = input.float(35.0, "Zone Half Width (bps)", minval=5.0, maxval=300.0, step=1.0, group=g_sr)
+sr_merge_bps = input.float(40.0, "Zone Merge Distance (bps)", minval=5.0, maxval=500.0, step=1.0, group=g_sr)
+sr_min_touches = input.int(2, "Min Touches for Active Zone", minval=1, maxval=10, group=g_sr)
+sr_max_age_bars = input.int(800, "Max Zone Age (bars)", minval=50, maxval=5000, group=g_sr)
+sr_max_zones = input.int(24, "Max Stored Zones", minval=6, maxval=100, group=g_sr)
+sr_opposing_block_pct = input.float(1.0, "Opposing Zone Block Distance (%)", minval=0.05, maxval=10.0, step=0.05, group=g_sr)
+sr_confluence_dist_pct = input.float(2.0, "Confluence Distance to Zone (%)", minval=0.05, maxval=10.0, step=0.05, group=g_sr)
+sr_retest_sep_bps = input.float(30.0, "Retest Separation Min (bps)", minval=5.0, maxval=500.0, step=1.0, group=g_sr)
+sr_retest_cons_min = input.int(4, "Retest Consolidation Min Bars", minval=1, maxval=20, group=g_sr)
+sr_retest_cons_max = input.int(5, "Retest Consolidation Max Bars", minval=1, maxval=30, group=g_sr)
 
 g_time = "01b. Time Filters"
 enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
@@ -113,56 +127,158 @@ short_adx_min_effective = chop_adx_min + (enable_short_adx_bump ? short_adx_bump
 chop_ok_long = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
 chop_ok_short = htf_ci <= chop_ci_max and htf_adx >= short_adx_min_effective
 
-// ===== First retest engine (on ITF EMA50 as dynamic SR proxy) =====
-sr_anchor = itf_ema50
-zone_half = sr_anchor * (retest_bps / 10000.0)
-zone_top = sr_anchor + zone_half
-zone_bot = sr_anchor - zone_half
+// ---------- SR Zone Engine (Daily, horizontal rejection clusters) ----------
+var zone_mid = array.new_float()
+var zone_top = array.new_float()
+var zone_bot = array.new_float()
+var zone_type = array.new_int()      // +1 resistance, -1 support
+var zone_touches = array.new_int()
+var zone_last_touch = array.new_int()
 
-touch_zone = entry_high >= zone_bot and entry_low <= zone_top
-zone_touch_event = touch_zone and not touch_zone[1]
+f_add_zone(_lvl, _type) =>
+    if not na(_lvl)
+        merge_idx = -1
+        best_dist = 1e9
+        for i = 0 to array.size(zone_mid) - 1
+            if array.get(zone_type, i) == _type
+                z_mid = array.get(zone_mid, i)
+                dist_bps = math.abs(_lvl - z_mid) / math.max(_lvl, 1e-9) * 10000.0
+                if dist_bps <= sr_merge_bps and dist_bps < best_dist
+                    best_dist := dist_bps
+                    merge_idx := i
+        if merge_idx >= 0
+            old_mid = array.get(zone_mid, merge_idx)
+            old_touches = array.get(zone_touches, merge_idx)
+            new_touches = old_touches + 1
+            new_mid = (old_mid * old_touches + _lvl) / new_touches
+            half = new_mid * (sr_zone_half_bps / 10000.0)
+            array.set(zone_mid, merge_idx, new_mid)
+            array.set(zone_top, merge_idx, new_mid + half)
+            array.set(zone_bot, merge_idx, new_mid - half)
+            array.set(zone_touches, merge_idx, new_touches)
+            array.set(zone_last_touch, merge_idx, bar_index)
+        else
+            if array.size(zone_mid) >= sr_max_zones
+                rm_idx = 0
+                rm_score = -1e9
+                for j = 0 to array.size(zone_mid) - 1
+                    age = bar_index - array.get(zone_last_touch, j)
+                    score = age - array.get(zone_touches, j) * 10.0
+                    if score > rm_score
+                        rm_score := score
+                        rm_idx := j
+                array.remove(zone_mid, rm_idx)
+                array.remove(zone_top, rm_idx)
+                array.remove(zone_bot, rm_idx)
+                array.remove(zone_type, rm_idx)
+                array.remove(zone_touches, rm_idx)
+                array.remove(zone_last_touch, rm_idx)
+            half = _lvl * (sr_zone_half_bps / 10000.0)
+            array.push(zone_mid, _lvl)
+            array.push(zone_top, _lvl + half)
+            array.push(zone_bot, _lvl - half)
+            array.push(zone_type, _type)
+            array.push(zone_touches, 1)
+            array.push(zone_last_touch, bar_index)
 
-var bool long_retest_armed = false
-var bool short_retest_armed = false
-var int long_retest_count = 0
-var int short_retest_count = 0
-var int bars_since_long_bos = 1000000
-var int bars_since_short_bos = 1000000
+if not na(piv_hi)
+    f_add_zone(piv_hi, 1)
+if not na(piv_lo)
+    f_add_zone(piv_lo, -1)
 
-bars_since_long_bos += 1
-bars_since_short_bos += 1
+nearest_res_dist_pct = na
+nearest_sup_dist_pct = na
+nearest_res_top = na
+nearest_res_bot = na
+nearest_sup_top = na
+nearest_sup_bot = na
+active_zone_count = 0
+for i = 0 to array.size(zone_mid) - 1
+    z_age = bar_index - array.get(zone_last_touch, i)
+    z_touches = array.get(zone_touches, i)
+    if z_age <= sr_max_age_bars and z_touches >= sr_min_touches
+        active_zone_count += 1
+        z_top = array.get(zone_top, i)
+        z_bot = array.get(zone_bot, i)
+        z_type = array.get(zone_type, i)
+        if z_type == 1
+            dist = entry_close > z_top ? na : (entry_close >= z_bot ? 0.0 : (z_bot - entry_close) / math.max(entry_close, 1e-9) * 100.0)
+            if not na(dist) and (na(nearest_res_dist_pct) or dist < nearest_res_dist_pct)
+                nearest_res_dist_pct := dist
+                nearest_res_top := z_top
+                nearest_res_bot := z_bot
+        if z_type == -1
+            dist = entry_close < z_bot ? na : (entry_close <= z_top ? 0.0 : (entry_close - z_top) / math.max(entry_close, 1e-9) * 100.0)
+            if not na(dist) and (na(nearest_sup_dist_pct) or dist < nearest_sup_dist_pct)
+                nearest_sup_dist_pct := dist
+                nearest_sup_top := z_top
+                nearest_sup_bot := z_bot
 
-if bos_up
-    long_retest_armed := true
-    long_retest_count := 0
-    bars_since_long_bos := 0
-    short_retest_armed := false
-
-if bos_down
-    short_retest_armed := true
-    short_retest_count := 0
-    bars_since_short_bos := 0
-    long_retest_armed := false
-
-if bars_since_long_bos > retest_window_bars
-    long_retest_armed := false
-if bars_since_short_bos > retest_window_bars
-    short_retest_armed := false
+// ---------- First retest state machine on real SR zones ----------
+var int long_retest_state = 0      // 0 idle, 1 broken, 2 separated/monitoring consolidation
+var int short_retest_state = 0
+var float long_break_top = na
+var float long_break_bot = na
+var float short_break_top = na
+var float short_break_bot = na
+var int long_break_bar = na
+var int short_break_bar = na
+var int long_cons_bars = 0
+var int short_cons_bars = 0
 
 long_first_retest = false
 short_first_retest = false
 
-if zone_touch_event and long_retest_armed and trend_dir == 1
-    long_retest_count += 1
-    long_first_retest := long_retest_count == 1
-    if long_retest_count >= 1
-        long_retest_armed := false
+res_break_up = not na(nearest_res_top) and ta.crossover(entry_close, nearest_res_top)
+sup_break_down = not na(nearest_sup_bot) and ta.crossunder(entry_close, nearest_sup_bot)
 
-if zone_touch_event and short_retest_armed and trend_dir == -1
-    short_retest_count += 1
-    short_first_retest := short_retest_count == 1
-    if short_retest_count >= 1
-        short_retest_armed := false
+if res_break_up
+    long_retest_state := 1
+    long_break_top := nearest_res_top
+    long_break_bot := nearest_res_bot
+    long_break_bar := bar_index
+    long_cons_bars := 0
+
+if sup_break_down
+    short_retest_state := 1
+    short_break_top := nearest_sup_top
+    short_break_bot := nearest_sup_bot
+    short_break_bar := bar_index
+    short_cons_bars := 0
+
+if long_retest_state > 0 and not na(long_break_top) and not na(long_break_bar)
+    sep_ok = ((entry_close - long_break_top) / math.max(entry_close, 1e-9) * 10000.0) >= sr_retest_sep_bps
+    if long_retest_state == 1 and sep_ok
+        long_retest_state := 2
+    if long_retest_state >= 2 and bar_index > long_break_bar
+        if entry_low > long_break_top
+            long_cons_bars += 1
+        zone_touch = entry_low <= long_break_top and entry_high >= long_break_bot
+        if zone_touch
+            if long_cons_bars >= sr_retest_cons_min and long_cons_bars <= sr_retest_cons_max
+                long_first_retest := true
+            long_retest_state := 0
+            long_cons_bars := 0
+    if (bar_index - long_break_bar) > retest_window_bars
+        long_retest_state := 0
+        long_cons_bars := 0
+
+if short_retest_state > 0 and not na(short_break_bot) and not na(short_break_bar)
+    sep_ok = ((short_break_bot - entry_close) / math.max(entry_close, 1e-9) * 10000.0) >= sr_retest_sep_bps
+    if short_retest_state == 1 and sep_ok
+        short_retest_state := 2
+    if short_retest_state >= 2 and bar_index > short_break_bar
+        if entry_high < short_break_bot
+            short_cons_bars += 1
+        zone_touch = entry_high >= short_break_bot and entry_low <= short_break_top
+        if zone_touch
+            if short_cons_bars >= sr_retest_cons_min and short_cons_bars <= sr_retest_cons_max
+                short_first_retest := true
+            short_retest_state := 0
+            short_cons_bars := 0
+    if (bar_index - short_break_bar) > retest_window_bars
+        short_retest_state := 0
+        short_cons_bars := 0
 
 // ===== Confluence score (0..10) =====
 candle_ok = not require_candle_close or barstate.isconfirmed
@@ -176,7 +292,7 @@ score_long += long_first_retest ? 2.0 : 0.0
 score_long += ema_stack_long ? 1.0 : 0.0
 score_long += chop_ok_long ? 1.0 : 0.0
 score_long += candle_ok ? 1.0 : 0.0
-score_long += entry_close > sr_anchor ? 1.0 : 0.0
+score_long += (not na(nearest_sup_dist_pct) and nearest_sup_dist_pct <= sr_confluence_dist_pct) ? 1.0 : 0.0
 
 score_short = 0.0
 score_short += trend_short ? 2.0 : 0.0
@@ -185,7 +301,7 @@ score_short += short_first_retest ? 2.0 : 0.0
 score_short += ema_stack_short ? 1.0 : 0.0
 score_short += chop_ok_short ? 1.0 : 0.0
 score_short += candle_ok ? 1.0 : 0.0
-score_short += entry_close < sr_anchor ? 1.0 : 0.0
+score_short += (not na(nearest_res_dist_pct) and nearest_res_dist_pct <= sr_confluence_dist_pct) ? 1.0 : 0.0
 
 in_blocked_session = not na(time(timeframe.period, blocked_session, blocked_tz))
 time_ok = not enable_time_block or not in_blocked_session
@@ -204,26 +320,67 @@ RC_SR = "SR" // structure/retest fail
 
 // Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
 hg1_long = trend_dir == 1
-hg2_long = chop_ok_long
-hg3_long = candle_ok
-hg4_long = score_long >= trigger_score
-hg5_long = (not require_first_retest) or long_first_retest // mentorship: major confluence, optional hard gate
+hg2_long = na(nearest_res_dist_pct) or nearest_res_dist_pct > sr_opposing_block_pct
+hg3_long = chop_ok_long
+hg4_long = candle_ok
+hg5_long = score_long >= trigger_score
+hg6_long = (not require_first_retest) or long_first_retest // mentorship: strong confluence, optional hard gate
 rg_long = time_ok
 
 hg1_short = trend_dir == -1
-hg2_short = chop_ok_short
-hg3_short = candle_ok
-hg4_short = score_short >= trigger_score
-hg5_short = (not require_first_retest) or short_first_retest // mentorship: major confluence, optional hard gate
+hg2_short = na(nearest_sup_dist_pct) or nearest_sup_dist_pct > sr_opposing_block_pct
+hg3_short = chop_ok_short
+hg4_short = candle_ok
+hg5_short = score_short >= trigger_score
+hg6_short = (not require_first_retest) or short_first_retest // mentorship: strong confluence, optional hard gate
 rg_short = time_ok
 
-long_gate_pass = hg1_long and hg2_long and hg3_long and hg4_long and hg5_long and rg_long
-short_gate_pass = hg1_short and hg2_short and hg3_short and hg4_short and hg5_short and rg_short
+long_gate_pass = hg1_long and hg2_long and hg3_long and hg4_long and hg5_long and hg6_long and rg_long
+short_gate_pass = hg1_short and hg2_short and hg3_short and hg4_short and hg5_short and hg6_short and rg_short
 
-first_fail_reason_long = not hg1_long ? RC_HG : not hg2_long ? RC_HG : not hg3_long ? RC_HG : not hg4_long ? RC_HG : not hg5_long ? RC_SR : not rg_long ? RC_TM : RC_OK
-first_fail_reason_short = not hg1_short ? RC_HG : not hg2_short ? RC_HG : not hg3_short ? RC_HG : not hg4_short ? RC_HG : not hg5_short ? RC_SR : not rg_short ? RC_TM : RC_OK
-all_reasons_long = (hg1_long ? "" : "HG-1,") + (hg2_long ? "" : "HG-2,") + (hg3_long ? "" : "HG-3,") + (hg4_long ? "" : "HG-4,") + (hg5_long ? "" : "HG-5/SR,") + (rg_long ? "" : "RG/TM,")
-all_reasons_short = (hg1_short ? "" : "HG-1,") + (hg2_short ? "" : "HG-2,") + (hg3_short ? "" : "HG-3,") + (hg4_short ? "" : "HG-4,") + (hg5_short ? "" : "HG-5/SR,") + (rg_short ? "" : "RG/TM,")
+first_fail_reason_long = not hg1_long ? RC_HG : not hg2_long ? RC_SR : not hg3_long ? RC_HG : not hg4_long ? RC_HG : not hg5_long ? RC_HG : not hg6_long ? RC_SR : not rg_long ? RC_TM : RC_OK
+first_fail_reason_short = not hg1_short ? RC_HG : not hg2_short ? RC_SR : not hg3_short ? RC_HG : not hg4_short ? RC_HG : not hg5_short ? RC_HG : not hg6_short ? RC_SR : not rg_short ? RC_TM : RC_OK
+all_reasons_long = (hg1_long ? "" : "HG-1,") + (hg2_long ? "" : "HG-2/SR_OPPOSE,") + (hg3_long ? "" : "HG-3,") + (hg4_long ? "" : "HG-4,") + (hg5_long ? "" : "HG-5,") + (hg6_long ? "" : "HG-6/SR_RETEST,") + (rg_long ? "" : "RG/TM,")
+all_reasons_short = (hg1_short ? "" : "HG-1,") + (hg2_short ? "" : "HG-2/SR_OPPOSE,") + (hg3_short ? "" : "HG-3,") + (hg4_short ? "" : "HG-4,") + (hg5_short ? "" : "HG-5,") + (hg6_short ? "" : "HG-6/SR_RETEST,") + (rg_short ? "" : "RG/TM,")
+
+// Gate-waterfall diagnostics (Pass 1 visibility)
+var int diag_candidates = 0
+var int diag_fail_hg1 = 0
+var int diag_fail_hg2 = 0
+var int diag_fail_hg3 = 0
+var int diag_fail_hg4 = 0
+var int diag_fail_hg5 = 0
+var int diag_fail_hg6 = 0
+
+if barstate.isconfirmed
+    prefer_long = score_long >= score_short
+    diag_candidates += 1
+    if prefer_long
+        if not hg1_long
+            diag_fail_hg1 += 1
+        else if not hg2_long
+            diag_fail_hg2 += 1
+        else if not hg3_long
+            diag_fail_hg3 += 1
+        else if not hg4_long
+            diag_fail_hg4 += 1
+        else if not hg5_long
+            diag_fail_hg5 += 1
+        else if not hg6_long
+            diag_fail_hg6 += 1
+    else
+        if not hg1_short
+            diag_fail_hg1 += 1
+        else if not hg2_short
+            diag_fail_hg2 += 1
+        else if not hg3_short
+            diag_fail_hg3 += 1
+        else if not hg4_short
+            diag_fail_hg4 += 1
+        else if not hg5_short
+            diag_fail_hg5 += 1
+        else if not hg6_short
+            diag_fail_hg6 += 1
 
 long_trigger = long_gate_pass
 short_trigger = short_gate_pass
@@ -240,11 +397,12 @@ flag_be = false // indicator-only scaffold
 // ===== Plots / labels / alerts =====
 plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
 plot(entry_ema50, "Entry EMA50", color=color.new(color.orange, 0))
-plot(sr_anchor, "ITF EMA50 SR Anchor", color=color.new(color.blue, 20))
-
-p_top = plot(show_sr_zone ? zone_top : na, "Retest Zone Top", color=color.new(color.green, 70))
-p_bot = plot(show_sr_zone ? zone_bot : na, "Retest Zone Bottom", color=color.new(color.red, 70))
-fill(p_top, p_bot, color=color.new(color.blue, 92), title="Retest Zone")
+res_top_plot = plot(show_sr_zone ? nearest_res_top : na, "Nearest Resistance Top", color=color.new(color.red, 30))
+res_bot_plot = plot(show_sr_zone ? nearest_res_bot : na, "Nearest Resistance Bottom", color=color.new(color.red, 70))
+sup_top_plot = plot(show_sr_zone ? nearest_sup_top : na, "Nearest Support Top", color=color.new(color.green, 70))
+sup_bot_plot = plot(show_sr_zone ? nearest_sup_bot : na, "Nearest Support Bottom", color=color.new(color.green, 30))
+fill(res_top_plot, res_bot_plot, color=color.new(color.red, 92), title="Resistance Zone")
+fill(sup_top_plot, sup_bot_plot, color=color.new(color.green, 92), title="Support Zone")
 
 long_watch_edge = long_watch and not long_watch[1]
 short_watch_edge = short_watch and not short_watch[1]
@@ -310,15 +468,15 @@ if show_debug
     table.cell(t, 1, 12, (long_trigger ? "Y" : "N") + "/" + (short_trigger ? "Y" : "N"))
     table.cell(t, 0, 13, "TF")
     table.cell(t, 1, 13, timeframe.period)
-    table.cell(t, 0, 14, "Decision")
-    table.cell(t, 1, 14, decision)
-    table.cell(t, 0, 15, "First Fail")
-    table.cell(t, 1, 15, first_fail_reason)
-    table.cell(t, 0, 16, "All Reasons")
-    table.cell(t, 1, 16, all_reasons)
-    table.cell(t, 0, 17, "Projected R")
-    table.cell(t, 1, 17, str.tostring(projected_r, "#.00"))
-    table.cell(t, 0, 18, "TP1/2/3")
-    table.cell(t, 1, 18, (flag_tp1 ? "Y" : "N") + "/" + (flag_tp2 ? "Y" : "N") + "/" + (flag_tp3 ? "Y" : "N"))
-    table.cell(t, 0, 19, "BE")
-    table.cell(t, 1, 19, flag_be ? "Y" : "N")
+    table.cell(t, 0, 14, "SR Active")
+    table.cell(t, 1, 14, str.tostring(active_zone_count))
+    table.cell(t, 0, 15, "Nearest dR/dS %")
+    table.cell(t, 1, 15, str.tostring(nearest_res_dist_pct, "#.##") + "/" + str.tostring(nearest_sup_dist_pct, "#.##"))
+    table.cell(t, 0, 16, "Decision / FF")
+    table.cell(t, 1, 16, decision + " / " + first_fail_reason)
+    table.cell(t, 0, 17, "All Reasons")
+    table.cell(t, 1, 17, all_reasons)
+    table.cell(t, 0, 18, "Projected R")
+    table.cell(t, 1, 18, str.tostring(projected_r, "#.00"))
+    table.cell(t, 0, 19, "WF C/H1/H2/H3/H4/H5/H6")
+    table.cell(t, 1, 19, str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6))
