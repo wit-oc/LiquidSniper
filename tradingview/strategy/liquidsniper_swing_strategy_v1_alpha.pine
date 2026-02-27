@@ -8,7 +8,7 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.2.3-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.3.0-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
@@ -62,6 +62,8 @@ be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, g
 enable_time_stop = input.bool(false, "Enable Time Stop", group=g_risk)
 max_bars_in_trade = input.int(12, "Max Bars In Trade", minval=1, group=g_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
+entry_signal_mode = input.string("edge", "Entry Signal Mode", options=["edge", "bar"], group=g_risk)
+allow_flip_on_opposite_edge = input.bool(true, "Allow Flip on Opposite Trigger Edge", group=g_risk)
 enable_daily_loss_cb = input.bool(true, "Enable Daily Loss Circuit Breaker", group=g_risk)
 max_daily_loss_r = input.float(2.0, "Max Daily Loss (R)", minval=0.1, step=0.1, group=g_risk)
 enable_daily_trade_cap = input.bool(false, "Enable Daily Trade Cap", group=g_risk)
@@ -406,6 +408,9 @@ var int diag_short_rg_block_count = 0
 var int diag_short_qty_fail_count = 0
 var int diag_short_entry_count = 0
 
+var int diag_long_entry_signal_count = 0
+var int diag_short_entry_signal_count = 0
+
 // Trigger quality + post-trigger block reasons
 var int diag_long_trigger_edge_count = 0
 var int diag_long_block_open_pos = 0
@@ -550,11 +555,18 @@ prev_short_trigger = bar_index > 0 ? short_trigger[1] : false
 long_trigger_edge = long_trigger and not prev_long_trigger
 short_trigger_edge = short_trigger and not prev_short_trigger
 
+long_entry_signal = entry_signal_mode == "edge" ? long_trigger_edge : long_trigger
+short_entry_signal = entry_signal_mode == "edge" ? short_trigger_edge : short_trigger
+
 cooldown_active = not na(last_trade_bar) and (bar_index - last_trade_bar <= cooldown_bars)
 daily_loss_lock = daily_loss_hit
 daily_trade_cap_lock = daily_trade_cap_hit
-open_position_block = strategy.position_size != 0
 can_trade = (not cooldown_active) and (not daily_loss_lock) and (not daily_trade_cap_lock)
+
+long_flip_allowed = allow_flip_on_opposite_edge and long_trigger_edge and strategy.position_size < 0
+short_flip_allowed = allow_flip_on_opposite_edge and short_trigger_edge and strategy.position_size > 0
+long_position_block = strategy.position_size != 0 and not long_flip_allowed
+short_position_block = strategy.position_size != 0 and not short_flip_allowed
 
 if bar_closed
     if long_hg_pass and not rg_long
@@ -577,20 +589,24 @@ if bar_closed
         diag_long_trigger_edge_count += 1
     if short_trigger_edge
         diag_short_trigger_edge_count += 1
-    if long_trigger and cooldown_active
+    if long_entry_signal
+        diag_long_entry_signal_count += 1
+    if short_entry_signal
+        diag_short_entry_signal_count += 1
+    if long_entry_signal and cooldown_active
         diag_long_block_cooldown += 1
-    else if long_trigger and can_trade and open_position_block
+    else if long_entry_signal and can_trade and long_position_block
         diag_long_block_open_pos += 1
-    if short_trigger and cooldown_active
+    if short_entry_signal and cooldown_active
         diag_short_block_cooldown += 1
-    else if short_trigger and can_trade and open_position_block
+    else if short_entry_signal and can_trade and short_position_block
         diag_short_block_open_pos += 1
 
-decision = long_trigger ? "LONG_TRIGGER" : short_trigger ? "SHORT_TRIGGER" : "NO_TRADE"
+decision = long_entry_signal ? "LONG_TRIGGER" : short_entry_signal ? "SHORT_TRIGGER" : "NO_TRADE"
 first_fail_reason = long_hg_pass and not rg_long ? RC_RG : short_hg_pass and not rg_short ? RC_RG : (score_long >= score_short ? first_fail_reason_long : first_fail_reason_short)
 all_reasons = (score_long >= score_short ? all_reasons_long : all_reasons_short) + (rg_long and rg_short ? "" : "RG,")
 
-if long_trigger and can_trade and strategy.position_size == 0
+if long_entry_signal and can_trade and not long_position_block
     if sizing_mode == "risk_based"
         if long_qty_valid
             strategy.entry("LSV1-LONG", strategy.long, qty=long_qty_calc)
@@ -610,7 +626,7 @@ if long_trigger and can_trade and strategy.position_size == 0
         if bar_closed
             diag_long_entry_count += 1
 
-if short_trigger and can_trade and strategy.position_size == 0
+if short_entry_signal and can_trade and not short_position_block
     if sizing_mode == "risk_based"
         if short_qty_valid
             strategy.entry("LSV1-SHORT", strategy.short, qty=short_qty_calc)
@@ -735,11 +751,11 @@ if show_diag_box and bar_closed
     table.cell(diag_t, 0, 4, "L C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_long_candidates) + "/" + str.tostring(diag_long_pass) + "/" + str.tostring(diag_long_fail_hg1) + "/" + str.tostring(diag_long_fail_hg2) + "/" + str.tostring(diag_long_fail_hg3) + "/" + str.tostring(diag_long_fail_hg4) + "/" + str.tostring(diag_long_fail_hg5) + "/" + str.tostring(diag_long_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 5, "S C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_short_candidates) + "/" + str.tostring(diag_short_pass) + "/" + str.tostring(diag_short_fail_hg1) + "/" + str.tostring(diag_short_fail_hg2) + "/" + str.tostring(diag_short_fail_hg3) + "/" + str.tostring(diag_short_fail_hg4) + "/" + str.tostring(diag_short_fail_hg5) + "/" + str.tostring(diag_short_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 6, "pR=" + str.tostring(projected_r, "#.00") + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0"), text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(diag_t, 0, 7, "PostHG L trigBars/trigEdges/rgBlk/qtyFail/entry: " + str.tostring(diag_long_trigger_count) + "/" + str.tostring(diag_long_trigger_edge_count) + "/" + str.tostring(diag_long_rg_block_count) + "/" + str.tostring(diag_long_qty_fail_count) + "/" + str.tostring(diag_long_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(diag_t, 0, 8, "PostHG S trigBars/trigEdges/rgBlk/qtyFail/entry: " + str.tostring(diag_short_trigger_count) + "/" + str.tostring(diag_short_trigger_edge_count) + "/" + str.tostring(diag_short_rg_block_count) + "/" + str.tostring(diag_short_qty_fail_count) + "/" + str.tostring(diag_short_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 7, "PostHG L trigBars/trigEdges/entrySig/rgBlk/qtyFail/entry: " + str.tostring(diag_long_trigger_count) + "/" + str.tostring(diag_long_trigger_edge_count) + "/" + str.tostring(diag_long_entry_signal_count) + "/" + str.tostring(diag_long_rg_block_count) + "/" + str.tostring(diag_long_qty_fail_count) + "/" + str.tostring(diag_long_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 8, "PostHG S trigBars/trigEdges/entrySig/rgBlk/qtyFail/entry: " + str.tostring(diag_short_trigger_count) + "/" + str.tostring(diag_short_trigger_edge_count) + "/" + str.tostring(diag_short_entry_signal_count) + "/" + str.tostring(diag_short_rg_block_count) + "/" + str.tostring(diag_short_qty_fail_count) + "/" + str.tostring(diag_short_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 9, "Block L open/cooldown/dLoss/dCap: " + str.tostring(diag_long_block_open_pos) + "/" + str.tostring(diag_long_block_cooldown) + "/" + str.tostring(diag_long_block_daily_loss) + "/" + str.tostring(diag_long_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 10, "Block S open/cooldown/dLoss/dCap: " + str.tostring(diag_short_block_open_pos) + "/" + str.tostring(diag_short_block_cooldown) + "/" + str.tostring(diag_short_block_daily_loss) + "/" + str.tostring(diag_short_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(diag_t, 0, 11, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 11, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF"), text_color=color.white, bgcolor=color.new(color.black, 20))
 if not show_diag_box and bar_closed
     for r = 0 to 11
         table.cell(diag_t, 0, r, "")
