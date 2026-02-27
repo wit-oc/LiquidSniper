@@ -8,7 +8,7 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.5.0-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.6.0-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
@@ -53,6 +53,11 @@ show_diag_box = input.bool(true, "Show Diagnostics Box (bottom-right)", group=g_
 
 g_risk = "02. Risk"
 rr_target = input.float(2.0, "Risk:Reward Target", minval=1.0, step=0.1, group=g_risk)
+enforce_tp3_rr_floor = input.bool(false, "Enforce TP3 RR Floor", group=g_risk)
+tp3_rr_floor = input.float(3.0, "TP3 RR Floor", minval=0.5, step=0.1, group=g_risk)
+tp1_qty_pct = input.float(40.0, "TP1 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+tp2_qty_pct = input.float(30.0, "TP2 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+tp3_qty_pct = input.float(30.0, "TP3 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
 atr_stop_mult = input.float(1.4, "ATR Stop Mult (fallback)", minval=0.5, step=0.1, group=g_risk)
 enable_short_stop_mult = input.bool(false, "Enable Short-side Stop Multiplier", group=g_risk)
 short_stop_mult_factor = input.float(0.9, "Short Stop Mult Factor", minval=0.1, maxval=2.0, step=0.05, group=g_risk)
@@ -67,9 +72,9 @@ allow_flip_on_opposite_edge = input.bool(true, "Allow Flip on Opposite Trigger E
 flip_min_score_delta = input.float(0.5, "Flip Min Score Delta", minval=0.0, maxval=5.0, step=0.1, group=g_risk)
 
 enable_lifecycle_governor = input.bool(true, "Enable Lifecycle Governor", group=g_risk)
-be_stale_reduce_bars = input.int(20, "BE Stale Reduce Bars", minval=1, group=g_risk)
+be_stale_reduce_bars = input.int(12, "BE Stale Reduce Bars", minval=1, group=g_risk)
 be_stale_reduce_pct = input.float(50.0, "BE Stale Reduce Qty %", minval=1.0, maxval=100.0, step=1.0, group=g_risk)
-be_stale_full_exit_bars = input.int(40, "BE Stale Full Exit Bars", minval=1, group=g_risk)
+be_stale_full_exit_bars = input.int(24, "BE Stale Full Exit Bars", minval=1, group=g_risk)
 enable_trend_invalidation_exit = input.bool(true, "Enable Trend Invalidation Exit", group=g_risk)
 trend_invalidation_max_r = input.float(0.5, "Trend Invalidation Max R", minval=-2.0, maxval=5.0, step=0.1, group=g_risk)
 
@@ -704,12 +709,18 @@ long_risk = math.max(strategy.position_avg_price - long_invalidation, atr_entry 
 short_risk = math.max(short_invalidation - strategy.position_avg_price, atr_entry * 0.2)
 
 // TP ladder scaffold (3 TP), TP1 -> BE, no runner beyond TP3
+rr_tp3_effective = enforce_tp3_rr_floor ? math.max(rr_target, tp3_rr_floor) : rr_target
+tp_split_sum = tp1_qty_pct + tp2_qty_pct + tp3_qty_pct
+tp1_qty_eff = tp_split_sum > 0 ? (tp1_qty_pct / tp_split_sum) * 100.0 : 40.0
+tp2_qty_eff = tp_split_sum > 0 ? (tp2_qty_pct / tp_split_sum) * 100.0 : 30.0
+tp3_qty_eff = tp_split_sum > 0 ? (tp3_qty_pct / tp_split_sum) * 100.0 : 30.0
+
 long_tp1 = strategy.position_avg_price + long_risk * 1.0
 long_tp2 = strategy.position_avg_price + long_risk * 2.0
-long_tp3 = strategy.position_avg_price + long_risk * math.max(3.0, rr_target)
+long_tp3 = strategy.position_avg_price + long_risk * rr_tp3_effective
 short_tp1 = strategy.position_avg_price - short_risk * 1.0
 short_tp2 = strategy.position_avg_price - short_risk * 2.0
-short_tp3 = strategy.position_avg_price - short_risk * math.max(3.0, rr_target)
+short_tp3 = strategy.position_avg_price - short_risk * rr_tp3_effective
 
 long_be_trigger_px = strategy.position_avg_price + long_risk * be_trigger_r
 short_be_trigger_px = strategy.position_avg_price - short_risk * be_trigger_r
@@ -792,19 +803,19 @@ if enable_lifecycle_governor and enable_trend_invalidation_exit and strategy.pos
     if bar_closed
         diag_short_trend_invalidation_exit_count += 1
 
-strategy.exit("LSV1-LONG-TP1", "LSV1-LONG", stop=long_stop_eff, limit=long_tp1, qty_percent=33)
-strategy.exit("LSV1-LONG-TP2", "LSV1-LONG", stop=long_stop_eff, limit=long_tp2, qty_percent=33)
-strategy.exit("LSV1-LONG-TP3", "LSV1-LONG", stop=long_stop_eff, limit=long_tp3, qty_percent=34)
-strategy.exit("LSV1-SHORT-TP1", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp1, qty_percent=33)
-strategy.exit("LSV1-SHORT-TP2", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp2, qty_percent=33)
-strategy.exit("LSV1-SHORT-TP3", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp3, qty_percent=34)
+strategy.exit("LSV1-LONG-TP1", "LSV1-LONG", stop=long_stop_eff, limit=long_tp1, qty_percent=tp1_qty_eff)
+strategy.exit("LSV1-LONG-TP2", "LSV1-LONG", stop=long_stop_eff, limit=long_tp2, qty_percent=tp2_qty_eff)
+strategy.exit("LSV1-LONG-TP3", "LSV1-LONG", stop=long_stop_eff, limit=long_tp3, qty_percent=tp3_qty_eff)
+strategy.exit("LSV1-SHORT-TP1", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp1, qty_percent=tp1_qty_eff)
+strategy.exit("LSV1-SHORT-TP2", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp2, qty_percent=tp2_qty_eff)
+strategy.exit("LSV1-SHORT-TP3", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp3, qty_percent=tp3_qty_eff)
 
 if strategy.position_size > 0 and long_tp3_hit
     strategy.close("LSV1-LONG", comment="TP3_FLAT")
 if strategy.position_size < 0 and short_tp3_hit
     strategy.close("LSV1-SHORT", comment="TP3_FLAT")
 
-projected_r = long_trigger or short_trigger ? math.max(3.0, rr_target) : 0.0
+projected_r = long_trigger or short_trigger ? rr_tp3_effective : 0.0
 
 plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
 plot(entry_ema50, "Entry EMA50", color=color.new(color.orange, 0))
@@ -835,7 +846,7 @@ if show_diag_box and bar_closed
     table.cell(diag_t, 0, 10, "Block S open/cooldown/dLoss/dCap: " + str.tostring(diag_short_block_open_pos) + "/" + str.tostring(diag_short_block_cooldown) + "/" + str.tostring(diag_short_block_daily_loss) + "/" + str.tostring(diag_short_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 11, "LCycle L reduce/full/trend: " + str.tostring(diag_long_be_stale_reduce_count) + "/" + str.tostring(diag_long_be_stale_full_exit_count) + "/" + str.tostring(diag_long_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 12, "LCycle S reduce/full/trend: " + str.tostring(diag_short_be_stale_reduce_count) + "/" + str.tostring(diag_short_be_stale_full_exit_count) + "/" + str.tostring(diag_short_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(diag_t, 0, 13, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | TrendGate=" + trend_gate_mode + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF") + " | FlipDelta=" + str.tostring(flip_min_score_delta, "#.##") + " | LCycle=" + (enable_lifecycle_governor ? "ON" : "OFF"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 13, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | TrendGate=" + trend_gate_mode + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF") + " | FlipDelta=" + str.tostring(flip_min_score_delta, "#.##") + " | LCycle=" + (enable_lifecycle_governor ? "ON" : "OFF") + " | TP=" + str.tostring(tp1_qty_eff, "#.0") + "/" + str.tostring(tp2_qty_eff, "#.0") + "/" + str.tostring(tp3_qty_eff, "#.0") + " | TP3R=" + str.tostring(rr_tp3_effective, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
 if not show_diag_box and bar_closed
     for r = 0 to 13
         table.cell(diag_t, 0, r, "")

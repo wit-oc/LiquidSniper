@@ -2,7 +2,7 @@
 
 Applies to:
 - `tradingview/strategy/liquidsniper_swing_strategy_v1_alpha.pine`
-- Current logic version line: `tv-swing-strategy-v1.5.0-alpha`
+- Current logic version line: `tv-swing-strategy-v1.6.0-alpha`
 
 ## 1) What "hysteresis" means here
 
@@ -36,18 +36,28 @@ In this strategy context, **hysteresis** means adding a small amount of "memory"
 | `flip_min_score_delta` | float, default `0.5` | **Amplitude hysteresis**: opposite edge must exceed current-side score by this margin before flip is allowed. |
 | `cooldown_bars` | int, default `3` | Throttles re-entry attempts for N bars after a trade action. |
 
-## 2.2 Lifecycle governor controls (slot/funding hygiene)
+## 2.2 TP / realization controls (capital velocity)
+
+| Toggle | Default | Behavior change |
+|---|---:|---|
+| `tp1_qty_pct` | `40` | Nominal TP1 allocation (auto-normalized with TP2/TP3). |
+| `tp2_qty_pct` | `30` | Nominal TP2 allocation (auto-normalized with TP1/TP3). |
+| `tp3_qty_pct` | `30` | Nominal TP3 allocation (auto-normalized with TP1/TP2). |
+| `enforce_tp3_rr_floor` | `false` | If `true`, TP3 uses `max(rr_target, tp3_rr_floor)`; if `false`, TP3 uses `rr_target` directly. |
+| `tp3_rr_floor` | `3.0` | Floor value used only when TP3 floor enforcement is enabled. |
+
+## 2.3 Lifecycle governor controls (slot/funding hygiene)
 
 | Toggle | Default | Behavior change |
 |---|---:|---|
 | `enable_lifecycle_governor` | `true` | Master toggle for stale-trade cleanup and trend-invalidation exits. |
-| `be_stale_reduce_bars` | `20` | If BE is active and TP2 not reached by this many bars, reduce position size. |
+| `be_stale_reduce_bars` | `12` | If BE is active and TP2 not reached by this many bars, reduce position size. |
 | `be_stale_reduce_pct` | `50` | Percent reduced on stale BE reduce action. |
-| `be_stale_full_exit_bars` | `40` | If still stale after this many bars (BE active, TP2 not reached), close remainder. |
+| `be_stale_full_exit_bars` | `24` | If still stale after this many bars (BE active, TP2 not reached), close remainder. |
 | `enable_trend_invalidation_exit` | `true` | Exits when HTF trend flips against position and profit cushion is insufficient. |
 | `trend_invalidation_max_r` | `0.5` | Maximum unrealized R at which trend-invalidation exit is allowed. |
 
-## 2.3 Risk/lock controls affecting entry availability
+## 2.4 Risk/lock controls affecting entry availability
 
 | Toggle | Default | Behavior change |
 |---|---:|---|
@@ -56,7 +66,7 @@ In this strategy context, **hysteresis** means adding a small amount of "memory"
 | `enable_daily_trade_cap` | `false` | Optional max trades/day lock. |
 | `max_daily_trades` | `3` | Trades/day when daily cap is enabled. |
 
-## 2.4 Signal strictness controls (major throughput drivers)
+## 2.5 Signal strictness controls (major throughput drivers)
 
 | Toggle | Default | Behavior change |
 |---|---:|---|
@@ -79,6 +89,7 @@ Key rows:
 - `PostHG ... trigBars/trigEdges/entrySig/rgBlk/qtyFail/entry`: post-gate execution funnel.
 - `Block ... open/cooldown/dLoss/dCap`: explicit blocker reasons.
 - `LCycle ... reduce/full/trend`: lifecycle-governor action counts.
+- Mode row now includes effective TP split (`TP=...`) and effective TP3 target R (`TP3R=...`).
 
 Interpretation rule:
 - Prefer `trigEdges`/`entrySig` for unique opportunity count.
@@ -92,6 +103,9 @@ Interpretation rule:
 - `allow_flip_on_opposite_edge = true`
 - `flip_min_score_delta = 0.5`
 - `enable_lifecycle_governor = true`
+- TP split defaults: `40/30/30`
+- `enforce_tp3_rr_floor = false` (TP3 follows `rr_target`)
+- stale windows default: `12/24` bars (`reduce/full`)
 - `enforce_opposing_zone_block = false`
 - Keep daily loss lock on
 - Keep diagnostics box on during tuning
@@ -100,7 +114,7 @@ This favors controlled throughput and stable drawdown behavior while avoiding du
 
 ---
 
-## 5) Next optional hardening (post v1.4.1)
+## 5) Next optional hardening (post v1.6.0)
 
 Potential additions:
 - `flip_min_time_in_trade_bars`: require minimum hold time before opposite-edge flip.
