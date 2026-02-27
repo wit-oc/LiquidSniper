@@ -2,7 +2,7 @@
 
 Applies to:
 - `tradingview/strategy/liquidsniper_swing_strategy_v1_alpha.pine`
-- Current logic version line: `tv-swing-strategy-v1.4.0-alpha`
+- Current logic version line: `tv-swing-strategy-v1.4.1-alpha`
 
 ## 1) What "hysteresis" means here
 
@@ -99,7 +99,7 @@ This favors controlled throughput and stable drawdown behavior while avoiding du
 
 ---
 
-## 5) Next optional hardening (post v1.4.0)
+## 5) Next optional hardening (post v1.4.1)
 
 Potential additions:
 - `flip_min_time_in_trade_bars`: require minimum hold time before opposite-edge flip.
@@ -110,3 +110,39 @@ Why:
 - Further suppresses churn in chop.
 - Keeps PF/DD protection explicit and measurable.
 - Improves slot turnover control without lowering entry-quality gates.
+
+---
+
+## 6) Input audit status (swing-specific)
+
+### 6.1 Removed as unnecessary
+- `retest_bps` was removed in `v1.4.1-alpha` (legacy from EMA-anchor retest model; not used by SR zone engine).
+
+### 6.2 Kept (necessary for swing intent)
+- Structure / SR: `structure_swing_len`, `retest_window_bars`, `sr_*` zone/retest controls.
+- Throughput/quality: `trigger_score`, `require_first_retest`, chop controls.
+- Execution cadence: `entry_signal_mode`, `allow_flip_on_opposite_edge`, `flip_min_score_delta`, `cooldown_bars`.
+- Risk/slot hygiene: lifecycle governor set (`be_stale_*`, `enable_trend_invalidation_exit`, `trend_invalidation_max_r`), daily locks, stop floors.
+- Position sizing: `sizing_mode`, risk percentages, high-conf threshold.
+
+### 6.3 Candidate deprecations (not removed yet; awaiting explicit go-ahead)
+These are still functional, but not obviously required for a pure swing-only strategy:
+- `profile`, `enable_profile_risk_cap`, `enable_manual_profile_risk_caps`, `profile_cap_c/i/s`
+  - Rationale: profile model came from mixed C/I/S flow; swing-only path may prefer a single risk-cap contract.
+- `enable_time_block`, `blocked_session`, `blocked_tz`
+  - Rationale: mostly intraday/session tooling; less relevant on strict 1D execution.
+- `enable_short_adx_bump`, `short_adx_bump`
+  - Rationale: asymmetry control; useful only if we intentionally keep short-side bias tuning.
+- `enable_short_stop_mult`, `short_stop_mult_factor`
+  - Rationale: asymmetry stop tuning; optional for swing baseline.
+
+### 6.4 Metadata-only
+- `ls_version` is intentionally metadata-only and used for operator traceability.
+
+### 6.5 Audit rule for future cleanup
+When considering removals, only drop an input if all are true:
+1. It is not used in code path **or** its behavior is redundant with another control.
+2. Removing it does not reduce ability to enforce PF/DD guardrails.
+3. The behavior is either hard-coded or represented by a clearer single control.
+4. Change is documented and version-bumped in strategy + guide.
+
