@@ -8,7 +8,7 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.3.0-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.4.0-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
@@ -64,6 +64,15 @@ max_bars_in_trade = input.int(12, "Max Bars In Trade", minval=1, group=g_risk)
 cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
 entry_signal_mode = input.string("edge", "Entry Signal Mode", options=["edge", "bar"], group=g_risk)
 allow_flip_on_opposite_edge = input.bool(true, "Allow Flip on Opposite Trigger Edge", group=g_risk)
+flip_min_score_delta = input.float(0.5, "Flip Min Score Delta", minval=0.0, maxval=5.0, step=0.1, group=g_risk)
+
+enable_lifecycle_governor = input.bool(true, "Enable Lifecycle Governor", group=g_risk)
+be_stale_reduce_bars = input.int(20, "BE Stale Reduce Bars", minval=1, group=g_risk)
+be_stale_reduce_pct = input.float(50.0, "BE Stale Reduce Qty %", minval=1.0, maxval=100.0, step=1.0, group=g_risk)
+be_stale_full_exit_bars = input.int(40, "BE Stale Full Exit Bars", minval=1, group=g_risk)
+enable_trend_invalidation_exit = input.bool(true, "Enable Trend Invalidation Exit", group=g_risk)
+trend_invalidation_max_r = input.float(0.5, "Trend Invalidation Max R", minval=-2.0, maxval=5.0, step=0.1, group=g_risk)
+
 enable_daily_loss_cb = input.bool(true, "Enable Daily Loss Circuit Breaker", group=g_risk)
 max_daily_loss_r = input.float(2.0, "Max Daily Loss (R)", minval=0.1, step=0.1, group=g_risk)
 enable_daily_trade_cap = input.bool(false, "Enable Daily Trade Cap", group=g_risk)
@@ -424,6 +433,14 @@ var int diag_short_block_cooldown = 0
 var int diag_short_block_daily_loss = 0
 var int diag_short_block_daily_cap = 0
 
+// Lifecycle governor diagnostics
+var int diag_long_be_stale_reduce_count = 0
+var int diag_short_be_stale_reduce_count = 0
+var int diag_long_be_stale_full_exit_count = 0
+var int diag_short_be_stale_full_exit_count = 0
+var int diag_long_trend_invalidation_exit_count = 0
+var int diag_short_trend_invalidation_exit_count = 0
+
 if bar_closed
     prefer_long = score_long >= score_short
     diag_candidates += 1
@@ -523,6 +540,13 @@ var int position_entry_bar = na
 var float entry_risk_budget_usd = na
 var float prior_netprofit = na
 
+var bool long_stale_reduce_done = false
+var bool short_stale_reduce_done = false
+var bool long_stale_full_exit_fired = false
+var bool short_stale_full_exit_fired = false
+var bool long_trend_exit_fired = false
+var bool short_trend_exit_fired = false
+
 curr_day = year(time) * 10000 + month(time) * 100 + dayofmonth(time)
 var int day_key = curr_day
 var int day_trade_count = 0
@@ -563,8 +587,10 @@ daily_loss_lock = daily_loss_hit
 daily_trade_cap_lock = daily_trade_cap_hit
 can_trade = (not cooldown_active) and (not daily_loss_lock) and (not daily_trade_cap_lock)
 
-long_flip_allowed = allow_flip_on_opposite_edge and long_trigger_edge and strategy.position_size < 0
-short_flip_allowed = allow_flip_on_opposite_edge and short_trigger_edge and strategy.position_size > 0
+long_flip_hysteresis_ok = score_long >= (score_short + flip_min_score_delta)
+short_flip_hysteresis_ok = score_short >= (score_long + flip_min_score_delta)
+long_flip_allowed = allow_flip_on_opposite_edge and long_trigger_edge and strategy.position_size < 0 and long_flip_hysteresis_ok
+short_flip_allowed = allow_flip_on_opposite_edge and short_trigger_edge and strategy.position_size > 0 and short_flip_hysteresis_ok
 long_position_block = strategy.position_size != 0 and not long_flip_allowed
 short_position_block = strategy.position_size != 0 and not short_flip_allowed
 
@@ -650,9 +676,15 @@ if strategy.position_size != 0 and strategy.position_size[1] == 0
     position_entry_bar := bar_index
 if strategy.position_size == 0
     position_entry_bar := na
+    long_stale_reduce_done := false
+    short_stale_reduce_done := false
+    long_stale_full_exit_fired := false
+    short_stale_full_exit_fired := false
+    long_trend_exit_fired := false
+    short_trend_exit_fired := false
 
-if enable_time_stop and strategy.position_size != 0 and not na(position_entry_bar)
-    bars_held = bar_index - position_entry_bar
+bars_held = strategy.position_size != 0 and not na(position_entry_bar) ? (bar_index - position_entry_bar) : na
+if enable_time_stop and strategy.position_size != 0 and not na(bars_held)
     if bars_held >= max_bars_in_trade
         if strategy.position_size > 0
             strategy.close("LSV1-LONG", comment="TIME_STOP")
@@ -714,6 +746,46 @@ if be_enabled and strategy.position_size < 0 and (low <= short_be_trigger_px or 
 long_stop_eff = long_be_active ? math.max(long_invalidation, long_be_stop) : long_invalidation
 short_stop_eff = short_be_active ? math.min(short_invalidation, short_be_stop) : short_invalidation
 
+// Lifecycle governor: reduce stale BE trades, force stale full exit, trend invalidation exit
+if enable_lifecycle_governor and strategy.position_size > 0 and not na(bars_held) and long_be_active and not long_tp2_hit
+    if (not long_stale_reduce_done) and bars_held >= be_stale_reduce_bars
+        strategy.close("LSV1-LONG", qty_percent=be_stale_reduce_pct, comment="BE_STALE_REDUCE")
+        long_stale_reduce_done := true
+        if bar_closed
+            diag_long_be_stale_reduce_count += 1
+    if (not long_stale_full_exit_fired) and bars_held >= be_stale_full_exit_bars
+        strategy.close("LSV1-LONG", comment="BE_STALE_FULL_EXIT")
+        long_stale_full_exit_fired := true
+        if bar_closed
+            diag_long_be_stale_full_exit_count += 1
+
+if enable_lifecycle_governor and strategy.position_size < 0 and not na(bars_held) and short_be_active and not short_tp2_hit
+    if (not short_stale_reduce_done) and bars_held >= be_stale_reduce_bars
+        strategy.close("LSV1-SHORT", qty_percent=be_stale_reduce_pct, comment="BE_STALE_REDUCE")
+        short_stale_reduce_done := true
+        if bar_closed
+            diag_short_be_stale_reduce_count += 1
+    if (not short_stale_full_exit_fired) and bars_held >= be_stale_full_exit_bars
+        strategy.close("LSV1-SHORT", comment="BE_STALE_FULL_EXIT")
+        short_stale_full_exit_fired := true
+        if bar_closed
+            diag_short_be_stale_full_exit_count += 1
+
+long_unrealized_r = strategy.position_size > 0 ? (close - strategy.position_avg_price) / math.max(long_risk, syminfo.mintick) : na
+short_unrealized_r = strategy.position_size < 0 ? (strategy.position_avg_price - close) / math.max(short_risk, syminfo.mintick) : na
+
+if enable_lifecycle_governor and enable_trend_invalidation_exit and strategy.position_size > 0 and trend_dir == -1 and not long_trend_exit_fired and (na(long_unrealized_r) or long_unrealized_r <= trend_invalidation_max_r)
+    strategy.close("LSV1-LONG", comment="TREND_INVALIDATION")
+    long_trend_exit_fired := true
+    if bar_closed
+        diag_long_trend_invalidation_exit_count += 1
+
+if enable_lifecycle_governor and enable_trend_invalidation_exit and strategy.position_size < 0 and trend_dir == 1 and not short_trend_exit_fired and (na(short_unrealized_r) or short_unrealized_r <= trend_invalidation_max_r)
+    strategy.close("LSV1-SHORT", comment="TREND_INVALIDATION")
+    short_trend_exit_fired := true
+    if bar_closed
+        diag_short_trend_invalidation_exit_count += 1
+
 strategy.exit("LSV1-LONG-TP1", "LSV1-LONG", stop=long_stop_eff, limit=long_tp1, qty_percent=33)
 strategy.exit("LSV1-LONG-TP2", "LSV1-LONG", stop=long_stop_eff, limit=long_tp2, qty_percent=33)
 strategy.exit("LSV1-LONG-TP3", "LSV1-LONG", stop=long_stop_eff, limit=long_tp3, qty_percent=34)
@@ -742,7 +814,7 @@ plotchar(long_tp2_hit or short_tp2_hit, "TP2 Hit", "2", location.top, color=colo
 plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=color.new(color.green, 0), size=size.tiny)
 
 // Diagnostic box (bottom-right)
-var table diag_t = table.new(position.bottom_right, 1, 12, border_width=1)
+var table diag_t = table.new(position.bottom_right, 1, 14, border_width=1)
 if show_diag_box and bar_closed
     table.cell(diag_t, 0, 0, "Decision: " + decision + " | FF=" + first_fail_reason, text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 1, "Reasons: " + all_reasons, text_color=color.white, bgcolor=color.new(color.black, 20))
@@ -755,7 +827,9 @@ if show_diag_box and bar_closed
     table.cell(diag_t, 0, 8, "PostHG S trigBars/trigEdges/entrySig/rgBlk/qtyFail/entry: " + str.tostring(diag_short_trigger_count) + "/" + str.tostring(diag_short_trigger_edge_count) + "/" + str.tostring(diag_short_entry_signal_count) + "/" + str.tostring(diag_short_rg_block_count) + "/" + str.tostring(diag_short_qty_fail_count) + "/" + str.tostring(diag_short_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 9, "Block L open/cooldown/dLoss/dCap: " + str.tostring(diag_long_block_open_pos) + "/" + str.tostring(diag_long_block_cooldown) + "/" + str.tostring(diag_long_block_daily_loss) + "/" + str.tostring(diag_long_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 10, "Block S open/cooldown/dLoss/dCap: " + str.tostring(diag_short_block_open_pos) + "/" + str.tostring(diag_short_block_cooldown) + "/" + str.tostring(diag_short_block_daily_loss) + "/" + str.tostring(diag_short_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(diag_t, 0, 11, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 11, "LCycle L reduce/full/trend: " + str.tostring(diag_long_be_stale_reduce_count) + "/" + str.tostring(diag_long_be_stale_full_exit_count) + "/" + str.tostring(diag_long_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 12, "LCycle S reduce/full/trend: " + str.tostring(diag_short_be_stale_reduce_count) + "/" + str.tostring(diag_short_be_stale_full_exit_count) + "/" + str.tostring(diag_short_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 13, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF") + " | FlipDelta=" + str.tostring(flip_min_score_delta, "#.##") + " | LCycle=" + (enable_lifecycle_governor ? "ON" : "OFF"), text_color=color.white, bgcolor=color.new(color.black, 20))
 if not show_diag_box and bar_closed
-    for r = 0 to 11
+    for r = 0 to 13
         table.cell(diag_t, 0, r, "")
