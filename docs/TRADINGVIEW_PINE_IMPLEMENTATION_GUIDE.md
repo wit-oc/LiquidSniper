@@ -4,6 +4,9 @@
 
 This guide defines how to implement, tune, and operate the LiquidSniper TradingView indicator + strategy pair while preserving parity with bot-side policy.
 
+> For the Swing v1 alpha execution controls/hysteresis toggles and diagnostics semantics, see:
+> `docs/TRADINGVIEW_SWING_V1_EXECUTION_CONTROLS.md`
+
 Primary goals:
 - Surface actionable regions and watch/trigger opportunities for manual users.
 - Backtest a codified version of the same logic on TradingView.
