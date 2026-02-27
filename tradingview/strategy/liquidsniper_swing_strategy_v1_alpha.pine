@@ -8,7 +8,7 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.4.1-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.5.0-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
@@ -23,6 +23,7 @@ chop_adx_min = input.float(17.0, "HTF Trend ADX Min", minval=5.0, maxval=60.0, g
 enable_short_adx_bump = input.bool(false, "Enable Short-side ADX Bump", group=g_logic)
 short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, step=0.5, group=g_logic)
 trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
+trend_gate_mode = input.string("strict_dual", "Trend Gate Mode", options=["strict_dual", "htf_primary"], group=g_logic)
 require_first_retest = input.bool(false, "Require First Retest (Hard Gate)", group=g_logic)
 
 // Pass 1: true SR zone engine
@@ -122,6 +123,9 @@ htf_ema50 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 50))
 trend_long = itf_ema20 > itf_ema50 and htf_ema20 > htf_ema50
 trend_short = itf_ema20 < itf_ema50 and htf_ema20 < htf_ema50
 trend_dir = trend_long ? 1 : trend_short ? -1 : 0
+htf_trend_long = htf_ema20 > htf_ema50
+htf_trend_short = htf_ema20 < htf_ema50
+htf_trend_dir = htf_trend_long ? 1 : htf_trend_short ? -1 : 0
 
 piv_hi = ta.pivothigh(entry_high, structure_swing_len, structure_swing_len)
 piv_lo = ta.pivotlow(entry_low, structure_swing_len, structure_swing_len)
@@ -355,14 +359,17 @@ RC_TM = "TM"
 RC_SR = "SR"
 
 // Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
-hg1_long = allow_longs and trend_dir == 1
+trend_gate_long_ok = trend_gate_mode == "htf_primary" ? (htf_trend_dir == 1 and structure_dir != -1) : (trend_dir == 1)
+trend_gate_short_ok = trend_gate_mode == "htf_primary" ? (htf_trend_dir == -1 and structure_dir != 1) : (trend_dir == -1)
+
+hg1_long = allow_longs and trend_gate_long_ok
 hg2_long = (not enforce_opposing_zone_block) or (not oppose_long_near)
 hg3_long = chop_ok_long
 hg4_long = candle_ok
 hg5_long = score_long >= trigger_score
 hg6_long = (not require_first_retest) or long_first_retest // mentorship: strong confluence, optional hard gate
 
-hg1_short = allow_shorts and trend_dir == -1
+hg1_short = allow_shorts and trend_gate_short_ok
 hg2_short = (not enforce_opposing_zone_block) or (not oppose_short_near)
 hg3_short = chop_ok_short
 hg4_short = candle_ok
@@ -828,7 +835,7 @@ if show_diag_box and bar_closed
     table.cell(diag_t, 0, 10, "Block S open/cooldown/dLoss/dCap: " + str.tostring(diag_short_block_open_pos) + "/" + str.tostring(diag_short_block_cooldown) + "/" + str.tostring(diag_short_block_daily_loss) + "/" + str.tostring(diag_short_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 11, "LCycle L reduce/full/trend: " + str.tostring(diag_long_be_stale_reduce_count) + "/" + str.tostring(diag_long_be_stale_full_exit_count) + "/" + str.tostring(diag_long_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 12, "LCycle S reduce/full/trend: " + str.tostring(diag_short_be_stale_reduce_count) + "/" + str.tostring(diag_short_be_stale_full_exit_count) + "/" + str.tostring(diag_short_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(diag_t, 0, 13, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF") + " | FlipDelta=" + str.tostring(flip_min_score_delta, "#.##") + " | LCycle=" + (enable_lifecycle_governor ? "ON" : "OFF"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 13, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | TrendGate=" + trend_gate_mode + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF") + " | FlipDelta=" + str.tostring(flip_min_score_delta, "#.##") + " | LCycle=" + (enable_lifecycle_governor ? "ON" : "OFF"), text_color=color.white, bgcolor=color.new(color.black, 20))
 if not show_diag_box and bar_closed
     for r = 0 to 13
         table.cell(diag_t, 0, r, "")

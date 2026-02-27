@@ -2,7 +2,7 @@
 
 Applies to:
 - `tradingview/strategy/liquidsniper_swing_strategy_v1_alpha.pine`
-- Current logic version line: `tv-swing-strategy-v1.4.1-alpha`
+- Current logic version line: `tv-swing-strategy-v1.5.0-alpha`
 
 ## 1) What "hysteresis" means here
 
@@ -60,6 +60,7 @@ In this strategy context, **hysteresis** means adding a small amount of "memory"
 
 | Toggle | Default | Behavior change |
 |---|---:|---|
+| `trend_gate_mode` | `strict_dual` (default), `htf_primary` | `strict_dual`: require ITF+HTF alignment. `htf_primary`: require HTF alignment plus non-opposing structure state; usually increases throughput. |
 | `trigger_score` | `6.0` in active test runs (input-driven) | Higher = fewer entries, usually better selectivity. |
 | `require_first_retest` | `false` | If `true`, first retest becomes hard gate (strongly reduces count). |
 | `enforce_opposing_zone_block` | `false` | If `true`, opposing zone proximity is hard reject; if `false`, scored/penalized context. |
@@ -120,7 +121,7 @@ Why:
 
 ### 6.2 Kept (necessary for swing intent)
 - Structure / SR: `structure_swing_len`, `retest_window_bars`, `sr_*` zone/retest controls.
-- Throughput/quality: `trigger_score`, `require_first_retest`, chop controls.
+- Throughput/quality: `trend_gate_mode`, `trigger_score`, `require_first_retest`, chop controls.
 - Execution cadence: `entry_signal_mode`, `allow_flip_on_opposite_edge`, `flip_min_score_delta`, `cooldown_bars`.
 - Risk/slot hygiene: lifecycle governor set (`be_stale_*`, `enable_trend_invalidation_exit`, `trend_invalidation_max_r`), daily locks, stop floors.
 - Position sizing: `sizing_mode`, risk percentages, high-conf threshold.
