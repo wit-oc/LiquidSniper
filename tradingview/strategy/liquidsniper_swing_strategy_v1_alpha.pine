@@ -8,7 +8,7 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.1.0-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.2.0-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
@@ -35,6 +35,9 @@ sr_min_touches = input.int(2, "Min Touches for Active Zone", minval=1, maxval=10
 sr_max_age_bars = input.int(800, "Max Zone Age (bars)", minval=50, maxval=5000, group=g_sr)
 sr_max_zones = input.int(24, "Max Stored Zones", minval=6, maxval=100, group=g_sr)
 sr_opposing_block_pct = input.float(1.0, "Opposing Zone Block Distance (%)", minval=0.05, maxval=10.0, step=0.05, group=g_sr)
+sr_opposing_block_mode = input.string("ATR-relative", "Opposing Block Mode", options=["ATR-relative", "Percent"], group=g_sr)
+sr_opposing_block_atr_mult = input.float(1.0, "Opposing Block ATR Mult", minval=0.1, maxval=10.0, step=0.1, group=g_sr)
+enforce_opposing_zone_block = input.bool(false, "Enforce Opposing Zone Block (Hard Gate)", group=g_sr)
 sr_confluence_dist_pct = input.float(2.0, "Confluence Distance to Zone (%)", minval=0.05, maxval=10.0, step=0.05, group=g_sr)
 sr_retest_sep_bps = input.float(30.0, "Retest Separation Min (bps)", minval=5.0, maxval=500.0, step=1.0, group=g_sr)
 sr_retest_cons_min = input.int(4, "Retest Consolidation Min Bars", minval=1, maxval=20, group=g_sr)
@@ -296,6 +299,12 @@ if short_retest_state > 0 and not na(short_break_bot) and not na(short_break_bar
         short_retest_state := 0
         short_cons_bars := 0
 
+atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
+atr_block_dist_pct = (atr_entry / math.max(entry_close, 1e-9)) * 100.0 * sr_opposing_block_atr_mult
+opposing_block_dist_pct = sr_opposing_block_mode == "ATR-relative" ? atr_block_dist_pct : sr_opposing_block_pct
+oppose_long_near = not na(nearest_res_dist_pct) and nearest_res_dist_pct <= opposing_block_dist_pct
+oppose_short_near = not na(nearest_sup_dist_pct) and nearest_sup_dist_pct <= opposing_block_dist_pct
+
 bar_closed = time_close <= timenow
 candle_ok = not require_candle_close or bar_closed
 ema_stack_long = entry_close > entry_ema20 and entry_ema20 > entry_ema50
@@ -309,6 +318,7 @@ score_long += ema_stack_long ? 1.0 : 0.0
 score_long += chop_ok_long ? 1.0 : 0.0
 score_long += candle_ok ? 1.0 : 0.0
 score_long += (not na(nearest_sup_dist_pct) and nearest_sup_dist_pct <= sr_confluence_dist_pct) ? 1.0 : 0.0
+score_long += oppose_long_near ? -1.0 : 0.0
 
 score_short = 0.0
 score_short += trend_short ? 2.0 : 0.0
@@ -318,6 +328,7 @@ score_short += ema_stack_short ? 1.0 : 0.0
 score_short += chop_ok_short ? 1.0 : 0.0
 score_short += candle_ok ? 1.0 : 0.0
 score_short += (not na(nearest_res_dist_pct) and nearest_res_dist_pct <= sr_confluence_dist_pct) ? 1.0 : 0.0
+score_short += oppose_short_near ? -1.0 : 0.0
 
 in_blocked_session = not na(time(timeframe.period, blocked_session, blocked_tz))
 time_ok = not enable_time_block or not in_blocked_session
@@ -333,14 +344,14 @@ RC_SR = "SR"
 
 // Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
 hg1_long = allow_longs and trend_dir == 1
-hg2_long = na(nearest_res_dist_pct) or nearest_res_dist_pct > sr_opposing_block_pct
+hg2_long = (not enforce_opposing_zone_block) or (not oppose_long_near)
 hg3_long = chop_ok_long
 hg4_long = candle_ok
 hg5_long = score_long >= trigger_score
 hg6_long = (not require_first_retest) or long_first_retest // mentorship: strong confluence, optional hard gate
 
 hg1_short = allow_shorts and trend_dir == -1
-hg2_short = na(nearest_sup_dist_pct) or nearest_sup_dist_pct > sr_opposing_block_pct
+hg2_short = (not enforce_opposing_zone_block) or (not oppose_short_near)
 hg3_short = chop_ok_short
 hg4_short = candle_ok
 hg5_short = score_short >= trigger_score
@@ -362,6 +373,25 @@ var int diag_fail_hg3 = 0
 var int diag_fail_hg4 = 0
 var int diag_fail_hg5 = 0
 var int diag_fail_hg6 = 0
+
+// Per-side census (starvation diagnostics)
+var int diag_long_candidates = 0
+var int diag_long_pass = 0
+var int diag_long_fail_hg1 = 0
+var int diag_long_fail_hg2 = 0
+var int diag_long_fail_hg3 = 0
+var int diag_long_fail_hg4 = 0
+var int diag_long_fail_hg5 = 0
+var int diag_long_fail_hg6 = 0
+
+var int diag_short_candidates = 0
+var int diag_short_pass = 0
+var int diag_short_fail_hg1 = 0
+var int diag_short_fail_hg2 = 0
+var int diag_short_fail_hg3 = 0
+var int diag_short_fail_hg4 = 0
+var int diag_short_fail_hg5 = 0
+var int diag_short_fail_hg6 = 0
 
 if bar_closed
     prefer_long = score_long >= score_short
@@ -393,6 +423,40 @@ if bar_closed
         else if not hg6_short
             diag_fail_hg6 += 1
 
+    if allow_longs
+        diag_long_candidates += 1
+        if not hg1_long
+            diag_long_fail_hg1 += 1
+        else if not hg2_long
+            diag_long_fail_hg2 += 1
+        else if not hg3_long
+            diag_long_fail_hg3 += 1
+        else if not hg4_long
+            diag_long_fail_hg4 += 1
+        else if not hg5_long
+            diag_long_fail_hg5 += 1
+        else if not hg6_long
+            diag_long_fail_hg6 += 1
+        else
+            diag_long_pass += 1
+
+    if allow_shorts
+        diag_short_candidates += 1
+        if not hg1_short
+            diag_short_fail_hg1 += 1
+        else if not hg2_short
+            diag_short_fail_hg2 += 1
+        else if not hg3_short
+            diag_short_fail_hg3 += 1
+        else if not hg4_short
+            diag_short_fail_hg4 += 1
+        else if not hg5_short
+            diag_short_fail_hg5 += 1
+        else if not hg6_short
+            diag_short_fail_hg6 += 1
+        else
+            diag_short_pass += 1
+
 selected_score = long_hg_pass ? score_long : short_hg_pass ? score_short : 0.0
 is_high_conf = selected_score >= high_conf_score_threshold
 base_risk_pct = is_high_conf ? risk_pct_high_conf : risk_pct_low_conf
@@ -401,8 +465,6 @@ profile_cap_selected = profile == "C" ? profile_cap_c : profile == "I" ? profile
 profile_risk_cap = enable_manual_profile_risk_caps ? profile_cap_selected : profile_cap_default
 risk_pct_effective = enable_profile_risk_cap ? math.min(base_risk_pct, profile_risk_cap) : base_risk_pct
 risk_pct_effective := safe_nonneg(risk_pct_effective)
-
-atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
 
 short_atr_mult_effective = enable_short_stop_mult ? atr_stop_mult * short_stop_mult_factor : atr_stop_mult
 long_zone_stop = not na(nearest_sup_bot) ? (nearest_sup_bot - atr_entry * 0.1) : na
@@ -587,7 +649,7 @@ plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=colo
 
 // Diagnostic emission fields (scaffold)
 // decision, first_fail_reason, all_reasons, projected_r, tp/be flags
-label_diag = decision + " | FF=" + first_fail_reason + " | AR=" + all_reasons + " | pR=" + str.tostring(projected_r, "#.00") + " | SRa=" + str.tostring(active_zone_count) + " | dR=" + str.tostring(nearest_res_dist_pct, "#.##") + " | dS=" + str.tostring(nearest_sup_dist_pct, "#.##") + " | WF=" + str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6) + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0")
+label_diag = decision + " | FF=" + first_fail_reason + " | AR=" + all_reasons + " | pR=" + str.tostring(projected_r, "#.00") + " | SRa=" + str.tostring(active_zone_count) + " | dR=" + str.tostring(nearest_res_dist_pct, "#.##") + " | dS=" + str.tostring(nearest_sup_dist_pct, "#.##") + " | OB=" + str.tostring(opposing_block_dist_pct, "#.##") + " | WF=" + str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6) + " | L=" + str.tostring(diag_long_candidates) + "/" + str.tostring(diag_long_pass) + "/" + str.tostring(diag_long_fail_hg1) + "/" + str.tostring(diag_long_fail_hg2) + "/" + str.tostring(diag_long_fail_hg3) + "/" + str.tostring(diag_long_fail_hg4) + "/" + str.tostring(diag_long_fail_hg5) + "/" + str.tostring(diag_long_fail_hg6) + " | S=" + str.tostring(diag_short_candidates) + "/" + str.tostring(diag_short_pass) + "/" + str.tostring(diag_short_fail_hg1) + "/" + str.tostring(diag_short_fail_hg2) + "/" + str.tostring(diag_short_fail_hg3) + "/" + str.tostring(diag_short_fail_hg4) + "/" + str.tostring(diag_short_fail_hg5) + "/" + str.tostring(diag_short_fail_hg6) + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0")
 var label diag_label = na
 if bar_closed
     if na(diag_label)
