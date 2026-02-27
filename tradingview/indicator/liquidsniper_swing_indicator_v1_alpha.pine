@@ -139,13 +139,14 @@ f_add_zone(_lvl, _type) =>
     if not na(_lvl)
         merge_idx = -1
         best_dist = 1e9
-        for i = 0 to array.size(zone_mid) - 1
-            if array.get(zone_type, i) == _type
-                z_mid = array.get(zone_mid, i)
-                dist_bps = math.abs(_lvl - z_mid) / math.max(_lvl, 1e-9) * 10000.0
-                if dist_bps <= sr_merge_bps and dist_bps < best_dist
-                    best_dist := dist_bps
-                    merge_idx := i
+        if array.size(zone_mid) > 0
+            for i = 0 to array.size(zone_mid) - 1
+                if array.get(zone_type, i) == _type
+                    z_mid = array.get(zone_mid, i)
+                    dist_bps = math.abs(_lvl - z_mid) / math.max(_lvl, 1e-9) * 10000.0
+                    if dist_bps <= sr_merge_bps and dist_bps < best_dist
+                        best_dist := dist_bps
+                        merge_idx := i
         if merge_idx >= 0
             old_mid = array.get(zone_mid, merge_idx)
             old_touches = array.get(zone_touches, merge_idx)
@@ -193,26 +194,27 @@ float nearest_res_bot = na
 float nearest_sup_top = na
 float nearest_sup_bot = na
 int active_zone_count = 0
-for i = 0 to array.size(zone_mid) - 1
-    z_age = bar_index - array.get(zone_last_touch, i)
-    z_touches = array.get(zone_touches, i)
-    if z_age <= sr_max_age_bars and z_touches >= sr_min_touches
-        active_zone_count += 1
-        z_top = array.get(zone_top, i)
-        z_bot = array.get(zone_bot, i)
-        z_type = array.get(zone_type, i)
-        if z_type == 1
-            dist = entry_close > z_top ? na : (entry_close >= z_bot ? 0.0 : (z_bot - entry_close) / math.max(entry_close, 1e-9) * 100.0)
-            if not na(dist) and (na(nearest_res_dist_pct) or dist < nearest_res_dist_pct)
-                nearest_res_dist_pct := dist
-                nearest_res_top := z_top
-                nearest_res_bot := z_bot
-        if z_type == -1
-            dist = entry_close < z_bot ? na : (entry_close <= z_top ? 0.0 : (entry_close - z_top) / math.max(entry_close, 1e-9) * 100.0)
-            if not na(dist) and (na(nearest_sup_dist_pct) or dist < nearest_sup_dist_pct)
-                nearest_sup_dist_pct := dist
-                nearest_sup_top := z_top
-                nearest_sup_bot := z_bot
+if array.size(zone_mid) > 0
+    for i = 0 to array.size(zone_mid) - 1
+        z_age = bar_index - array.get(zone_last_touch, i)
+        z_touches = array.get(zone_touches, i)
+        if z_age <= sr_max_age_bars and z_touches >= sr_min_touches
+            active_zone_count += 1
+            z_top = array.get(zone_top, i)
+            z_bot = array.get(zone_bot, i)
+            z_type = array.get(zone_type, i)
+            if z_type == 1
+                dist = entry_close > z_top ? na : (entry_close >= z_bot ? 0.0 : (z_bot - entry_close) / math.max(entry_close, 1e-9) * 100.0)
+                if not na(dist) and (na(nearest_res_dist_pct) or dist < nearest_res_dist_pct)
+                    nearest_res_dist_pct := dist
+                    nearest_res_top := z_top
+                    nearest_res_bot := z_bot
+            if z_type == -1
+                dist = entry_close < z_bot ? na : (entry_close <= z_top ? 0.0 : (entry_close - z_top) / math.max(entry_close, 1e-9) * 100.0)
+                if not na(dist) and (na(nearest_sup_dist_pct) or dist < nearest_sup_dist_pct)
+                    nearest_sup_dist_pct := dist
+                    nearest_sup_top := z_top
+                    nearest_sup_bot := z_bot
 
 // ---------- First retest state machine on real SR zones ----------
 var int long_retest_state = 0      // 0 idle, 1 broken, 2 separated/monitoring consolidation
