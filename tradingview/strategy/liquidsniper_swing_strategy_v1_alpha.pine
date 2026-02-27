@@ -8,7 +8,7 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.2.0-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.2.1-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
@@ -48,6 +48,8 @@ enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
 blocked_session = input.session("0800-1100", "Blocked Session", group=g_time)
 blocked_tz = input.string("America/New_York", "Blocked Session Timezone", group=g_time)
 
+g_diag = "01d. Diagnostics"
+show_diag_box = input.bool(true, "Show Diagnostics Box (bottom-right)", group=g_diag)
 
 g_risk = "02. Risk"
 rr_target = input.float(2.0, "Risk:Reward Target", minval=1.0, step=0.1, group=g_risk)
@@ -647,15 +649,17 @@ plotchar(long_tp1_hit or short_tp1_hit, "TP1 Hit", "1", location.top, color=colo
 plotchar(long_tp2_hit or short_tp2_hit, "TP2 Hit", "2", location.top, color=color.new(color.green, 0), size=size.tiny)
 plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=color.new(color.green, 0), size=size.tiny)
 
-// Diagnostic emission fields (scaffold)
-// decision, first_fail_reason, all_reasons, projected_r, tp/be flags
-label_diag = decision + " | FF=" + first_fail_reason + " | AR=" + all_reasons + " | pR=" + str.tostring(projected_r, "#.00") + " | SRa=" + str.tostring(active_zone_count) + " | dR=" + str.tostring(nearest_res_dist_pct, "#.##") + " | dS=" + str.tostring(nearest_sup_dist_pct, "#.##") + " | OB=" + str.tostring(opposing_block_dist_pct, "#.##") + " | WF=" + str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6) + " | L=" + str.tostring(diag_long_candidates) + "/" + str.tostring(diag_long_pass) + "/" + str.tostring(diag_long_fail_hg1) + "/" + str.tostring(diag_long_fail_hg2) + "/" + str.tostring(diag_long_fail_hg3) + "/" + str.tostring(diag_long_fail_hg4) + "/" + str.tostring(diag_long_fail_hg5) + "/" + str.tostring(diag_long_fail_hg6) + " | S=" + str.tostring(diag_short_candidates) + "/" + str.tostring(diag_short_pass) + "/" + str.tostring(diag_short_fail_hg1) + "/" + str.tostring(diag_short_fail_hg2) + "/" + str.tostring(diag_short_fail_hg3) + "/" + str.tostring(diag_short_fail_hg4) + "/" + str.tostring(diag_short_fail_hg5) + "/" + str.tostring(diag_short_fail_hg6) + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0")
-var label diag_label = na
-if bar_closed
-    if na(diag_label)
-        diag_label := label.new(bar_index, close, label_diag, style=label.style_none, textcolor=color.new(color.gray, 70))
-    else
-        label.set_x(diag_label, bar_index)
-        label.set_y(diag_label, close)
-        label.set_text(diag_label, label_diag)
-        label.set_textcolor(diag_label, color.new(color.gray, 70))
+// Diagnostic box (bottom-right)
+var table diag_t = table.new(position.bottom_right, 1, 8, border_width=1)
+if show_diag_box and bar_closed
+    table.cell(diag_t, 0, 0, "Decision: " + decision + " | FF=" + first_fail_reason, text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 1, "Reasons: " + all_reasons, text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 2, "SRa=" + str.tostring(active_zone_count) + " | dR=" + str.tostring(nearest_res_dist_pct, "#.##") + " | dS=" + str.tostring(nearest_sup_dist_pct, "#.##") + " | OB=" + str.tostring(opposing_block_dist_pct, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 3, "WF C/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 4, "L C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_long_candidates) + "/" + str.tostring(diag_long_pass) + "/" + str.tostring(diag_long_fail_hg1) + "/" + str.tostring(diag_long_fail_hg2) + "/" + str.tostring(diag_long_fail_hg3) + "/" + str.tostring(diag_long_fail_hg4) + "/" + str.tostring(diag_long_fail_hg5) + "/" + str.tostring(diag_long_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 5, "S C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_short_candidates) + "/" + str.tostring(diag_short_pass) + "/" + str.tostring(diag_short_fail_hg1) + "/" + str.tostring(diag_short_fail_hg2) + "/" + str.tostring(diag_short_fail_hg3) + "/" + str.tostring(diag_short_fail_hg4) + "/" + str.tostring(diag_short_fail_hg5) + "/" + str.tostring(diag_short_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 6, "pR=" + str.tostring(projected_r, "#.00") + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 7, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
+if not show_diag_box and bar_closed
+    for r = 0 to 7
+        table.cell(diag_t, 0, r, "")
