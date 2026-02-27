@@ -8,7 +8,7 @@ strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capi
 // ------------------------------------------------------
 
 g_meta = "00. Metadata"
-ls_version = input.string("tv-swing-strategy-v1.2.1-alpha", "Logic Version", group=g_meta)
+ls_version = input.string("tv-swing-strategy-v1.2.2-alpha", "Logic Version", group=g_meta)
 profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
 swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
 allow_longs = input.bool(true, "Allow Longs", group=g_meta)
@@ -395,6 +395,17 @@ var int diag_short_fail_hg4 = 0
 var int diag_short_fail_hg5 = 0
 var int diag_short_fail_hg6 = 0
 
+// Post-HG execution funnel diagnostics
+var int diag_long_trigger_count = 0
+var int diag_long_rg_block_count = 0
+var int diag_long_qty_fail_count = 0
+var int diag_long_entry_count = 0
+
+var int diag_short_trigger_count = 0
+var int diag_short_rg_block_count = 0
+var int diag_short_qty_fail_count = 0
+var int diag_short_entry_count = 0
+
 if bar_closed
     prefer_long = score_long >= score_short
     diag_candidates += 1
@@ -522,6 +533,16 @@ rg_short = time_ok and not daily_loss_hit and not daily_trade_cap_hit
 long_trigger = long_hg_pass and rg_long
 short_trigger = short_hg_pass and rg_short
 
+if bar_closed
+    if long_hg_pass and not rg_long
+        diag_long_rg_block_count += 1
+    if short_hg_pass and not rg_short
+        diag_short_rg_block_count += 1
+    if long_trigger
+        diag_long_trigger_count += 1
+    if short_trigger
+        diag_short_trigger_count += 1
+
 decision = long_trigger ? "LONG_TRIGGER" : short_trigger ? "SHORT_TRIGGER" : "NO_TRADE"
 first_fail_reason = long_hg_pass and not rg_long ? RC_RG : short_hg_pass and not rg_short ? RC_RG : (score_long >= score_short ? first_fail_reason_long : first_fail_reason_short)
 all_reasons = (score_long >= score_short ? all_reasons_long : all_reasons_short) + (rg_long and rg_short ? "" : "RG,")
@@ -535,11 +556,18 @@ if long_trigger and can_trade and strategy.position_size == 0
             last_trade_bar := bar_index
             day_trade_count += 1
             entry_risk_budget_usd := risk_budget_usd
+            if bar_closed
+                diag_long_entry_count += 1
+        else
+            if bar_closed
+                diag_long_qty_fail_count += 1
     else
         strategy.entry("LSV1-LONG", strategy.long)
         last_trade_bar := bar_index
         day_trade_count += 1
         entry_risk_budget_usd := risk_budget_usd
+        if bar_closed
+            diag_long_entry_count += 1
 
 if short_trigger and can_trade and strategy.position_size == 0
     if sizing_mode == "risk_based"
@@ -548,11 +576,18 @@ if short_trigger and can_trade and strategy.position_size == 0
             last_trade_bar := bar_index
             day_trade_count += 1
             entry_risk_budget_usd := risk_budget_usd
+            if bar_closed
+                diag_short_entry_count += 1
+        else
+            if bar_closed
+                diag_short_qty_fail_count += 1
     else
         strategy.entry("LSV1-SHORT", strategy.short)
         last_trade_bar := bar_index
         day_trade_count += 1
         entry_risk_budget_usd := risk_budget_usd
+        if bar_closed
+            diag_short_entry_count += 1
 
 if strategy.position_size != 0 and strategy.position_size[1] == 0
     position_entry_bar := bar_index
@@ -650,7 +685,7 @@ plotchar(long_tp2_hit or short_tp2_hit, "TP2 Hit", "2", location.top, color=colo
 plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=color.new(color.green, 0), size=size.tiny)
 
 // Diagnostic box (bottom-right)
-var table diag_t = table.new(position.bottom_right, 1, 8, border_width=1)
+var table diag_t = table.new(position.bottom_right, 1, 10, border_width=1)
 if show_diag_box and bar_closed
     table.cell(diag_t, 0, 0, "Decision: " + decision + " | FF=" + first_fail_reason, text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 1, "Reasons: " + all_reasons, text_color=color.white, bgcolor=color.new(color.black, 20))
@@ -659,7 +694,9 @@ if show_diag_box and bar_closed
     table.cell(diag_t, 0, 4, "L C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_long_candidates) + "/" + str.tostring(diag_long_pass) + "/" + str.tostring(diag_long_fail_hg1) + "/" + str.tostring(diag_long_fail_hg2) + "/" + str.tostring(diag_long_fail_hg3) + "/" + str.tostring(diag_long_fail_hg4) + "/" + str.tostring(diag_long_fail_hg5) + "/" + str.tostring(diag_long_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 5, "S C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_short_candidates) + "/" + str.tostring(diag_short_pass) + "/" + str.tostring(diag_short_fail_hg1) + "/" + str.tostring(diag_short_fail_hg2) + "/" + str.tostring(diag_short_fail_hg3) + "/" + str.tostring(diag_short_fail_hg4) + "/" + str.tostring(diag_short_fail_hg5) + "/" + str.tostring(diag_short_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
     table.cell(diag_t, 0, 6, "pR=" + str.tostring(projected_r, "#.00") + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0"), text_color=color.white, bgcolor=color.new(color.black, 20))
-    table.cell(diag_t, 0, 7, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 7, "PostHG L trig/rgBlk/qtyFail/entry: " + str.tostring(diag_long_trigger_count) + "/" + str.tostring(diag_long_rg_block_count) + "/" + str.tostring(diag_long_qty_fail_count) + "/" + str.tostring(diag_long_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 8, "PostHG S trig/rgBlk/qtyFail/entry: " + str.tostring(diag_short_trigger_count) + "/" + str.tostring(diag_short_rg_block_count) + "/" + str.tostring(diag_short_qty_fail_count) + "/" + str.tostring(diag_short_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 9, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | Trigger=" + str.tostring(trigger_score, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
 if not show_diag_box and bar_closed
-    for r = 0 to 7
+    for r = 0 to 9
         table.cell(diag_t, 0, r, "")
