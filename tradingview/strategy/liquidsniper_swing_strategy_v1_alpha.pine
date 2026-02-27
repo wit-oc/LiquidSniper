@@ -585,5 +585,12 @@ plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=colo
 // Diagnostic emission fields (scaffold)
 // decision, first_fail_reason, all_reasons, projected_r, tp/be flags
 label_diag = decision + " | FF=" + first_fail_reason + " | AR=" + all_reasons + " | pR=" + str.tostring(projected_r, "#.00") + " | SRa=" + str.tostring(active_zone_count) + " | dR=" + str.tostring(nearest_res_dist_pct, "#.##") + " | dS=" + str.tostring(nearest_sup_dist_pct, "#.##") + " | WF=" + str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6) + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0")
-if bar_index == last_bar_index
-    label.new(bar_index, close, label_diag, style=label.style_none, textcolor=color.new(color.gray, 70))
+var label diag_label = na
+if barstate.isconfirmed
+    if na(diag_label)
+        diag_label := label.new(bar_index, close, label_diag, style=label.style_none, textcolor=color.new(color.gray, 70))
+    else
+        label.set_x(diag_label, bar_index)
+        label.set_y(diag_label, close)
+        label.set_text(diag_label, label_diag)
+        label.set_textcolor(diag_label, color.new(color.gray, 70))
