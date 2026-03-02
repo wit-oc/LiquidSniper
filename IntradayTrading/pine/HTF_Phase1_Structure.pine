@@ -14,7 +14,7 @@ indicator("HTF Phase 1.1 Structure (Python parity pass)", overlay=true, max_labe
 leftBars = input.int(2, "Pivot Left", minval=1)
 rightBars = input.int(2, "Pivot Right", minval=1)
 initialBullish = input.bool(true, "Initial Regime Bullish")
-breakMinFrac = input.float(0.20, "Break min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
+breakMinFrac = input.float(0.05, "Break min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
 showSwingLabels = input.bool(false, "Show SH/SL pivot labels")
 showDebug = input.bool(true, "Show debug diagnostics")
 
@@ -309,6 +309,61 @@ else
             dbgChochReason := "bear_to_bull_choch_block:latch_active_until_resolution"
     else
         dbgChochReason := "bear_to_bull_choch_block:close_not_above_protectedHigh"
+
+// Transitional resolver: allow confirmation OR explicit reversion.
+if regimeConf == "transitional"
+    if regimeDir == "bearish"
+        // Confirm bearish on valid continuation break.
+        if not na(validatedLow) and acceptedBreakBelow(validatedLow)
+            regimeConf := "confirmed"
+            transitionReason := "bos_confirmed"
+            chochLatchActive := false
+            chochLatchSide := ""
+            chochLatchProtectedIdx := na
+            chochLatchSetBar := na
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgChochReason := "transitional_resolve:bear_confirmed"
+        // Revert to bullish if protected high is reclaimed.
+        else if acceptedBreakAbove(protectedHigh)
+            regimeDir := "bullish"
+            regimeConf := "confirmed"
+            transitionReason := "choch_reverted"
+            chochLatchActive := false
+            chochLatchSide := ""
+            chochLatchProtectedIdx := na
+            chochLatchSetBar := na
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgChochReason := "transitional_resolve:bear_reverted"
+    else
+        // Confirm bullish on valid continuation break.
+        if not na(validatedHigh) and acceptedBreakAbove(validatedHigh)
+            regimeConf := "confirmed"
+            transitionReason := "bos_confirmed"
+            chochLatchActive := false
+            chochLatchSide := ""
+            chochLatchProtectedIdx := na
+            chochLatchSetBar := na
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgChochReason := "transitional_resolve:bull_confirmed"
+        // Revert to bearish if protected low is lost.
+        else if acceptedBreakBelow(protectedLow)
+            regimeDir := "bearish"
+            regimeConf := "confirmed"
+            transitionReason := "choch_reverted"
+            chochLatchActive := false
+            chochLatchSide := ""
+            chochLatchProtectedIdx := na
+            chochLatchSetBar := na
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgChochReason := "transitional_resolve:bull_reverted"
 
 // Invariant guard: protectedHigh should never be below protectedLow.
 if protectedHigh < protectedLow
