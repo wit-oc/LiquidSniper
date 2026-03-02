@@ -1,0 +1,242 @@
+//@version=5
+indicator("HTF Phase 1.1 Structure (Python parity pass)", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// -----------------------------------------------------------------------------
+// Phase 1 only (HTF structure/bias): no entries, no triggers, no risk management.
+//
+// Usage notes:
+// - Use on HTF charts to validate direction/confidence state transitions.
+// - CHoCH flips direction to transitional; BoS confirms same direction.
+// - CHoCH is one-shot per protected level (re-arms only after protected level changes).
+// - Visuals include BoS, CHoCH, SFP, and active swing high/low.
+// -----------------------------------------------------------------------------
+
+leftBars = input.int(2, "Pivot Left", minval=1)
+rightBars = input.int(2, "Pivot Right", minval=1)
+initialBullish = input.bool(true, "Initial Regime Bullish")
+breakMinFrac = input.float(0.20, "Break min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
+showSwingLabels = input.bool(false, "Show SH/SL pivot labels")
+
+acceptedBreakAbove(level) =>
+    rng = math.max(1e-9, high - low)
+    close > level and (close - level) >= breakMinFrac * rng
+
+acceptedBreakBelow(level) =>
+    rng = math.max(1e-9, high - low)
+    close < level and (level - close) >= breakMinFrac * rng
+
+// Confirmed pivots (arrive on confirmation bar; pivot index is bar_index - rightBars).
+ph = ta.pivothigh(high, leftBars, rightBars)
+pl = ta.pivotlow(low, leftBars, rightBars)
+
+var string regimeDir = initialBullish ? "bullish" : "bearish"
+var string regimeConf = "confirmed"
+var string transitionReason = ""
+
+// Protected levels (CHoCH checks against these).
+var float protectedLow = low
+var int protectedLowIdx = bar_index
+var float protectedHigh = high
+var int protectedHighIdx = bar_index
+
+// Continuation levels.
+var float validatedHigh = na
+var int validatedHighIdx = na
+var float validatedLow = na
+var int validatedLowIdx = na
+
+// Candidate extremes and opposite references.
+var float candHigh = high
+var int candHighIdx = bar_index
+var float candHighOpp = low
+
+var float candLow = low
+var int candLowIdx = bar_index
+var float candLowOpp = high
+
+// Active CHoCH latch metadata.
+var float activeChochLevel = na
+var int activeChochIndex = na
+
+// One-shot CHoCH per protected level.
+var int lastChochProtectedLowIdx = na
+var int lastChochProtectedHighIdx = na
+
+// Event flags for this bar.
+bool evBos = false
+bool evChoch = false
+bool evSfp = false
+float sfpY = na
+
+// Event line start metadata.
+float bosFromPrice = na
+int bosFromIdx = na
+float chochFromPrice = na
+int chochFromIdx = na
+
+// Seed continuation level based on initial regime.
+if barstate.isfirst
+    if regimeDir == "bullish"
+        validatedHigh := high
+        validatedHighIdx := bar_index
+    else
+        validatedLow := low
+        validatedLowIdx := bar_index
+
+// Pivot updates.
+if not na(ph)
+    pivotIndex = bar_index - rightBars
+    pivotPrice = ph
+    if showSwingLabels
+        label.new(pivotIndex, pivotPrice, "SH", style=label.style_label_down, textcolor=color.white, color=color.new(color.blue, 0), size=size.tiny)
+
+if not na(pl)
+    pivotIndex = bar_index - rightBars
+    pivotPrice = pl
+    if showSwingLabels
+        label.new(pivotIndex, pivotPrice, "SL", style=label.style_label_up, textcolor=color.white, color=color.new(color.orange, 0), size=size.tiny)
+
+transitionReason := ""
+
+if regimeDir == "bullish"
+    // Candidate high expansion.
+    if high > candHigh
+        candHigh := high
+        candHighIdx := bar_index
+        candHighOpp := low
+
+    // Trend-side SFP can re-anchor bullish continuation high.
+    if not na(validatedHigh) and high >= validatedHigh and close <= validatedHigh
+        evSfp := true
+        sfpY := high
+        validatedHigh := high
+        validatedHighIdx := bar_index
+
+    // Opposite-side sweep: log only in Python; visualized as SFP marker here.
+    if low <= protectedLow and close >= protectedLow
+        evSfp := true
+        sfpY := na(sfpY) ? low : sfpY
+
+    // 2-step retracement validation for swing high.
+    if bar_index > candHighIdx and low <= candHighOpp and high <= candHigh
+        if validatedHighIdx != candHighIdx
+            validatedHigh := candHigh
+            validatedHighIdx := candHighIdx
+
+    // Continuation BoS in bullish direction.
+    if not na(validatedHigh) and acceptedBreakAbove(validatedHigh)
+        start = na(validatedHighIdx) ? bar_index : validatedHighIdx
+        len = bar_index - start + 1
+        lockLow = ta.lowest(low, len)
+        lockIdx = ta.lowestbars(low, len)
+        protectedLow := lockLow
+        protectedLowIdx := bar_index + lockIdx
+
+        evBos := true
+        bosFromPrice := validatedHigh
+        bosFromIdx := start
+
+        regimeConf := "confirmed"
+        transitionReason := "bos_confirmed"
+        activeChochLevel := na
+        activeChochIndex := na
+        validatedHigh := high
+        validatedHighIdx := bar_index
+
+    // CHoCH against protected low (one-shot per protected level index).
+    if acceptedBreakBelow(protectedLow)
+        if lastChochProtectedLowIdx != protectedLowIdx
+            lastChochProtectedLowIdx := protectedLowIdx
+            regimeDir := "bearish"
+            regimeConf := "transitional"
+            transitionReason := "choch_detected"
+            activeChochLevel := protectedLow
+            activeChochIndex := bar_index
+            evChoch := true
+            chochFromPrice := protectedLow
+            chochFromIdx := protectedLowIdx
+
+else
+    // Candidate low expansion.
+    if low < candLow
+        candLow := low
+        candLowIdx := bar_index
+        candLowOpp := high
+
+    // Trend-side SFP can re-anchor bearish continuation low.
+    if not na(validatedLow) and low <= validatedLow and close >= validatedLow
+        evSfp := true
+        sfpY := low
+        validatedLow := low
+        validatedLowIdx := bar_index
+
+    // Opposite-side sweep.
+    if high >= protectedHigh and close <= protectedHigh
+        evSfp := true
+        sfpY := na(sfpY) ? high : sfpY
+
+    // 2-step retracement validation for swing low.
+    if bar_index > candLowIdx and high >= candLowOpp and low >= candLow
+        if validatedLowIdx != candLowIdx
+            validatedLow := candLow
+            validatedLowIdx := candLowIdx
+
+    // Continuation BoS in bearish direction.
+    if not na(validatedLow) and acceptedBreakBelow(validatedLow)
+        start = na(validatedLowIdx) ? bar_index : validatedLowIdx
+        len = bar_index - start + 1
+        lockHigh = ta.highest(high, len)
+        lockIdx = ta.highestbars(high, len)
+        protectedHigh := lockHigh
+        protectedHighIdx := bar_index + lockIdx
+
+        evBos := true
+        bosFromPrice := validatedLow
+        bosFromIdx := start
+
+        regimeConf := "confirmed"
+        transitionReason := "bos_confirmed"
+        activeChochLevel := na
+        activeChochIndex := na
+        validatedLow := low
+        validatedLowIdx := bar_index
+
+    // CHoCH against protected high (one-shot per protected level index).
+    if acceptedBreakAbove(protectedHigh)
+        if lastChochProtectedHighIdx != protectedHighIdx
+            lastChochProtectedHighIdx := protectedHighIdx
+            regimeDir := "bullish"
+            regimeConf := "transitional"
+            transitionReason := "choch_detected"
+            activeChochLevel := protectedHigh
+            activeChochIndex := bar_index
+            evChoch := true
+            chochFromPrice := protectedHigh
+            chochFromIdx := protectedHighIdx
+
+// Event markers.
+plotshape(evBos, title="BoS", style=shape.diamond, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny, text="BoS")
+plotshape(evChoch, title="CHoCH", style=shape.triangleup, location=location.abovebar, color=color.new(color.yellow, 0), size=size.tiny, text="CHoCH")
+plotshape(evSfp ? sfpY : na, title="SFP", style=shape.circle, location=location.absolute, color=color.new(color.aqua, 0), size=size.tiny, text="SFP")
+
+// Event lines.
+if evBos and not na(bosFromPrice) and not na(bosFromIdx)
+    line.new(bosFromIdx, bosFromPrice, bar_index, close, xloc=xloc.bar_index, extend=extend.none, color=color.new(color.green, 0), width=2)
+
+if evChoch and not na(chochFromPrice) and not na(chochFromIdx)
+    line.new(chochFromIdx, chochFromPrice, bar_index, close, xloc=xloc.bar_index, extend=extend.none, color=color.new(color.yellow, 0), width=2)
+
+// Active swing visuals.
+plot(validatedHigh, title="Active Swing High", color=color.new(color.blue, 0), linewidth=2, style=plot.style_linebr)
+plot(validatedLow, title="Active Swing Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+
+regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
+bgcolor(color.new(regimeColor, 88))
+
+var table t = table.new(position.top_right, 1, 5, border_width=1)
+if barstate.islast
+    table.cell(t, 0, 0, "Dir: " + regimeDir, text_color=color.white, bgcolor=color.new(regimeColor, 0))
+    table.cell(t, 0, 1, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
+    table.cell(t, 0, 2, "Reason: " + (transitionReason == "" ? "-" : transitionReason), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 3, "Protected H/L: " + str.tostring(protectedHigh, format.mintick) + " / " + str.tostring(protectedLow, format.mintick), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 4, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))

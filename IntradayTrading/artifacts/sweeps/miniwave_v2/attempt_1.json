@@ -1,0 +1,47 @@
+{
+  "attempt": 1,
+  "params": {
+    "zone_width": 0.0015,
+    "retest_max_bars": 8,
+    "reclaim_buffer_frac": 0.00035,
+    "momentum_min_frac": 0.0012,
+    "trend_slope_min": 0.0002,
+    "chop_slope_abs_max": 0.00012,
+    "strict_retest_bps_max": 18.0,
+    "near_retest_bps_max": 24.0,
+    "near_retest_penalty_max": 0.5,
+    "score_gate_min": 5.8,
+    "trigger_score_min": 6.8,
+    "risk_pct_high_conf": 1.6
+  },
+  "btc": {
+    "trades": 100,
+    "wins": 39,
+    "losses": 61,
+    "win_rate": 0.39,
+    "gross_profit": 21247.46654186811,
+    "gross_loss": 29720.01834060204,
+    "pf": 0.714921044070853,
+    "net": -8472.551798733923,
+    "max_dd": 13811.516958180979,
+    "max_dd_pct": 95.69604712092298,
+    "final_equity": 1527.4482012660858
+  },
+  "eth": {
+    "trades": 139,
+    "wins": 48,
+    "losses": 91,
+    "win_rate": 0.34532374100719426,
+    "gross_profit": 18136.662316953003,
+    "gross_loss": 27718.472285940443,
+    "pf": 0.6543168082951096,
+    "net": -9581.809968987442,
+    "max_dd": 11888.165760042182,
+    "max_dd_pct": 96.89425469117822,
+    "final_equity": 418.1900310125618
+  },
+  "avg_pf": 0.6846189261829814,
+  "worst_dd_pct": 96.89425469117822,
+  "total_trades": 239,
+  "pass_constraints": false
+}

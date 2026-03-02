@@ -1,0 +1,31 @@
+//@version=5
+indicator("Intraday Revisit Probe v1", overlay=true, max_boxes_count=100, max_labels_count=100)
+
+left = input.int(2, "Pivot Left")
+right = input.int(2, "Pivot Right")
+zonePct = input.float(0.1, "Zone Width %", step=0.01) * 0.01
+
+ph = ta.pivothigh(high, left, right)
+pl = ta.pivotlow(low, left, right)
+
+var box[] zones = array.new_box()
+
+make_zone(price, isRes) =>
+    zLow = price * (1 - zonePct)
+    zHigh = price * (1 + zonePct)
+    c = isRes ? color.new(color.red, 85) : color.new(color.green, 85)
+    b = box.new(bar_index - right, zHigh, bar_index, zLow, bgcolor=c, border_color=color.new(c, 10), extend=extend.right)
+    array.push(zones, b)
+
+if not na(ph)
+    make_zone(ph, true)
+    label.new(bar_index - right, ph, "PH", style=label.style_label_down, textcolor=color.white, color=color.new(color.red, 0))
+
+if not na(pl)
+    make_zone(pl, false)
+    label.new(bar_index - right, pl, "PL", style=label.style_label_up, textcolor=color.white, color=color.new(color.green, 0))
+
+reclaimLong = close > open and low <= low[1]
+reclaimShort = close < open and high >= high[1]
+plotshape(reclaimLong, title="Probe Long Marker", style=shape.triangleup, color=color.green, size=size.tiny, location=location.belowbar)
+plotshape(reclaimShort, title="Probe Short Marker", style=shape.triangledown, color=color.red, size=size.tiny, location=location.abovebar)

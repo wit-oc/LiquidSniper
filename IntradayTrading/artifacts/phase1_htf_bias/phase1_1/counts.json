@@ -1,0 +1,96 @@
+{
+  "config": {
+    "n_init": 25,
+    "break_min_frac_of_candle": 0.2,
+    "dataset": "okx_1d_ccxt_2022_to_now"
+  },
+  "btc": {
+    "rows": 1522,
+    "choch_detected": 4,
+    "bos_confirmed": 13,
+    "sfp_detected": 37,
+    "sfp_reanchored": 18,
+    "swing_high_moves": 6,
+    "swing_low_moves": 7,
+    "regime_durations": {
+      "bearish_confirmed": {
+        "segments": 2,
+        "total_bars": 164,
+        "avg_bars": 82.0
+      },
+      "bullish_transitional": {
+        "segments": 2,
+        "total_bars": 607,
+        "avg_bars": 303.5
+      },
+      "bearish_transitional": {
+        "segments": 2,
+        "total_bars": 715,
+        "avg_bars": 357.5
+      },
+      "bullish_confirmed": {
+        "segments": 1,
+        "total_bars": 36,
+        "avg_bars": 36.0
+      }
+    },
+    "final_state": {
+      "index": 1521,
+      "close": 66200.0,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "protected_high": 22992.4,
+      "protected_low": 66063.3,
+      "active_choch_level": 66063.3,
+      "active_choch_index": 808
+    },
+    "ratio_vs_prior": {
+      "prior_choch_per_bos": 54.916666666666664,
+      "current_choch_per_bos": 0.3076923076923077,
+      "normalized": true
+    }
+  },
+  "eth": {
+    "rows": 1522,
+    "choch_detected": 4,
+    "bos_confirmed": 12,
+    "sfp_detected": 44,
+    "sfp_reanchored": 18,
+    "swing_high_moves": 9,
+    "swing_low_moves": 3,
+    "regime_durations": {
+      "bearish_confirmed": {
+        "segments": 2,
+        "total_bars": 163,
+        "avg_bars": 81.5
+      },
+      "bullish_transitional": {
+        "segments": 2,
+        "total_bars": 1152,
+        "avg_bars": 576.0
+      },
+      "bearish_transitional": {
+        "segments": 2,
+        "total_bars": 197,
+        "avg_bars": 98.5
+      },
+      "bullish_confirmed": {
+        "segments": 1,
+        "total_bars": 10,
+        "avg_bars": 10.0
+      }
+    },
+    "final_state": {
+      "index": 1521,
+      "close": 1950.7,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "protected_high": 1547.57,
+      "protected_low": 4218.24,
+      "active_choch_level": 4218.24,
+      "active_choch_index": 1326
+    }
+  }
+}

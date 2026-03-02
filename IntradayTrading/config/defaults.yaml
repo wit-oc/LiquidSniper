@@ -1,0 +1,40 @@
+meta:
+  strategy: intraday_revisit_v1
+  exchange: blofin_perps
+  symbols: [BTC, ETH]
+
+timeframes:
+  structure: 4h
+  execution: 1h
+
+risk:
+  risk_per_trade_pct: 1.0
+  risk_min_pct: 1.0
+  risk_max_pct: 5.0
+  max_at_risk_positions: 2
+  leverage_default: 3.0
+  daily_loss_limit_pct: 6.0
+  weekly_dd_limit_pct: 20.0
+
+zones:
+  persist: true
+  merge_overlap_ratio: 0.2
+  invalidation_mode: percent
+  invalidation_threshold_pct: 0.25
+
+exits:
+  tp1_r: 1.0
+  tp2_r: 2.5
+  move_stop_to_be_on_tp1: true
+  be_cost_buffer_bps: 2
+
+costs:
+  maker_bps: 2.0
+  taker_bps: 5.0
+  slippage_bps: 2.0
+  funding_bps_per_8h: 1.0
+
+filters:
+  ema_enabled: false
+  vwap_enabled: false
+  atr_regime_enabled: false

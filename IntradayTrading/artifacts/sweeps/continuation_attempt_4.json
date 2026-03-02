@@ -1,0 +1,46 @@
+{
+  "attempt": 4,
+  "params": {
+    "zone_width": 0.0025,
+    "retest_max_bars": 12,
+    "reclaim_buffer_frac": 0.00025,
+    "momentum_min_frac": 0.0008,
+    "trend_slope_min": 0.0001,
+    "chop_slope_abs_max": 6e-05,
+    "long_location_max": 0.84,
+    "short_location_min": 0.16,
+    "min_rejection_wick_frac": 0.0005,
+    "min_body_frac": 0.00045,
+    "allow_neutral_bias": true
+  },
+  "btc": {
+    "trades": 12,
+    "wins": 4,
+    "losses": 8,
+    "win_rate": 0.3333333333333333,
+    "gross_profit": 965.4988424999972,
+    "gross_loss": 986.9572875000088,
+    "pf": 0.9782579800850689,
+    "net": -21.458445000011523,
+    "max_dd": 860.2214637500115
+  },
+  "eth": {
+    "trades": 15,
+    "wins": 7,
+    "losses": 8,
+    "win_rate": 0.4666666666666667,
+    "gross_profit": 130.96729974999963,
+    "gross_loss": 136.40523850000017,
+    "pf": 0.9601339449290979,
+    "net": -5.437938750000566,
+    "max_dd": 70.22418175000043
+  },
+  "score": 0.5579731397570775,
+  "pass": false,
+  "pass_fail_reason": "Insufficient tradability (27 total trades < 30).",
+  "cost_assumptions": {
+    "fee_bps_per_side": 5.0,
+    "slippage_bps_per_side": 2.0,
+    "funding_bps_per_8h": 1.0
+  }
+}

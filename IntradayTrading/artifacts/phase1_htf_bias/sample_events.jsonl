@@ -1,0 +1,5 @@
+{"index": 3, "event": "swing_high", "price": 12, "regime_direction": "bullish", "regime_confidence": "confirmed", "transition_reason": null, "anchor_index": 3}
+{"index": 4, "event": "swing_low", "price": 9.2, "regime_direction": "bullish", "regime_confidence": "confirmed", "transition_reason": null, "anchor_index": 4}
+{"index": 6, "event": "swing_high", "price": 13, "regime_direction": "bullish", "regime_confidence": "confirmed", "transition_reason": null, "anchor_index": 6}
+{"index": 7, "event": "choch", "price": 9.1, "regime_direction": "bearish", "regime_confidence": "transitional", "transition_reason": "choch_detected", "anchor_index": 7}
+{"index": 8, "event": "bos", "price": 8.7, "regime_direction": "bearish", "regime_confidence": "confirmed", "transition_reason": "bos_confirmed", "anchor_index": 8}

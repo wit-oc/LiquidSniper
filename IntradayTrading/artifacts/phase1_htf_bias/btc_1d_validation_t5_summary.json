@@ -1,0 +1,33 @@
+{
+  "dataset": "intraday_revisit/data/btc_1d_okx_ccxt_2022_to_now.csv",
+  "rows": 1522,
+  "params": {
+    "left": 3,
+    "right": 3,
+    "initial_direction": "bullish"
+  },
+  "event_counts": {
+    "bos_confirmed": 12,
+    "candidate_swing_high": 45,
+    "candidate_swing_low": 20,
+    "choch_detected": 659,
+    "sfp_detected": 47,
+    "sfp_reanchored": 11,
+    "swing_high_locked": 5,
+    "swing_high_validated_by_sweep": 8,
+    "swing_low_locked": 7,
+    "swing_low_validated_by_sweep": 6
+  },
+  "anchor_update_events_total": 23,
+  "anchor_update_frequency": {
+    "per_bar": 0.015111695137976347,
+    "per_100_bars": 1.5111695137976346
+  },
+  "final_state": {
+    "wave_state": "impulsive_down",
+    "regime_direction": "bearish",
+    "regime_confidence": "transitional",
+    "transition_latched": true,
+    "last_transition_reason": "choch_detected"
+  }
+}
