@@ -74,6 +74,10 @@ int bosFromIdx = na
 float chochFromPrice = na
 int chochFromIdx = na
 
+// Step 2: BoS same-anchor cooldown (cannot fire twice from same confirmed swing index).
+var int lastBosBullSwingIdx = na
+var int lastBosBearSwingIdx = na
+
 if not na(ph)
     pivotIndex = bar_index - rightBars
     if showSwingLabels
@@ -114,10 +118,13 @@ if regimeDir == "bullish"
                 protectedLowIdx := candHighOppIdx
 
     hasBullSwing = not na(validatedHigh) and not na(validatedHighIdx)
-    dbgAcceptedBreakUp := hasBullSwing and acceptedBreakAbove(validatedHigh)
+    bullBosCooldownBlocked = hasBullSwing and not na(lastBosBullSwingIdx) and validatedHighIdx == lastBosBullSwingIdx
+    dbgAcceptedBreakUp := hasBullSwing and not bullBosCooldownBlocked and acceptedBreakAbove(validatedHigh)
 
     if not hasBullSwing
         dbgBosReason := "B_BULL_BLOCK_NO_CONFIRMED_SWING"
+    else if bullBosCooldownBlocked
+        dbgBosReason := "B_BULL_BLOCK_SAME_SWING_COOLDOWN"
     else if dbgAcceptedBreakUp
         lenBull = math.max(1, bar_index - validatedHighIdx + 1)
         lockLow = ta.lowest(low, lenBull)
@@ -129,6 +136,7 @@ if regimeDir == "bullish"
         bosFromPrice := validatedHigh
         bosFromIdx := validatedHighIdx
         dbgBosReason := "B_BULL_PASS"
+        lastBosBullSwingIdx := validatedHighIdx
 
         regimeConf := "confirmed"
         transitionSide := ""
@@ -201,10 +209,13 @@ else
                 protectedHighIdx := candLowOppIdx
 
     hasBearSwing = not na(validatedLow) and not na(validatedLowIdx)
-    dbgAcceptedBreakDown := hasBearSwing and acceptedBreakBelow(validatedLow)
+    bearBosCooldownBlocked = hasBearSwing and not na(lastBosBearSwingIdx) and validatedLowIdx == lastBosBearSwingIdx
+    dbgAcceptedBreakDown := hasBearSwing and not bearBosCooldownBlocked and acceptedBreakBelow(validatedLow)
 
     if not hasBearSwing
         dbgBosReason := "B_BEAR_BLOCK_NO_CONFIRMED_SWING"
+    else if bearBosCooldownBlocked
+        dbgBosReason := "B_BEAR_BLOCK_SAME_SWING_COOLDOWN"
     else if dbgAcceptedBreakDown
         lenBear = math.max(1, bar_index - validatedLowIdx + 1)
         lockHigh = ta.highest(high, lenBear)
@@ -216,6 +227,7 @@ else
         bosFromPrice := validatedLow
         bosFromIdx := validatedLowIdx
         dbgBosReason := "B_BEAR_PASS"
+        lastBosBearSwingIdx := validatedLowIdx
 
         regimeConf := "confirmed"
         transitionSide := ""
