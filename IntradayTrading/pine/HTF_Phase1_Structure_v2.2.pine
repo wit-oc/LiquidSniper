@@ -1,0 +1,351 @@
+//@version=5
+indicator("HTF Phase 1 Structure v2.2 (Strict Confirmed-Swing Contract)", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
+
+// Strict contract:
+// 1) No fallback anchors.
+// 2) BoS/CHoCH emit only from confirmed swings.
+// 3) If required confirmed swing/protected level is missing, event is blocked.
+// 4) Break threshold is fixed at 0 (close beyond level only).
+
+leftBars = input.int(2, "Pivot Left", minval=1)
+rightBars = input.int(2, "Pivot Right", minval=1)
+initialBullish = input.bool(true, "Initial Regime Bullish")
+showSwingLabels = input.bool(false, "Show SH/SL pivot labels")
+showDebug = input.bool(true, "Show debug diagnostics")
+
+breakMinFrac = 0.0
+
+acceptedBreakAbove(level) =>
+    rng = math.max(1e-9, high - low)
+    close > level and (close - level) >= breakMinFrac * rng
+
+acceptedBreakBelow(level) =>
+    rng = math.max(1e-9, high - low)
+    close < level and (level - close) >= breakMinFrac * rng
+
+ph = ta.pivothigh(high, leftBars, rightBars)
+pl = ta.pivotlow(low, leftBars, rightBars)
+
+var string regimeDir = initialBullish ? "bullish" : "bearish"
+var string regimeConf = "confirmed"
+var string transitionSide = ""
+var string transitionReason = ""
+
+// Protected levels start as NA (strict: no fallback anchors).
+var float protectedLow = na
+var int protectedLowIdx = na
+var float protectedHigh = na
+var int protectedHighIdx = na
+
+// Confirmed continuation swings (strictly required for BoS).
+var float validatedHigh = na
+var int validatedHighIdx = na
+var float validatedLow = na
+var int validatedLowIdx = na
+
+// Candidate extremes and opposite references.
+var float candHigh = high
+var int candHighIdx = bar_index
+var float candHighOpp = low
+var int candHighOppIdx = bar_index
+
+var float candLow = low
+var int candLowIdx = bar_index
+var float candLowOpp = high
+var int candLowOppIdx = bar_index
+
+var float activeChochLevel = na
+var int activeChochIndex = na
+var int transitionLatchIndex = na
+
+bool evBos = false
+bool evChoch = false
+bool evSfp = false
+float sfpY = na
+
+string dbgBosReason = "B_NONE"
+string dbgChochReason = "C_NONE"
+string dbgTransitionReason = "T_NONE"
+bool dbgAcceptedBreakUp = false
+bool dbgAcceptedBreakDown = false
+
+float bosFromPrice = na
+int bosFromIdx = na
+float chochFromPrice = na
+int chochFromIdx = na
+
+if not na(ph)
+    pivotIndex = bar_index - rightBars
+    if showSwingLabels
+        label.new(pivotIndex, ph, "SH", style=label.style_label_down, textcolor=color.white, color=color.new(color.blue, 0), size=size.tiny)
+
+if not na(pl)
+    pivotIndex = bar_index - rightBars
+    if showSwingLabels
+        label.new(pivotIndex, pl, "SL", style=label.style_label_up, textcolor=color.white, color=color.new(color.orange, 0), size=size.tiny)
+
+transitionReason := ""
+
+if regimeDir == "bullish"
+    if high > candHigh
+        candHigh := high
+        candHighIdx := bar_index
+        candHighOpp := low
+        candHighOppIdx := bar_index
+
+    // Trend-side sweep marker only if confirmed high exists.
+    if not na(validatedHigh) and high >= validatedHigh and close <= validatedHigh
+        evSfp := true
+        sfpY := high
+        validatedHigh := high
+        validatedHighIdx := bar_index
+
+    if not na(protectedLow) and low <= protectedLow and close >= protectedLow
+        evSfp := true
+        sfpY := na(sfpY) ? low : sfpY
+
+    // Confirm swing high via retracement structure.
+    if bar_index > candHighIdx and low <= candHighOpp and high <= candHigh
+        if validatedHighIdx != candHighIdx
+            validatedHigh := candHigh
+            validatedHighIdx := candHighIdx
+            if regimeConf == "confirmed" and (na(protectedLow) or candHighOpp > protectedLow)
+                protectedLow := candHighOpp
+                protectedLowIdx := candHighOppIdx
+
+    hasBullSwing = not na(validatedHigh) and not na(validatedHighIdx)
+    dbgAcceptedBreakUp := hasBullSwing and acceptedBreakAbove(validatedHigh)
+
+    if not hasBullSwing
+        dbgBosReason := "B_BULL_BLOCK_NO_CONFIRMED_SWING"
+    else if dbgAcceptedBreakUp
+        lenBull = math.max(1, bar_index - validatedHighIdx + 1)
+        lockLow = ta.lowest(low, lenBull)
+        lockIdx = ta.lowestbars(low, lenBull)
+        protectedLow := lockLow
+        protectedLowIdx := bar_index + lockIdx
+
+        evBos := true
+        bosFromPrice := validatedHigh
+        bosFromIdx := validatedHighIdx
+        dbgBosReason := "B_BULL_PASS"
+
+        regimeConf := "confirmed"
+        transitionSide := ""
+        transitionReason := "bos_confirmed"
+        activeChochLevel := na
+        activeChochIndex := na
+        transitionLatchIndex := na
+        validatedHigh := high
+        validatedHighIdx := bar_index
+    else
+        dbgBosReason := "B_BULL_BLOCK_CLOSE"
+
+    hasChochAnchor = not na(protectedLow) and not na(protectedLowIdx)
+    dbgAcceptedBreakDown := hasChochAnchor and acceptedBreakBelow(protectedLow)
+
+    if regimeConf != "confirmed"
+        dbgChochReason := "C_B2B_BLOCK_NOT_CONFIRMED"
+    else if transitionSide != ""
+        dbgChochReason := "C_B2B_BLOCK_TRANSITION_ACTIVE"
+    else if not hasChochAnchor
+        dbgChochReason := "C_B2B_BLOCK_NO_CONFIRMED_PROTECTED_LOW"
+    else if dbgAcceptedBreakDown
+        regimeDir := "bearish"
+        regimeConf := "transitional"
+        transitionSide := "bull_to_bear"
+        transitionReason := "choch_detected"
+        activeChochLevel := protectedLow
+        activeChochIndex := bar_index
+        transitionLatchIndex := protectedLowIdx
+
+        // Seed opposite side from confirmed references only.
+        protectedHigh := validatedHigh
+        protectedHighIdx := validatedHighIdx
+        candLow := low
+        candLowIdx := bar_index
+        candLowOpp := high
+        candLowOppIdx := bar_index
+        validatedLow := low
+        validatedLowIdx := bar_index
+
+        evChoch := true
+        chochFromPrice := protectedLow
+        chochFromIdx := protectedLowIdx
+        dbgChochReason := "C_B2B_PASS"
+    else
+        dbgChochReason := "C_B2B_BLOCK_CLOSE"
+
+else
+    if low < candLow
+        candLow := low
+        candLowIdx := bar_index
+        candLowOpp := high
+        candLowOppIdx := bar_index
+
+    if not na(validatedLow) and low <= validatedLow and close >= validatedLow
+        evSfp := true
+        sfpY := low
+        validatedLow := low
+        validatedLowIdx := bar_index
+
+    if not na(protectedHigh) and high >= protectedHigh and close <= protectedHigh
+        evSfp := true
+        sfpY := na(sfpY) ? high : sfpY
+
+    // Confirm swing low via retracement structure.
+    if bar_index > candLowIdx and high >= candLowOpp and low >= candLow
+        if validatedLowIdx != candLowIdx
+            validatedLow := candLow
+            validatedLowIdx := candLowIdx
+            if regimeConf == "confirmed" and (na(protectedHigh) or candLowOpp < protectedHigh)
+                protectedHigh := candLowOpp
+                protectedHighIdx := candLowOppIdx
+
+    hasBearSwing = not na(validatedLow) and not na(validatedLowIdx)
+    dbgAcceptedBreakDown := hasBearSwing and acceptedBreakBelow(validatedLow)
+
+    if not hasBearSwing
+        dbgBosReason := "B_BEAR_BLOCK_NO_CONFIRMED_SWING"
+    else if dbgAcceptedBreakDown
+        lenBear = math.max(1, bar_index - validatedLowIdx + 1)
+        lockHigh = ta.highest(high, lenBear)
+        lockIdx = ta.highestbars(high, lenBear)
+        protectedHigh := lockHigh
+        protectedHighIdx := bar_index + lockIdx
+
+        evBos := true
+        bosFromPrice := validatedLow
+        bosFromIdx := validatedLowIdx
+        dbgBosReason := "B_BEAR_PASS"
+
+        regimeConf := "confirmed"
+        transitionSide := ""
+        transitionReason := "bos_confirmed"
+        activeChochLevel := na
+        activeChochIndex := na
+        transitionLatchIndex := na
+        validatedLow := low
+        validatedLowIdx := bar_index
+    else
+        dbgBosReason := "B_BEAR_BLOCK_CLOSE"
+
+    hasChochAnchor = not na(protectedHigh) and not na(protectedHighIdx)
+    dbgAcceptedBreakUp := hasChochAnchor and acceptedBreakAbove(protectedHigh)
+
+    if regimeConf != "confirmed"
+        dbgChochReason := "C_B2U_BLOCK_NOT_CONFIRMED"
+    else if transitionSide != ""
+        dbgChochReason := "C_B2U_BLOCK_TRANSITION_ACTIVE"
+    else if not hasChochAnchor
+        dbgChochReason := "C_B2U_BLOCK_NO_CONFIRMED_PROTECTED_HIGH"
+    else if dbgAcceptedBreakUp
+        regimeDir := "bullish"
+        regimeConf := "transitional"
+        transitionSide := "bear_to_bull"
+        transitionReason := "choch_detected"
+        activeChochLevel := protectedHigh
+        activeChochIndex := bar_index
+        transitionLatchIndex := protectedHighIdx
+
+        protectedLow := validatedLow
+        protectedLowIdx := validatedLowIdx
+        candHigh := high
+        candHighIdx := bar_index
+        candHighOpp := low
+        candHighOppIdx := bar_index
+        validatedHigh := high
+        validatedHighIdx := bar_index
+
+        evChoch := true
+        chochFromPrice := protectedHigh
+        chochFromIdx := protectedHighIdx
+        dbgChochReason := "C_B2U_PASS"
+    else
+        dbgChochReason := "C_B2U_BLOCK_CLOSE"
+
+if regimeConf == "transitional"
+    if transitionSide == "bull_to_bear"
+        if not na(validatedLow) and acceptedBreakBelow(validatedLow)
+            regimeConf := "confirmed"
+            transitionSide := ""
+            transitionReason := "bos_confirmed"
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgTransitionReason := "T_B2B_RESOLVE"
+        else if not na(protectedHigh) and acceptedBreakAbove(protectedHigh)
+            regimeDir := "bullish"
+            regimeConf := "confirmed"
+            transitionSide := ""
+            transitionReason := "choch_reverted"
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgTransitionReason := "T_B2B_REVERT"
+        else
+            dbgTransitionReason := "T_B2B_WAIT"
+    else if transitionSide == "bear_to_bull"
+        if not na(validatedHigh) and acceptedBreakAbove(validatedHigh)
+            regimeConf := "confirmed"
+            transitionSide := ""
+            transitionReason := "bos_confirmed"
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgTransitionReason := "T_B2U_RESOLVE"
+        else if not na(protectedLow) and acceptedBreakBelow(protectedLow)
+            regimeDir := "bearish"
+            regimeConf := "confirmed"
+            transitionSide := ""
+            transitionReason := "choch_reverted"
+            activeChochLevel := na
+            activeChochIndex := na
+            transitionLatchIndex := na
+            dbgTransitionReason := "T_B2U_REVERT"
+        else
+            dbgTransitionReason := "T_B2U_WAIT"
+    else
+        regimeConf := "confirmed"
+        transitionReason := "transition_invalid_reset"
+        dbgTransitionReason := "T_INVALID_RESET"
+
+if not na(protectedHigh) and not na(protectedLow) and protectedHigh < protectedLow
+    mid = (protectedHigh + protectedLow) / 2.0
+    protectedHigh := mid
+    protectedLow := mid
+    if dbgBosReason == "B_NONE"
+        dbgBosReason := "B_INVARIANT_FIX"
+
+plotshape(evBos, title="BoS", style=shape.diamond, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny, text="BoS")
+plotshape(evChoch, title="CHoCH", style=shape.triangleup, location=location.abovebar, color=color.new(color.yellow, 0), size=size.tiny, text="CHoCH")
+plotshape(evSfp ? sfpY : na, title="SFP", style=shape.circle, location=location.absolute, color=color.new(color.aqua, 0), size=size.tiny, text="SFP")
+
+if evBos and not na(bosFromPrice) and not na(bosFromIdx)
+    line.new(bosFromIdx, bosFromPrice, bar_index, close, xloc=xloc.bar_index, extend=extend.none, color=color.new(color.green, 0), width=2)
+
+if evChoch and not na(chochFromPrice) and not na(chochFromIdx)
+    line.new(chochFromIdx, chochFromPrice, bar_index, close, xloc=xloc.bar_index, extend=extend.none, color=color.new(color.yellow, 0), width=2)
+
+plot(validatedHigh, title="Active Swing High", color=color.new(color.blue, 0), linewidth=2, style=plot.style_linebr)
+plot(validatedLow, title="Active Swing Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+
+regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
+bgcolor(color.new(regimeColor, 88))
+
+var table t = table.new(position.top_right, 1, 13, border_width=1)
+if barstate.islast
+    table.cell(t, 0, 0, "Dir: " + regimeDir, text_color=color.white, bgcolor=color.new(regimeColor, 0))
+    table.cell(t, 0, 1, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
+    table.cell(t, 0, 2, "Transition Side: " + (transitionSide == "" ? "-" : transitionSide), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 3, "Reason: " + (transitionReason == "" ? "-" : transitionReason), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 4, "Protected H/L: " + str.tostring(protectedHigh, format.mintick) + " / " + str.tostring(protectedLow, format.mintick), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 5, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+    if showDebug
+        table.cell(t, 0, 6, "Validated H/L: " + str.tostring(validatedHigh, format.mintick) + " / " + str.tostring(validatedLow, format.mintick), text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 7, "AcceptedBreak Up/Down: " + str.tostring(dbgAcceptedBreakUp) + " / " + str.tostring(dbgAcceptedBreakDown), text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 8, "B reason: " + dbgBosReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 9, "C reason: " + dbgChochReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 10, "T reason: " + dbgTransitionReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 11, "Prot idx H/L: " + str.tostring(protectedHighIdx) + " / " + str.tostring(protectedLowIdx), text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 12, "Transition latch idx: " + str.tostring(transitionLatchIndex), text_color=color.white, bgcolor=color.new(color.black, 0))
