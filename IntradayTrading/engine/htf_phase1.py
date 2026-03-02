@@ -84,10 +84,12 @@ def run_phase1_htf_structure(
     cand_high = highs[0]
     cand_high_idx = 0
     cand_high_opp = lows[0]
+    cand_high_opp_idx = 0
 
     cand_low = lows[0]
     cand_low_idx = 0
     cand_low_opp = highs[0]
+    cand_low_opp_idx = 0
 
     active_choch_level: float | None = None
     active_choch_index: int | None = None
@@ -129,6 +131,7 @@ def run_phase1_htf_structure(
                 cand_high = h
                 cand_high_idx = i
                 cand_high_opp = l
+                cand_high_opp_idx = i
                 emit(i, "candidate_swing_high", h)
 
             # Trend-side SFP can re-anchor bullish continuation high.
@@ -149,6 +152,12 @@ def run_phase1_htf_structure(
                     validated_high_idx = cand_high_idx
                     swings_log.append({"kind": "swing_high", "index": cand_high_idx, "price": cand_high})
                     emit(i, "swing_high_validated_by_sweep", cand_high, anchor_idx=cand_high_idx)
+
+                    # Keep protected structure current even without an immediate continuation BoS.
+                    if confidence == "confirmed" and cand_high_opp > protected_low:
+                        protected_low = cand_high_opp
+                        protected_low_idx = cand_high_opp_idx
+                        emit(i, "swing_low_locked", protected_low, anchor_idx=protected_low_idx)
 
             # Continuation BoS in bullish direction.
             if validated_high is not None and accepted_break_above(validated_high, i):
@@ -185,6 +194,7 @@ def run_phase1_htf_structure(
                 cand_low = l
                 cand_low_idx = i
                 cand_low_opp = h
+                cand_low_opp_idx = i
                 emit(i, "candidate_swing_low", l)
 
             # Trend-side SFP can re-anchor bearish continuation low.
@@ -205,6 +215,12 @@ def run_phase1_htf_structure(
                     validated_low_idx = cand_low_idx
                     swings_log.append({"kind": "swing_low", "index": cand_low_idx, "price": cand_low})
                     emit(i, "swing_low_validated_by_sweep", cand_low, anchor_idx=cand_low_idx)
+
+                    # Keep protected structure current even without an immediate continuation BoS.
+                    if confidence == "confirmed" and cand_low_opp < protected_high:
+                        protected_high = cand_low_opp
+                        protected_high_idx = cand_low_opp_idx
+                        emit(i, "swing_high_locked", protected_high, anchor_idx=protected_high_idx)
 
             # Continuation BoS in bearish direction.
             if validated_low is not None and accepted_break_below(validated_low, i):

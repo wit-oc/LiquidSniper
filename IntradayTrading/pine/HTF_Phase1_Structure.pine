@@ -49,10 +49,12 @@ var int validatedLowIdx = na
 var float candHigh = high
 var int candHighIdx = bar_index
 var float candHighOpp = low
+var int candHighOppIdx = bar_index
 
 var float candLow = low
 var int candLowIdx = bar_index
 var float candLowOpp = high
+var int candLowOppIdx = bar_index
 
 // Active CHoCH latch metadata.
 var float activeChochLevel = na
@@ -104,6 +106,7 @@ if regimeDir == "bullish"
         candHigh := high
         candHighIdx := bar_index
         candHighOpp := low
+        candHighOppIdx := bar_index
 
     // Trend-side SFP can re-anchor bullish continuation high.
     if not na(validatedHigh) and high >= validatedHigh and close <= validatedHigh
@@ -122,6 +125,9 @@ if regimeDir == "bullish"
         if validatedHighIdx != candHighIdx
             validatedHigh := candHigh
             validatedHighIdx := candHighIdx
+            if regimeConf == "confirmed" and candHighOpp > protectedLow
+                protectedLow := candHighOpp
+                protectedLowIdx := candHighOppIdx
 
     // Continuation BoS in bullish direction.
     if not na(validatedHigh) and acceptedBreakAbove(validatedHigh)
@@ -162,6 +168,7 @@ else
         candLow := low
         candLowIdx := bar_index
         candLowOpp := high
+        candLowOppIdx := bar_index
 
     // Trend-side SFP can re-anchor bearish continuation low.
     if not na(validatedLow) and low <= validatedLow and close >= validatedLow
@@ -180,6 +187,9 @@ else
         if validatedLowIdx != candLowIdx
             validatedLow := candLow
             validatedLowIdx := candLowIdx
+            if regimeConf == "confirmed" and candLowOpp < protectedHigh
+                protectedHigh := candLowOpp
+                protectedHighIdx := candLowOppIdx
 
     // Continuation BoS in bearish direction.
     if not na(validatedLow) and acceptedBreakBelow(validatedLow)
