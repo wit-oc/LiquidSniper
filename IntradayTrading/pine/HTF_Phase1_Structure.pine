@@ -1,5 +1,5 @@
 //@version=5
-indicator("HTF Phase 1.1 Structure (Python parity pass)", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("HTF Phase 1.1 Structure (Python parity pass)", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
 
 // -----------------------------------------------------------------------------
 // Phase 1 only (HTF structure/bias): no entries, no triggers, no risk management.
