@@ -101,7 +101,9 @@ if regimeDir == "bullish"
         candHighOpp := low
         candHighOppIdx := bar_index
 
-    // Trend-side sweep marker only if confirmed high exists.
+    // Step 4 SFP policy:
+    // - trend-side SFP re-anchors continuation reference (validatedHigh)
+    // - opposite-side SFP is detect-only (no protected anchor move)
     if not na(validatedHigh) and high >= validatedHigh and close <= validatedHigh
         evSfp := true
         sfpY := high
@@ -198,6 +200,9 @@ else
         candLowOpp := high
         candLowOppIdx := bar_index
 
+    // Step 4 SFP policy (inverse):
+    // - trend-side SFP re-anchors continuation reference (validatedLow)
+    // - opposite-side SFP is detect-only (no protected anchor move)
     if not na(validatedLow) and low <= validatedLow and close >= validatedLow
         evSfp := true
         sfpY := low
