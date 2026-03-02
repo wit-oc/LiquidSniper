@@ -178,7 +178,9 @@ if regimeDir == "bullish"
 
     // CHoCH against protected low (one-shot until resolution/rebuild).
     dbgAcceptedBreakDown := acceptedBreakBelow(protectedLow)
-    if dbgAcceptedBreakDown
+    if regimeConf != "confirmed"
+        dbgChochReason := "bull_to_bear_choch_block:not_confirmed"
+    else if dbgAcceptedBreakDown
         if not (chochLatchActive and chochLatchSide == "bull_to_bear")
             chochLatchActive := true
             chochLatchSide := "bull_to_bear"
@@ -276,11 +278,9 @@ else
 
     // CHoCH against protected high (one-shot until resolution/rebuild).
     dbgAcceptedBreakUp := acceptedBreakAbove(protectedHigh)
-    // During transitional, block opposite CHoCH until new side anchor is seeded.
-    if regimeConf == "transitional" and na(validatedLow)
-        dbgChochReason := "bear_to_bull_choch_block:transitional_no_validatedLow"
-    else
-        if dbgAcceptedBreakUp
+    if regimeConf != "confirmed"
+        dbgChochReason := "bear_to_bull_choch_block:not_confirmed"
+    else if dbgAcceptedBreakUp
             if not (chochLatchActive and chochLatchSide == "bear_to_bull")
                 chochLatchActive := true
                 chochLatchSide := "bear_to_bull"
@@ -309,6 +309,14 @@ else
                 dbgChochReason := "bear_to_bull_choch_block:latch_active_until_resolution"
         else
             dbgChochReason := "bear_to_bull_choch_block:close_not_above_protectedHigh"
+
+// Invariant guard: protectedHigh should never be below protectedLow.
+if protectedHigh < protectedLow
+    mid = (protectedHigh + protectedLow) / 2.0
+    protectedHigh := mid
+    protectedLow := mid
+    if dbgBosReason == "-"
+        dbgBosReason := "invariant_fix:protectedHigh<protectedLow"
 
 // Event markers.
 plotshape(evBos, title="BoS", style=shape.diamond, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny, text="BoS")
