@@ -60,6 +60,7 @@ var int candLowOppIdx = bar_index
 // Active CHoCH latch metadata.
 var float activeChochLevel = na
 var int activeChochIndex = na
+var int transitionLatchIndex = na
 
 // One-shot CHoCH latch (re-arm on resolution/rebuild).
 var bool chochLatchActive = false
@@ -157,6 +158,7 @@ if regimeDir == "bullish"
         transitionReason := "bos_confirmed"
         activeChochLevel := na
         activeChochIndex := na
+        transitionLatchIndex := na
         // BoS resolution re-arms CHoCH latch.
         chochLatchActive := false
         chochLatchSide := ""
@@ -187,6 +189,16 @@ if regimeDir == "bullish"
             transitionReason := "choch_detected"
             activeChochLevel := protectedLow
             activeChochIndex := bar_index
+            transitionLatchIndex := protectedLowIdx
+            // Seed bearish-side structure immediately on transition.
+            protectedHigh := validatedHigh
+            protectedHighIdx := nz(validatedHighIdx, bar_index)
+            candLow := low
+            candLowIdx := bar_index
+            candLowOpp := high
+            candLowOppIdx := bar_index
+            validatedLow := low
+            validatedLowIdx := bar_index
             evChoch := true
             chochFromPrice := protectedLow
             chochFromIdx := protectedLowIdx
@@ -244,6 +256,7 @@ else
         transitionReason := "bos_confirmed"
         activeChochLevel := na
         activeChochIndex := na
+        transitionLatchIndex := na
         // BoS resolution re-arms CHoCH latch.
         chochLatchActive := false
         chochLatchSide := ""
@@ -263,25 +276,39 @@ else
 
     // CHoCH against protected high (one-shot until resolution/rebuild).
     dbgAcceptedBreakUp := acceptedBreakAbove(protectedHigh)
-    if dbgAcceptedBreakUp
-        if not (chochLatchActive and chochLatchSide == "bear_to_bull")
-            chochLatchActive := true
-            chochLatchSide := "bear_to_bull"
-            chochLatchProtectedIdx := protectedHighIdx
-            chochLatchSetBar := bar_index
-            regimeDir := "bullish"
-            regimeConf := "transitional"
-            transitionReason := "choch_detected"
-            activeChochLevel := protectedHigh
-            activeChochIndex := bar_index
-            evChoch := true
-            chochFromPrice := protectedHigh
-            chochFromIdx := protectedHighIdx
-            dbgChochReason := "bear_to_bull_choch_pass"
-        else
-            dbgChochReason := "bear_to_bull_choch_block:latch_active_until_resolution"
+    // During transitional, block opposite CHoCH until new side anchor is seeded.
+    if regimeConf == "transitional" and na(validatedLow)
+        dbgChochReason := "bear_to_bull_choch_block:transitional_no_validatedLow"
     else
-        dbgChochReason := "bear_to_bull_choch_block:close_not_above_protectedHigh"
+        if dbgAcceptedBreakUp
+            if not (chochLatchActive and chochLatchSide == "bear_to_bull")
+                chochLatchActive := true
+                chochLatchSide := "bear_to_bull"
+                chochLatchProtectedIdx := protectedHighIdx
+                chochLatchSetBar := bar_index
+                regimeDir := "bullish"
+                regimeConf := "transitional"
+                transitionReason := "choch_detected"
+                activeChochLevel := protectedHigh
+                activeChochIndex := bar_index
+                transitionLatchIndex := protectedHighIdx
+                // Seed bullish-side structure immediately on transition.
+                protectedLow := validatedLow
+                protectedLowIdx := nz(validatedLowIdx, bar_index)
+                candHigh := high
+                candHighIdx := bar_index
+                candHighOpp := low
+                candHighOppIdx := bar_index
+                validatedHigh := high
+                validatedHighIdx := bar_index
+                evChoch := true
+                chochFromPrice := protectedHigh
+                chochFromIdx := protectedHighIdx
+                dbgChochReason := "bear_to_bull_choch_pass"
+            else
+                dbgChochReason := "bear_to_bull_choch_block:latch_active_until_resolution"
+        else
+            dbgChochReason := "bear_to_bull_choch_block:close_not_above_protectedHigh"
 
 // Event markers.
 plotshape(evBos, title="BoS", style=shape.diamond, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny, text="BoS")
