@@ -283,7 +283,8 @@ plot(protectedHigh, title="Protected High", color=color.new(color.red, 50), line
 plot(protectedLow, title="Protected Low", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
 
 pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != validatedHighIdx) : (na(validatedLowIdx) or candLowIdx != validatedLowIdx)
-bgcolor(showPendingBg and pendingNow ? color.new(color.orange, 88) : na)
+pendingBgColor = showPendingBg and pendingNow ? color.new(color.orange, 88) : color(na)
+bgcolor(pendingBgColor)
 
 regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
 
