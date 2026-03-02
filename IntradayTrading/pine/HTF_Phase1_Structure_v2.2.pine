@@ -84,21 +84,6 @@ if not na(pl)
     if showSwingLabels
         label.new(pivotIndex, pl, "SL", style=label.style_label_up, textcolor=color.white, color=color.new(color.orange, 0), size=size.tiny)
 
-// Deterministic seeding: once confirmed pivots appear, seed missing validated/protected levels.
-if na(validatedHigh) and not na(ph)
-    validatedHigh := ph
-    validatedHighIdx := bar_index - rightBars
-if na(validatedLow) and not na(pl)
-    validatedLow := pl
-    validatedLowIdx := bar_index - rightBars
-
-if regimeDir == "bullish" and na(protectedLow) and not na(validatedLow)
-    protectedLow := validatedLow
-    protectedLowIdx := validatedLowIdx
-if regimeDir == "bearish" and na(protectedHigh) and not na(validatedHigh)
-    protectedHigh := validatedHigh
-    protectedHighIdx := validatedHighIdx
-
 transitionReason := ""
 
 if regimeDir == "bullish"
@@ -174,15 +159,13 @@ if regimeDir == "bullish"
         activeChochIndex := bar_index
         transitionLatchIndex := protectedLowIdx
 
-        // Seed opposite side from confirmed references only.
+        // Seed opposite side candidates only; confirmed swing must come from sweep rule.
         protectedHigh := validatedHigh
         protectedHighIdx := validatedHighIdx
         candLow := low
         candLowIdx := bar_index
         candLowOpp := high
         candLowOppIdx := bar_index
-        validatedLow := low
-        validatedLowIdx := bar_index
 
         evChoch := true
         chochFromPrice := protectedLow
@@ -269,8 +252,6 @@ else
         candHighIdx := bar_index
         candHighOpp := low
         candHighOppIdx := bar_index
-        validatedHigh := high
-        validatedHighIdx := bar_index
 
         evChoch := true
         chochFromPrice := protectedHigh
