@@ -1,5 +1,5 @@
 //@version=5
-indicator("HTF Phase 1 Structure v3 (candidate+sweep gated)", overlay=true, max_labels_count=500, max_lines_count=500)
+indicator("HTF Phase 1 Structure v3 (candidate+sweep gated)", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
 
 // ----------------------------------------------------------------------------
 // v3 Ground-up build (aligned to Redact MarketStructure.md flow)
