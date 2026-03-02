@@ -92,6 +92,15 @@ int bosFromIdx = na
 float chochFromPrice = na
 int chochFromIdx = na
 
+// Precompute dynamic lock windows each bar so TA funcs are called consistently.
+lenBull = na(validatedHighIdx) ? 1 : math.max(1, bar_index - validatedHighIdx + 1)
+bullLockLow = ta.lowest(low, lenBull)
+bullLockOff = ta.lowestbars(low, lenBull)
+
+lenBear = na(validatedLowIdx) ? 1 : math.max(1, bar_index - validatedLowIdx + 1)
+bearLockHigh = ta.highest(high, lenBear)
+bearLockOff = ta.highestbars(high, lenBear)
+
 // ---------------------------- Core logic -------------------------------------
 if regimeDir == "bullish"
     // Gate A: build bullish candidate highs.
@@ -139,12 +148,8 @@ if regimeDir == "bullish"
         bosFromIdx := validatedHighIdx
 
         // Confirm opposite swing low over interval [validatedHighIdx .. current].
-        start = validatedHighIdx
-        len = math.max(1, bar_index - start + 1)
-        lockLow = ta.lowest(low, len)
-        lockOff = ta.lowestbars(low, len)
-        protectedLow := lockLow
-        protectedLowIdx := bar_index + lockOff
+        protectedLow := bullLockLow
+        protectedLowIdx := bar_index + bullLockOff
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
@@ -223,12 +228,8 @@ else
         bosFromPrice := validatedLow
         bosFromIdx := validatedLowIdx
 
-        start = validatedLowIdx
-        len = math.max(1, bar_index - start + 1)
-        lockHigh = ta.highest(high, len)
-        lockOff = ta.highestbars(high, len)
-        protectedHigh := lockHigh
-        protectedHighIdx := bar_index + lockOff
+        protectedHigh := bearLockHigh
+        protectedHighIdx := bar_index + bearLockOff
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
@@ -282,8 +283,7 @@ plot(protectedHigh, title="Protected High", color=color.new(color.red, 50), line
 plot(protectedLow, title="Protected Low", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
 
 pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != validatedHighIdx) : (na(validatedLowIdx) or candLowIdx != validatedLowIdx)
-if showPendingBg
-    bgcolor(pendingNow ? color.new(color.orange, 88) : na)
+bgcolor(showPendingBg and pendingNow ? color.new(color.orange, 88) : na)
 
 regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
 
