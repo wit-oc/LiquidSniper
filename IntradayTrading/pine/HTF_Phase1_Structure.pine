@@ -141,17 +141,17 @@ if regimeDir == "bullish"
 
     // Continuation BoS in bullish direction.
     dbgAcceptedBreakUp := not na(validatedHigh) and acceptedBreakAbove(validatedHigh)
+    startBull = na(validatedHighIdx) ? bar_index : validatedHighIdx
+    lenBull = math.max(1, bar_index - startBull + 1)
+    lockLow = ta.lowest(low, lenBull)
+    lockIdx = ta.lowestbars(low, lenBull)
     if dbgAcceptedBreakUp
-        start = na(validatedHighIdx) ? bar_index : validatedHighIdx
-        len = bar_index - start + 1
-        lockLow = ta.lowest(low, len)
-        lockIdx = ta.lowestbars(low, len)
         protectedLow := lockLow
         protectedLowIdx := bar_index + lockIdx
 
         evBos := true
         bosFromPrice := validatedHigh
-        bosFromIdx := start
+        bosFromIdx := startBull
         dbgBosReason := "bull_bos_pass"
 
         regimeConf := "confirmed"
@@ -241,17 +241,17 @@ else
 
     // Continuation BoS in bearish direction.
     dbgAcceptedBreakDown := not na(validatedLow) and acceptedBreakBelow(validatedLow)
+    startBear = na(validatedLowIdx) ? bar_index : validatedLowIdx
+    lenBear = math.max(1, bar_index - startBear + 1)
+    lockHigh = ta.highest(high, lenBear)
+    lockIdx = ta.highestbars(high, lenBear)
     if dbgAcceptedBreakDown
-        start = na(validatedLowIdx) ? bar_index : validatedLowIdx
-        len = bar_index - start + 1
-        lockHigh = ta.highest(high, len)
-        lockIdx = ta.highestbars(high, len)
         protectedHigh := lockHigh
         protectedHighIdx := bar_index + lockIdx
 
         evBos := true
         bosFromPrice := validatedLow
-        bosFromIdx := start
+        bosFromIdx := startBear
         dbgBosReason := "bear_bos_pass"
 
         regimeConf := "confirmed"
@@ -281,7 +281,7 @@ else
     if regimeConf != "confirmed"
         dbgChochReason := "bear_to_bull_choch_block:not_confirmed"
     else if dbgAcceptedBreakUp
-            if not (chochLatchActive and chochLatchSide == "bear_to_bull")
+        if not (chochLatchActive and chochLatchSide == "bear_to_bull")
                 chochLatchActive := true
                 chochLatchSide := "bear_to_bull"
                 chochLatchProtectedIdx := protectedHighIdx
