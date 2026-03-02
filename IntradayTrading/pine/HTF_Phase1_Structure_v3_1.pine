@@ -98,6 +98,9 @@ var int lastChochProtectedHighIdx = na
 // Active CHoCH level for diagnostics.
 var float activeChochLevel = na
 
+// Transitional anchor lifecycle (used while regimeConf == transitional).
+var int transitionStartIdx = na
+
 // Continuation Break (CB) fork state: signals continuation while strict gate is closed.
 var bool cbActive = false
 var string cbDir = ""
@@ -140,6 +143,7 @@ if not processActive and bar_index >= processStartIdx
     lastChochProtectedLowIdx := na
     lastChochProtectedHighIdx := na
     activeChochLevel := na
+    transitionStartIdx := bar_index
 
     cbActive := false
     cbDir := ""
@@ -183,6 +187,20 @@ bullLockOff = ta.lowestbars(low, lenBull)
 lenBear = na(validatedLowIdx) ? 1 : math.max(1, bar_index - validatedLowIdx + 1)
 bearLockHigh = ta.highest(high, lenBear)
 bearLockOff = ta.highestbars(high, lenBear)
+
+// Transitional anchor window (bounded to current regime leg since CHoCH/seed).
+lenTrans = na(transitionStartIdx) ? 1 : math.max(1, bar_index - transitionStartIdx + 1)
+transLow = ta.lowest(low, lenTrans)
+transLowOff = ta.lowestbars(low, lenTrans)
+transHigh = ta.highest(high, lenTrans)
+transHighOff = ta.highestbars(high, lenTrans)
+
+// Single active anchor per direction: transitional anchor during transition,
+// BoS-managed protected anchor when confirmed.
+activeBullAnchor = regimeConf == "transitional" ? transLow : protectedLow
+activeBullAnchorIdx = regimeConf == "transitional" ? (bar_index + transLowOff) : protectedLowIdx
+activeBearAnchor = regimeConf == "transitional" ? transHigh : protectedHigh
+activeBearAnchorIdx = regimeConf == "transitional" ? (bar_index + transHighOff) : protectedHighIdx
 
 // ---------------------------- Core logic -------------------------------------
 if processReady and regimeDir == "bullish"
@@ -258,28 +276,29 @@ if processReady and regimeDir == "bullish"
         evWeakBreak := true
 
     // CHoCH instrumentation (downside check while currently bullish).
-    chochAttemptDown = close < protectedLow
-    chochConvDown = convincingChochBelow(protectedLow)
+    chochAttemptDown = close < activeBullAnchor
+    chochConvDown = convincingChochBelow(activeBullAnchor)
     if chochAttemptDown
         chochCheck := true
         if not chochConvDown
             chochBlockedReason := "weak_close"
         else if strictGating and not bullGateOpen
             chochBlockedReason := "gate_closed"
-        else if lastChochProtectedLowIdx == protectedLowIdx
+        else if lastChochProtectedLowIdx == activeBullAnchorIdx
             chochBlockedReason := "deduped"
         else
             chochBlockedReason := "none"
 
-            lastChochProtectedLowIdx := protectedLowIdx
+            lastChochProtectedLowIdx := activeBullAnchorIdx
             evChoch := true
-            chochFromPrice := protectedLow
-            chochFromIdx := protectedLowIdx
+            chochFromPrice := activeBullAnchor
+            chochFromIdx := activeBullAnchorIdx
 
             regimeDir := "bearish"
             regimeConf := "transitional"
             regimeReason := "choch_detected"
-            activeChochLevel := protectedLow
+            activeChochLevel := activeBullAnchor
+            transitionStartIdx := bar_index
 
             // CHoCH invalidates pending same-direction continuation signal.
             if cbActive and cbDir == "bullish"
@@ -301,7 +320,7 @@ if processReady and regimeDir == "bullish"
                 protectedHigh := validatedHigh
                 protectedHighIdx := validatedHighIdx
 
-    if canEvaluateStructure and weakBreakBelow(protectedLow)
+    if canEvaluateStructure and weakBreakBelow(activeBullAnchor)
         evWeakBreak := true
 
 else if processReady
@@ -374,28 +393,29 @@ else if processReady
         evWeakBreak := true
 
     // CHoCH instrumentation (upside check while currently bearish).
-    chochAttemptUp = close > protectedHigh
-    chochConvUp = convincingChochAbove(protectedHigh)
+    chochAttemptUp = close > activeBearAnchor
+    chochConvUp = convincingChochAbove(activeBearAnchor)
     if chochAttemptUp
         chochCheck := true
         if not chochConvUp
             chochBlockedReason := "weak_close"
         else if strictGating and not bearGateOpen
             chochBlockedReason := "gate_closed"
-        else if lastChochProtectedHighIdx == protectedHighIdx
+        else if lastChochProtectedHighIdx == activeBearAnchorIdx
             chochBlockedReason := "deduped"
         else
             chochBlockedReason := "none"
 
-            lastChochProtectedHighIdx := protectedHighIdx
+            lastChochProtectedHighIdx := activeBearAnchorIdx
             evChoch := true
-            chochFromPrice := protectedHigh
-            chochFromIdx := protectedHighIdx
+            chochFromPrice := activeBearAnchor
+            chochFromIdx := activeBearAnchorIdx
 
             regimeDir := "bullish"
             regimeConf := "transitional"
             regimeReason := "choch_detected"
-            activeChochLevel := protectedHigh
+            activeChochLevel := activeBearAnchor
+            transitionStartIdx := bar_index
 
             // CHoCH invalidates pending same-direction continuation signal.
             if cbActive and cbDir == "bearish"
@@ -416,7 +436,7 @@ else if processReady
                 protectedLow := validatedLow
                 protectedLowIdx := validatedLowIdx
 
-    if canEvaluateStructure and weakBreakAbove(protectedHigh)
+    if canEvaluateStructure and weakBreakAbove(activeBearAnchor)
         evWeakBreak := true
 
 // ---------------------------- Visuals ----------------------------------------
@@ -436,8 +456,8 @@ if evCb and not na(cbFromPrice) and not na(cbFromLineIdx)
 
 plot(regimeDir == "bullish" ? validatedHigh : na, title="Validated High (bull)", color=color.new(color.blue, 0), linewidth=2, style=plot.style_linebr)
 plot(regimeDir == "bearish" ? validatedLow : na, title="Validated Low (bear)", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
-plot(regimeDir == "bearish" ? protectedHigh : na, title="Protected High (bear CHoCH ref)", color=color.new(color.red, 50), linewidth=1, style=plot.style_linebr)
-plot(regimeDir == "bullish" ? protectedLow : na, title="Protected Low (bull CHoCH ref)", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
+plot(regimeDir == "bearish" ? activeBearAnchor : na, title="Active Anchor High (bear)", color=color.new(color.red, 50), linewidth=1, style=plot.style_linebr)
+plot(regimeDir == "bullish" ? activeBullAnchor : na, title="Active Anchor Low (bull)", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
 plot(regimeDir == "bullish" ? candHigh : na, title="Candidate High (bull)", color=color.new(color.blue, 70), linewidth=1, style=plot.style_linebr)
 plot(regimeDir == "bearish" ? candLow : na, title="Candidate Low (bear)", color=color.new(color.orange, 70), linewidth=1, style=plot.style_linebr)
 
@@ -447,10 +467,12 @@ pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != va
 
 regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
 
-var table t = table.new(position.top_right, 1, 11, border_width=1)
+var table t = table.new(position.top_right, 1, 12, border_width=1)
 if barstate.islast and showGateTable
     gateTxt = strictGating ? (pendingNow ? "CLOSED (pending sweep)" : "OPEN") : "OPEN (strict off)"
-    protectedRefTxt = regimeDir == "bullish" ? ("Low " + str.tostring(protectedLow, format.mintick)) : ("High " + str.tostring(protectedHigh, format.mintick))
+    anchorSourceTxt = regimeConf == "transitional" ? "transitional" : "bos-structural"
+    activeAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(activeBullAnchor, format.mintick)) : ("High " + str.tostring(activeBearAnchor, format.mintick))
+    structuralAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(protectedLow, format.mintick)) : ("High " + str.tostring(protectedHigh, format.mintick))
     validatedRefTxt = regimeDir == "bullish" ? ("High " + str.tostring(validatedHigh, format.mintick)) : ("Low " + str.tostring(validatedLow, format.mintick))
     chochCheckTxt = chochCheck ? "true" : "false"
     cbStateTxt = cbActive ? ("active " + cbDir + " @ " + str.tostring(cbLevel, format.mintick)) : "none"
@@ -458,10 +480,11 @@ if barstate.islast and showGateTable
     table.cell(t, 0, 1, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
     table.cell(t, 0, 2, "Reason: " + regimeReason, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 0, 3, "Gate: " + gateTxt, text_color=color.white, bgcolor=color.new(pendingNow ? color.orange : color.teal, 35))
-    table.cell(t, 0, 4, "Protected ref: " + protectedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 5, "Validated ref: " + validatedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 6, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 7, "CHoCH check: " + chochCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 8, "CHoCH blocked: " + chochBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 9, "Continuation (CB): " + cbStateTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 10, "Conf usage: risk flag only (v3.1)", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 4, "Anchor source: " + anchorSourceTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 5, "Active anchor: " + activeAnchorTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 6, "Structural anchor: " + structuralAnchorTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 7, "Validated ref: " + validatedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 8, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 9, "CHoCH check: " + chochCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 10, "CHoCH blocked: " + chochBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 11, "Continuation (CB): " + cbStateTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
