@@ -13,6 +13,7 @@ indicator("HTF Phase 1 Structure v3 (candidate+sweep gated)", overlay=true, max_
 autoBootstrap = input.bool(true, "Bootstrap from EMA12 over first N bars")
 bootstrapBars = input.int(25, "Bootstrap bars", minval=5)
 manualInitialBullish = input.bool(true, "Manual initial bullish (used before bootstrap)")
+processLookbackBars = input.int(1500, "Process only recent bars", minval=200)
 
 breakMinFrac = input.float(0.20, "Break min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
 strictGating = input.bool(true, "Strict gate: no BoS/CHoCH while in-trend swing is pending")
@@ -42,13 +43,11 @@ var string regimeConf = "confirmed"               // confirmed | transitional
 var string regimeReason = "bootstrap"             // bootstrap | choch_detected | bos_confirmed
 
 var bool bootstrapLocked = false
-if autoBootstrap and not bootstrapLocked and bar_index >= bootstrapBars - 1
-    alpha = 2.0 / (12.0 + 1.0)
-    ema = close[bootstrapBars - 1]
-    for j = bootstrapBars - 2 to 0
-        ema := alpha * close[j] + (1.0 - alpha) * ema
-    regimeDir := close >= ema ? "bullish" : "bearish"
-    bootstrapLocked := true
+var bool processActive = false
+var int processSeedIdx = na
+var float bootEma = na
+var int bootCount = 0
+processStartIdx = math.max(0, last_bar_index - processLookbackBars + 1)
 
 // Protected structural boundaries used for CHoCH checks.
 var float protectedLow = low
@@ -81,6 +80,54 @@ var int lastChochProtectedHighIdx = na
 // Active CHoCH level for diagnostics.
 var float activeChochLevel = na
 
+// Seed state only on recent history window so ancient bars don't anchor structure.
+if not processActive and bar_index >= processStartIdx
+    processActive := true
+    processSeedIdx := bar_index
+
+    regimeDir := manualInitialBullish ? "bullish" : "bearish"
+    regimeConf := "confirmed"
+    regimeReason := "bootstrap"
+
+    protectedLow := low
+    protectedLowIdx := bar_index
+    protectedHigh := high
+    protectedHighIdx := bar_index
+
+    validatedHigh := high
+    validatedHighIdx := bar_index
+    validatedLow := low
+    validatedLowIdx := bar_index
+
+    candHigh := high
+    candHighIdx := bar_index
+    candHighLow := low
+    candHighLowIdx := bar_index
+
+    candLow := low
+    candLowIdx := bar_index
+    candLowHigh := high
+    candLowHighIdx := bar_index
+
+    lastChochProtectedLowIdx := na
+    lastChochProtectedHighIdx := na
+    activeChochLevel := na
+
+    bootEma := close
+    bootCount := 1
+    bootstrapLocked := not autoBootstrap
+
+if processActive and autoBootstrap and not bootstrapLocked and bar_index > processSeedIdx
+    alpha = 2.0 / (12.0 + 1.0)
+    if bootCount < bootstrapBars
+        bootEma := alpha * close + (1.0 - alpha) * bootEma
+        bootCount += 1
+    if bootCount >= bootstrapBars
+        regimeDir := close >= bootEma ? "bullish" : "bearish"
+        bootstrapLocked := true
+
+processReady = processActive and bootstrapLocked
+
 // ---------------------------- Event flags ------------------------------------
 bool evBos = false
 bool evChoch = false
@@ -102,7 +149,7 @@ bearLockHigh = ta.highest(high, lenBear)
 bearLockOff = ta.highestbars(high, lenBear)
 
 // ---------------------------- Core logic -------------------------------------
-if regimeDir == "bullish"
+if processReady and regimeDir == "bullish"
     // Gate A: build bullish candidate highs.
     if high > candHigh
         candHigh := high
@@ -187,7 +234,7 @@ if regimeDir == "bullish"
     if canEvaluateStructure and weakBreakBelow(protectedLow)
         evWeakBreak := true
 
-else
+else if processReady
     // Gate A: build bearish candidate lows.
     if low < candLow
         candLow := low
