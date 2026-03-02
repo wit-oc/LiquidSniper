@@ -61,9 +61,11 @@ var int candLowOppIdx = bar_index
 var float activeChochLevel = na
 var int activeChochIndex = na
 
-// One-shot CHoCH per protected level.
-var int lastChochProtectedLowIdx = na
-var int lastChochProtectedHighIdx = na
+// One-shot CHoCH latch (re-arm on resolution/rebuild).
+var bool chochLatchActive = false
+var string chochLatchSide = ""  // "bull_to_bear" | "bear_to_bull"
+var int chochLatchProtectedIdx = na
+var int chochLatchSetBar = na
 
 // Event flags for this bar.
 bool evBos = false
@@ -155,16 +157,31 @@ if regimeDir == "bullish"
         transitionReason := "bos_confirmed"
         activeChochLevel := na
         activeChochIndex := na
+        // BoS resolution re-arms CHoCH latch.
+        chochLatchActive := false
+        chochLatchSide := ""
+        chochLatchProtectedIdx := na
+        chochLatchSetBar := na
         validatedHigh := high
         validatedHighIdx := bar_index
     else
         dbgBosReason := na(validatedHigh) ? "bull_bos_block:no_validatedHigh" : "bull_bos_block:break_threshold_or_close"
 
-    // CHoCH against protected low (one-shot per protected level index).
+    // Re-arm CHoCH latch if protected structure rebuilt.
+    if chochLatchActive and chochLatchSide == "bull_to_bear" and chochLatchProtectedIdx != protectedLowIdx
+        chochLatchActive := false
+        chochLatchSide := ""
+        chochLatchProtectedIdx := na
+        chochLatchSetBar := na
+
+    // CHoCH against protected low (one-shot until resolution/rebuild).
     dbgAcceptedBreakDown := acceptedBreakBelow(protectedLow)
     if dbgAcceptedBreakDown
-        if lastChochProtectedLowIdx != protectedLowIdx
-            lastChochProtectedLowIdx := protectedLowIdx
+        if not (chochLatchActive and chochLatchSide == "bull_to_bear")
+            chochLatchActive := true
+            chochLatchSide := "bull_to_bear"
+            chochLatchProtectedIdx := protectedLowIdx
+            chochLatchSetBar := bar_index
             regimeDir := "bearish"
             regimeConf := "transitional"
             transitionReason := "choch_detected"
@@ -175,7 +192,7 @@ if regimeDir == "bullish"
             chochFromIdx := protectedLowIdx
             dbgChochReason := "bull_to_bear_choch_pass"
         else
-            dbgChochReason := "bull_to_bear_choch_block:latch_same_protectedLowIdx"
+            dbgChochReason := "bull_to_bear_choch_block:latch_active_until_resolution"
     else
         dbgChochReason := "bull_to_bear_choch_block:close_not_below_protectedLow"
 
@@ -227,16 +244,31 @@ else
         transitionReason := "bos_confirmed"
         activeChochLevel := na
         activeChochIndex := na
+        // BoS resolution re-arms CHoCH latch.
+        chochLatchActive := false
+        chochLatchSide := ""
+        chochLatchProtectedIdx := na
+        chochLatchSetBar := na
         validatedLow := low
         validatedLowIdx := bar_index
     else
         dbgBosReason := na(validatedLow) ? "bear_bos_block:no_validatedLow" : "bear_bos_block:break_threshold_or_close"
 
-    // CHoCH against protected high (one-shot per protected level index).
+    // Re-arm CHoCH latch if protected structure rebuilt.
+    if chochLatchActive and chochLatchSide == "bear_to_bull" and chochLatchProtectedIdx != protectedHighIdx
+        chochLatchActive := false
+        chochLatchSide := ""
+        chochLatchProtectedIdx := na
+        chochLatchSetBar := na
+
+    // CHoCH against protected high (one-shot until resolution/rebuild).
     dbgAcceptedBreakUp := acceptedBreakAbove(protectedHigh)
     if dbgAcceptedBreakUp
-        if lastChochProtectedHighIdx != protectedHighIdx
-            lastChochProtectedHighIdx := protectedHighIdx
+        if not (chochLatchActive and chochLatchSide == "bear_to_bull")
+            chochLatchActive := true
+            chochLatchSide := "bear_to_bull"
+            chochLatchProtectedIdx := protectedHighIdx
+            chochLatchSetBar := bar_index
             regimeDir := "bullish"
             regimeConf := "transitional"
             transitionReason := "choch_detected"
@@ -247,7 +279,7 @@ else
             chochFromIdx := protectedHighIdx
             dbgChochReason := "bear_to_bull_choch_pass"
         else
-            dbgChochReason := "bear_to_bull_choch_block:latch_same_protectedHighIdx"
+            dbgChochReason := "bear_to_bull_choch_block:latch_active_until_resolution"
     else
         dbgChochReason := "bear_to_bull_choch_block:close_not_above_protectedHigh"
 
@@ -270,7 +302,7 @@ plot(validatedLow, title="Active Swing Low", color=color.new(color.orange, 0), l
 regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
 bgcolor(color.new(regimeColor, 88))
 
-var table t = table.new(position.top_right, 1, 10, border_width=1)
+var table t = table.new(position.top_right, 1, 12, border_width=1)
 if barstate.islast
     table.cell(t, 0, 0, "Dir: " + regimeDir, text_color=color.white, bgcolor=color.new(regimeColor, 0))
     table.cell(t, 0, 1, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
@@ -283,3 +315,5 @@ if barstate.islast
         table.cell(t, 0, 7, "BoS gate: " + dbgBosReason, text_color=color.white, bgcolor=color.new(color.black, 0))
         table.cell(t, 0, 8, "CHoCH gate: " + dbgChochReason, text_color=color.white, bgcolor=color.new(color.black, 0))
         table.cell(t, 0, 9, "Prot idx H/L: " + str.tostring(protectedHighIdx) + " / " + str.tostring(protectedLowIdx), text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 10, "Latch: " + (chochLatchActive ? "active" : "idle") + " [" + (chochLatchSide == "" ? "-" : chochLatchSide) + "]", text_color=color.white, bgcolor=color.new(color.black, 0))
+        table.cell(t, 0, 11, "Latch idx/bar: " + str.tostring(chochLatchProtectedIdx) + " / " + str.tostring(chochLatchSetBar), text_color=color.white, bgcolor=color.new(color.black, 0))
