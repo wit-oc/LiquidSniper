@@ -203,11 +203,8 @@ if processReady and regimeDir == "bullish"
             if showSwingLabels
                 label.new(candHighIdx, candHigh, "VH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
 
-            // Keep downside protected level current from validated structure,
-            // independent of confidence state (v3.1 decoupling).
-            if candHighLow > protectedLow
-                protectedLow := candHighLow
-                protectedLowIdx := candHighLowIdx
+            // Do NOT move protectedLow here.
+            // Structural protected anchors are BoS-managed only.
 
     bullPending = na(validatedHighIdx) or candHighIdx != validatedHighIdx
     bullGateOpen = not bullPending
@@ -325,9 +322,8 @@ else if processReady
             if showSwingLabels
                 label.new(candLowIdx, candLow, "VL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
 
-            if candLowHigh < protectedHigh
-                protectedHigh := candLowHigh
-                protectedHighIdx := candLowHighIdx
+            // Do NOT move protectedHigh here.
+            // Structural protected anchors are BoS-managed only.
 
     bearPending = na(validatedLowIdx) or candLowIdx != validatedLowIdx
     bearGateOpen = not bearPending
