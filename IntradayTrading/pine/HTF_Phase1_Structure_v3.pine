@@ -113,7 +113,7 @@ if regimeDir == "bullish"
     // Gate B: candidate high validates only when creator low is swept by future
     // candle without a new high.
     if bar_index > candHighIdx and low <= candHighLow and high <= candHigh
-        if validatedHighIdx != candHighIdx
+        if na(validatedHighIdx) or validatedHighIdx != candHighIdx
             validatedHigh := candHigh
             validatedHighIdx := candHighIdx
             evSwingValidated := true
@@ -198,7 +198,7 @@ else
     // Gate B: candidate low validates only when creator high is swept by future
     // candle without a new low.
     if bar_index > candLowIdx and high >= candLowHigh and low >= candLow
-        if validatedLowIdx != candLowIdx
+        if na(validatedLowIdx) or validatedLowIdx != candLowIdx
             validatedLow := candLow
             validatedLowIdx := candLowIdx
             evSwingValidated := true
@@ -281,6 +281,8 @@ plot(validatedHigh, title="Validated High", color=color.new(color.blue, 0), line
 plot(validatedLow, title="Validated Low", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
 plot(protectedHigh, title="Protected High", color=color.new(color.red, 50), linewidth=1, style=plot.style_linebr)
 plot(protectedLow, title="Protected Low", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
+plot(regimeDir == "bullish" ? candHigh : na, title="Candidate High (bull)", color=color.new(color.blue, 70), linewidth=1, style=plot.style_linebr)
+plot(regimeDir == "bearish" ? candLow : na, title="Candidate Low (bear)", color=color.new(color.orange, 70), linewidth=1, style=plot.style_linebr)
 
 pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != validatedHighIdx) : (na(validatedLowIdx) or candLowIdx != validatedLowIdx)
 // Temporarily disable chart background painting due TradingView scope parser quirks.
