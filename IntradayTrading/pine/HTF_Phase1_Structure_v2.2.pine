@@ -84,6 +84,21 @@ if not na(pl)
     if showSwingLabels
         label.new(pivotIndex, pl, "SL", style=label.style_label_up, textcolor=color.white, color=color.new(color.orange, 0), size=size.tiny)
 
+// Deterministic seeding: once confirmed pivots appear, seed missing validated/protected levels.
+if na(validatedHigh) and not na(ph)
+    validatedHigh := ph
+    validatedHighIdx := bar_index - rightBars
+if na(validatedLow) and not na(pl)
+    validatedLow := pl
+    validatedLowIdx := bar_index - rightBars
+
+if regimeDir == "bullish" and na(protectedLow) and not na(validatedLow)
+    protectedLow := validatedLow
+    protectedLowIdx := validatedLowIdx
+if regimeDir == "bearish" and na(protectedHigh) and not na(validatedHigh)
+    protectedHigh := validatedHigh
+    protectedHighIdx := validatedHighIdx
+
 transitionReason := ""
 
 if regimeDir == "bullish"
