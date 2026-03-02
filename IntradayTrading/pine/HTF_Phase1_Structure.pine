@@ -282,33 +282,33 @@ else
         dbgChochReason := "bear_to_bull_choch_block:not_confirmed"
     else if dbgAcceptedBreakUp
         if not (chochLatchActive and chochLatchSide == "bear_to_bull")
-                chochLatchActive := true
-                chochLatchSide := "bear_to_bull"
-                chochLatchProtectedIdx := protectedHighIdx
-                chochLatchSetBar := bar_index
-                regimeDir := "bullish"
-                regimeConf := "transitional"
-                transitionReason := "choch_detected"
-                activeChochLevel := protectedHigh
-                activeChochIndex := bar_index
-                transitionLatchIndex := protectedHighIdx
-                // Seed bullish-side structure immediately on transition.
-                protectedLow := validatedLow
-                protectedLowIdx := nz(validatedLowIdx, bar_index)
-                candHigh := high
-                candHighIdx := bar_index
-                candHighOpp := low
-                candHighOppIdx := bar_index
-                validatedHigh := high
-                validatedHighIdx := bar_index
-                evChoch := true
-                chochFromPrice := protectedHigh
-                chochFromIdx := protectedHighIdx
-                dbgChochReason := "bear_to_bull_choch_pass"
-            else
-                dbgChochReason := "bear_to_bull_choch_block:latch_active_until_resolution"
+            chochLatchActive := true
+            chochLatchSide := "bear_to_bull"
+            chochLatchProtectedIdx := protectedHighIdx
+            chochLatchSetBar := bar_index
+            regimeDir := "bullish"
+            regimeConf := "transitional"
+            transitionReason := "choch_detected"
+            activeChochLevel := protectedHigh
+            activeChochIndex := bar_index
+            transitionLatchIndex := protectedHighIdx
+            // Seed bullish-side structure immediately on transition.
+            protectedLow := validatedLow
+            protectedLowIdx := nz(validatedLowIdx, bar_index)
+            candHigh := high
+            candHighIdx := bar_index
+            candHighOpp := low
+            candHighOppIdx := bar_index
+            validatedHigh := high
+            validatedHighIdx := bar_index
+            evChoch := true
+            chochFromPrice := protectedHigh
+            chochFromIdx := protectedHighIdx
+            dbgChochReason := "bear_to_bull_choch_pass"
         else
-            dbgChochReason := "bear_to_bull_choch_block:close_not_above_protectedHigh"
+            dbgChochReason := "bear_to_bull_choch_block:latch_active_until_resolution"
+    else
+        dbgChochReason := "bear_to_bull_choch_block:close_not_above_protectedHigh"
 
 // Invariant guard: protectedHigh should never be below protectedLow.
 if protectedHigh < protectedLow
