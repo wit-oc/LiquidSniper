@@ -108,41 +108,43 @@ f_add_zone(_mid, _width, _side, _strength) =>
 
     // De-dupe / spacing against same-side zones; keep stronger locus.
     bool dropped = false
-    for i = array.size(zTop) - 1 to 0
-        if not dropped
-            iSide = array.get(zSide, i)
-            iTop = array.get(zTop, i)
-            iBot = array.get(zBot, i)
-            iMid = array.get(zMid, i)
-            iWidth = array.get(zWidth, i)
-            iStr = array.get(zStrength, i)
-            ov = f_overlap_ratio(_top, _bot, iTop, iBot)
-            spacing = math.abs(_mid - iMid) / math.max(_width, iWidth)
-            if iSide == _side and (ov > mergeOverlap or spacing < minZoneSpacing)
-                if _strength > iStr
-                    // replace weaker
-                    b = array.get(zBox, i)
-                    if not na(b)
-                        box.delete(b)
-                    array.set(zTop, i, _top)
-                    array.set(zBot, i, _bot)
-                    array.set(zMid, i, _mid)
-                    array.set(zWidth, i, _width)
-                    array.set(zStrength, i, _strength)
-                    array.set(zState, i, STATE_ACTIVE)
-                    array.set(zRetest, i, 0)
-                    array.set(zFirstRetest, i, false)
-                    array.set(zBreakBar, i, na)
-                    array.set(zSepSeen, i, false)
-                    array.set(zBaseCount, i, 0)
-                    array.set(zCreatedBar, i, bar_index)
-                    array.set(zLastTouchBar, i, na)
-                    nb = box.new(bar_index - 1, _top, bar_index, _bot, border_color=color.new(color.white, 50), bgcolor=f_zone_color(STATE_ACTIVE, _side))
-                    array.set(zBox, i, nb)
-                    f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 10))
-                else
-                    dropped := true
-                    f_reason("SR_ZONE_DROPPED_OVERLAP", _mid, color.new(color.maroon, 25))
+    zCount = array.size(zTop)
+    if zCount > 0
+        for i = zCount - 1 to 0
+            if not dropped
+                iSide = array.get(zSide, i)
+                iTop = array.get(zTop, i)
+                iBot = array.get(zBot, i)
+                iMid = array.get(zMid, i)
+                iWidth = array.get(zWidth, i)
+                iStr = array.get(zStrength, i)
+                ov = f_overlap_ratio(_top, _bot, iTop, iBot)
+                spacing = math.abs(_mid - iMid) / math.max(_width, iWidth)
+                if iSide == _side and (ov > mergeOverlap or spacing < minZoneSpacing)
+                    if _strength > iStr
+                        // replace weaker
+                        b = array.get(zBox, i)
+                        if not na(b)
+                            box.delete(b)
+                        array.set(zTop, i, _top)
+                        array.set(zBot, i, _bot)
+                        array.set(zMid, i, _mid)
+                        array.set(zWidth, i, _width)
+                        array.set(zStrength, i, _strength)
+                        array.set(zState, i, STATE_ACTIVE)
+                        array.set(zRetest, i, 0)
+                        array.set(zFirstRetest, i, false)
+                        array.set(zBreakBar, i, na)
+                        array.set(zSepSeen, i, false)
+                        array.set(zBaseCount, i, 0)
+                        array.set(zCreatedBar, i, bar_index)
+                        array.set(zLastTouchBar, i, na)
+                        nb = box.new(bar_index - 1, _top, bar_index, _bot, border_color=color.new(color.white, 50), bgcolor=f_zone_color(STATE_ACTIVE, _side))
+                        array.set(zBox, i, nb)
+                        f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 10))
+                    else
+                        dropped := true
+                        f_reason("SR_ZONE_DROPPED_OVERLAP", _mid, color.new(color.maroon, 25))
 
     if not dropped
         array.push(zTop, _top)
