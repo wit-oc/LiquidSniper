@@ -280,9 +280,11 @@ htfPl = request.security(syminfo.tickerid, htfTf, ta.pivotlow(low, pivotL, pivot
 plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsia, 35), style=plot.style_circles, linewidth=1)
 plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 35), style=plot.style_circles, linewidth=1)
 
-// Update every zone each bar
-for i = 0 to array.size(zTop) - 1
-    f_update_zone(i)
+// Update every zone each bar (guard empty arrays)
+zoneCount = array.size(zTop)
+if zoneCount > 0
+    for i = 0 to zoneCount - 1
+        f_update_zone(i)
 
 // === Lightweight dashboard ===
 var table t = table.new(position.top_right, 2, 4, border_width=1)
@@ -290,11 +292,13 @@ if barstate.islast
     activeCnt = 0
     flipCnt = 0
     invalidCnt = 0
-    for i = 0 to array.size(zState) - 1
-        s = array.get(zState, i)
-        activeCnt += s == STATE_ACTIVE or s == STATE_FLIPPED ? 1 : 0
-        flipCnt += s == STATE_FLIP_CAND ? 1 : 0
-        invalidCnt += s == STATE_INVALID ? 1 : 0
+    stateCount = array.size(zState)
+    if stateCount > 0
+        for i = 0 to stateCount - 1
+            s = array.get(zState, i)
+            activeCnt += s == STATE_ACTIVE or s == STATE_FLIPPED ? 1 : 0
+            flipCnt += s == STATE_FLIP_CAND ? 1 : 0
+            invalidCnt += s == STATE_INVALID ? 1 : 0
 
     table.cell(t, 0, 0, "Zones", bgcolor=color.new(color.black, 0), text_color=color.white)
     table.cell(t, 1, 0, str.tostring(array.size(zTop)), bgcolor=color.new(color.black, 0), text_color=color.white)
