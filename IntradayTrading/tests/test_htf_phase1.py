@@ -52,6 +52,52 @@ def test_one_shot_choch_dedupes_repeated_breaks_same_level():
     assert len(choch) == 1
 
 
+def test_bos_locks_opposing_anchor_to_window_extreme():
+    highs = [10, 11, 12, 12, 12, 12, 12]
+    lows = [9, 10, 11, 11, 11, 11, 11]
+    closes = [9.5, 10.5, 11.5, 12.2, 12.3, 12.4, 12.5]
+
+    bars, events, _ = run_phase1_htf_structure(
+        highs,
+        lows,
+        closes,
+        n_init=3,
+        break_min_frac_of_candle=0.15,
+        bos_require_fresh_cross=True,
+    )
+
+    bos = next(e for e in events if e["event"] == "bos_confirmed")
+    lock = next(e for e in events if e["event"] == "swing_low_locked")
+
+    assert bos["index"] == 3
+    assert bos["anchor_index"] == 2
+    assert lock["anchor_index"] == 2
+    assert lock["price"] == 11
+    assert bars[bos["index"]]["protected_low_idx"] == 2
+    assert bars[bos["index"]]["protected_low"] == 11
+
+
+def test_bos_fresh_cross_blocks_repeated_same_side_closes():
+    highs = [10, 11, 12, 12, 12, 12, 12]
+    lows = [9, 10, 11, 11, 11, 11, 11]
+    closes = [9.5, 10.5, 11.5, 12.2, 12.3, 12.4, 12.5]
+
+    bars, events, _ = run_phase1_htf_structure(
+        highs,
+        lows,
+        closes,
+        n_init=3,
+        break_min_frac_of_candle=0.15,
+        bos_require_fresh_cross=True,
+    )
+
+    bos = [e for e in events if e["event"] == "bos_confirmed"]
+    assert len(bos) == 1
+    assert bars[4]["bos_check"]["blocked_reason"] == "no_fresh_cross"
+    assert bars[5]["bos_check"]["blocked_reason"] == "no_fresh_cross"
+    assert bars[6]["bos_check"]["blocked_reason"] == "no_fresh_cross"
+
+
 def test_phase1_engine_is_deterministic():
     highs = [10, 11, 12, 11, 12, 13, 12, 11, 10, 9, 8]
     lows = [9.0, 9.5, 10.0, 9.2, 9.7, 10.4, 9.6, 9.0, 8.8, 8.5, 8.0]
