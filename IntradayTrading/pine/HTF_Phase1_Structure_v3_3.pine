@@ -32,6 +32,7 @@ panelMode = input.string("minimal", "Panel mode", options=["off", "minimal", "fu
 showSwingLabels = input.bool(false, "Show internal validated labels (debug)")
 showBosAnchorLabels = input.bool(true, "Show BoS anchor labels (VL/VH)")
 showBosBreakLabels = input.bool(true, "Show BoS break labels (BoS→VL/VH)")
+showChochBreakLabels = input.bool(true, "Show CHoCH break labels (CHoCH↑/↓)")
 showFlipAnchorLabels = input.bool(true, "Show CHoCH flip-anchor labels (FlipVH/FlipVL)")
 showWeakBreakDots = input.bool(true, "Show weak break dots")
 showPendingBg = input.bool(true, "Shade background while gate is closed")
@@ -386,6 +387,8 @@ if processReady and regimeDir == "bullish"
             regimeConf := "transitional"
             regimeReason := "choch_detected"
             activeChochLevel := activeBullAnchor
+            if showChochBreakLabels
+                label.new(bar_index, high, "CHoCH↓", style=label.style_label_down, color=color.new(color.yellow, 0), textcolor=color.black, size=size.tiny)
             protectedHigh := flipBearHigh
             protectedHighIdx := bar_index + flipBearHighOff
             if showFlipAnchorLabels
@@ -542,6 +545,8 @@ else if processReady
             regimeConf := "transitional"
             regimeReason := "choch_detected"
             activeChochLevel := activeBearAnchor
+            if showChochBreakLabels
+                label.new(bar_index, low, "CHoCH↑", style=label.style_label_up, color=color.new(color.yellow, 0), textcolor=color.black, size=size.tiny)
             protectedLow := flipBullLow
             protectedLowIdx := bar_index + flipBullLowOff
             if showFlipAnchorLabels
