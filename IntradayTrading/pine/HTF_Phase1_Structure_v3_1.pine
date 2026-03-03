@@ -25,6 +25,7 @@ enableContinuationBreak = input.bool(true, "Enable Continuation Break (CB) while
 strictGating = input.bool(true, "Strict gate: no BoS/CHoCH while in-trend swing is pending")
 showSwingLabels = input.bool(false, "Show internal validated labels (debug)")
 showBosAnchorLabels = input.bool(true, "Show BoS anchor labels (VL/VH)")
+showBosBreakLabels = input.bool(true, "Show BoS break labels (BoS→VL/VH)")
 showWeakBreakDots = input.bool(true, "Show weak break dots")
 showGateTable = input.bool(true, "Show gate table")
 showPendingBg = input.bool(true, "Shade background while gate is closed")
@@ -262,6 +263,8 @@ if processReady and regimeDir == "bullish"
         protectedLowIdx := bar_index + bullLockOff
         if showBosAnchorLabels
             label.new(protectedLowIdx, protectedLow, "VL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
+        if showBosBreakLabels
+            label.new(bar_index, high, "BoS→VL", style=label.style_label_down, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
@@ -387,6 +390,8 @@ else if processReady
         protectedHighIdx := bar_index + bearLockOff
         if showBosAnchorLabels
             label.new(protectedHighIdx, protectedHigh, "VH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
+        if showBosBreakLabels
+            label.new(bar_index, low, "BoS→VH", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
