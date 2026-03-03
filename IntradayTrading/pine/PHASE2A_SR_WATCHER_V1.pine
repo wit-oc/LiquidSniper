@@ -56,10 +56,13 @@ var zCreatedBar     = array.new_int()
 var zLastTouchBar   = array.new_int()
 var zBox            = array.new_box()
 
+f_clamp(_x, _lo, _hi) =>
+    math.max(_lo, math.min(_hi, _x))
+
 atrv = ta.atr(atrLen)
 minW = minTicksInput * syminfo.mintick
 maxW = maxTicksInput * syminfo.mintick
-zoneW = math.clamp(kAtr * atrv, minW, maxW)
+zoneW = f_clamp(kAtr * atrv, minW, maxW)
 
 f_reason(_txt, _y, _c) =>
     if showReasonLabels
@@ -274,10 +277,8 @@ if not na(pl)
 htfPh = request.security(syminfo.tickerid, htfTf, ta.pivothigh(high, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
 htfPl = request.security(syminfo.tickerid, htfTf, ta.pivotlow(low, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
 
-if showHtfMarkers and not na(htfPh)
-    plot(htfPh, "HTF Pivot High", color=color.new(color.fuchsia, 35), style=plot.style_circles, linewidth=1)
-if showHtfMarkers and not na(htfPl)
-    plot(htfPl, "HTF Pivot Low", color=color.new(color.lime, 35), style=plot.style_circles, linewidth=1)
+plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsia, 35), style=plot.style_circles, linewidth=1)
+plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 35), style=plot.style_circles, linewidth=1)
 
 // Update every zone each bar
 for i = 0 to array.size(zTop) - 1
