@@ -359,10 +359,8 @@ if processReady and regimeDir == "bullish"
             validatedLow := na
             validatedLowIdx := na
 
-            // Reference boundary for any immediate invalidation checks.
-            if not na(validatedHigh)
-                protectedHigh := validatedHigh
-                protectedHighIdx := validatedHighIdx
+            // Keep structural protectedHigh unchanged on CHoCH.
+            // Structural anchors are BoS-managed only.
 
     if canEvaluateStructure and weakBreakBelow(activeBullAnchor)
         evWeakBreak := true
@@ -503,9 +501,8 @@ else if processReady
             validatedHigh := na
             validatedHighIdx := na
 
-            if not na(validatedLow)
-                protectedLow := validatedLow
-                protectedLowIdx := validatedLowIdx
+            // Keep structural protectedLow unchanged on CHoCH.
+            // Structural anchors are BoS-managed only.
 
     if canEvaluateStructure and weakBreakAbove(activeBearAnchor)
         evWeakBreak := true
