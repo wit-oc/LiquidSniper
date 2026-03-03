@@ -348,6 +348,10 @@ if processReady and regimeDir == "bullish"
         // Confirm opposite swing low over interval [validatedHighIdx .. current].
         protectedLow := bullLockLow
         protectedLowIdx := bar_index + bullLockOff
+        // On first bullish BoS after CHoCH, keep anchor at least as strict as flip-low anchor.
+        if regimeConf == "transitional" and not na(transAnchor) and transAnchor < protectedLow
+            protectedLow := transAnchor
+            protectedLowIdx := transAnchorIdx
         if showBosAnchorLabels
             label.new(protectedLowIdx, protectedLow, "VL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
         if showBosBreakLabels
@@ -510,6 +514,10 @@ else if processReady
 
         protectedHigh := bearLockHigh
         protectedHighIdx := bar_index + bearLockOff
+        // On first bearish BoS after CHoCH, keep anchor at least as strict as flip-high anchor.
+        if regimeConf == "transitional" and not na(transAnchor) and transAnchor > protectedHigh
+            protectedHigh := transAnchor
+            protectedHighIdx := transAnchorIdx
         if showBosAnchorLabels
             label.new(protectedHighIdx, protectedHigh, "VH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
         if showBosBreakLabels
