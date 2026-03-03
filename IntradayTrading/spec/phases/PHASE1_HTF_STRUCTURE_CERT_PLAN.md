@@ -17,11 +17,12 @@ Certify HTF market-structure logic as "DONE" for this phase by proving:
 - Candidate profile (current best):
   - `strictGating = false`
   - `bosRequireFreshCross = true`
-  - `breakMinFrac = 0.05` (primary)
-  - `chochBreakMinFrac = 0.12`
+  - `breakMinFrac = 0.15` (primary)
+  - `chochBreakMinFrac = 0.15`
 
 Secondary sensitivity profile:
-- Same settings, but `breakMinFrac = 0.20`
+- Same settings with `breakMinFrac = 0.05` (high sensitivity)
+- Same settings with `breakMinFrac = 0.20` (conservative)
 
 ---
 
