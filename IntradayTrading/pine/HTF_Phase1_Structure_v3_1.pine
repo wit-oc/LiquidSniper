@@ -23,7 +23,8 @@ breakMinFrac = input.float(0.20, "BoS min fraction of candle range", minval=0.0,
 chochBreakMinFrac = input.float(0.12, "CHoCH min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
 enableContinuationBreak = input.bool(true, "Enable Continuation Break (CB) while strict gate is closed")
 strictGating = input.bool(true, "Strict gate: no BoS/CHoCH while in-trend swing is pending")
-showSwingLabels = input.bool(true, "Show validated swing labels")
+showSwingLabels = input.bool(false, "Show internal validated labels (debug)")
+showBosAnchorLabels = input.bool(true, "Show BoS anchor labels (VL/VH)")
 showWeakBreakDots = input.bool(true, "Show weak break dots")
 showGateTable = input.bool(true, "Show gate table")
 showPendingBg = input.bool(true, "Shade background while gate is closed")
@@ -215,7 +216,7 @@ if processReady and regimeDir == "bullish"
             validatedHighIdx := candHighIdx
             evSwingValidated := true
             if showSwingLabels
-                label.new(candHighIdx, candHigh, "VH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
+                label.new(candHighIdx, candHigh, "iVH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
 
             // Do NOT move protectedLow here (BoS-managed only).
             // During transitional state, update local transitional anchor only.
@@ -259,6 +260,8 @@ if processReady and regimeDir == "bullish"
         // Confirm opposite swing low over interval [validatedHighIdx .. current].
         protectedLow := bullLockLow
         protectedLowIdx := bar_index + bullLockOff
+        if showBosAnchorLabels
+            label.new(protectedLowIdx, protectedLow, "VL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
@@ -341,7 +344,7 @@ else if processReady
             validatedLowIdx := candLowIdx
             evSwingValidated := true
             if showSwingLabels
-                label.new(candLowIdx, candLow, "VL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
+                label.new(candLowIdx, candLow, "iVL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
 
             // Do NOT move protectedHigh here (BoS-managed only).
             // During transitional state, update local transitional anchor only.
@@ -382,6 +385,8 @@ else if processReady
 
         protectedHigh := bearLockHigh
         protectedHighIdx := bar_index + bearLockOff
+        if showBosAnchorLabels
+            label.new(protectedHighIdx, protectedHigh, "VH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
