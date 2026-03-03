@@ -305,5 +305,4 @@ if barstate.islast
     table.cell(t, 0, 3, "Invalid", text_color=color.white)
     table.cell(t, 1, 3, str.tostring(invalidCnt), text_color=color.white)
 
-if showDebug
-    plot(zoneW, "zoneW", color=color.new(color.yellow, 0))
+plot(showDebug ? zoneW : na, "zoneW", color=color.new(color.yellow, 0))
