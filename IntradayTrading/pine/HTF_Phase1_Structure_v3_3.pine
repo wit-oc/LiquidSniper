@@ -22,11 +22,12 @@ manualInitialBullish = input.bool(true, "Manual initial bullish (used before boo
 processLookbackBars = input.int(1500, "Process only recent bars", minval=200)
 maxLockWindowBars = input.int(5000, "Max lockback window bars", minval=200)
 
-breakMinFrac = input.float(0.20, "BoS min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
+breakMinFrac = input.float(0.15, "BoS min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
 bosRequireFreshCross = input.bool(true, "BoS requires fresh cross of validated ref")
-chochBreakMinFrac = input.float(0.12, "CHoCH min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
+chochBreakMinFrac = input.float(0.15, "CHoCH min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
 enableContinuationBreak = input.bool(true, "Enable Continuation Break (CB) while strict gate is closed")
-strictGating = input.bool(true, "Strict gate: no BoS/CHoCH while in-trend swing is pending")
+strictGating = input.bool(false, "Strict gate: no BoS/CHoCH while in-trend swing is pending")
+debugView = input.bool(false, "Debug view (diagnostics + internal overlays)")
 showSwingLabels = input.bool(false, "Show internal validated labels (debug)")
 showBosAnchorLabels = input.bool(true, "Show BoS anchor labels (VL/VH)")
 showBosBreakLabels = input.bool(true, "Show BoS break labels (BoS→VL/VH)")
@@ -267,7 +268,7 @@ if processReady and regimeDir == "bullish"
             validatedHigh := candHigh
             validatedHighIdx := candHighIdx
             evSwingValidated := true
-            if showSwingLabels
+            if debugView and showSwingLabels
                 label.new(candHighIdx, candHigh, "iVH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
 
             // Do NOT move structural anchors here (BoS/CHoCH-managed only).
@@ -426,7 +427,7 @@ else if processReady
             validatedLow := candLow
             validatedLowIdx := candLowIdx
             evSwingValidated := true
-            if showSwingLabels
+            if debugView and showSwingLabels
                 label.new(candLowIdx, candLow, "iVL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
 
             // Do NOT move structural anchors here (BoS/CHoCH-managed only).
@@ -571,7 +572,7 @@ else if processReady
 plotshape(evBos, title="BoS", style=shape.diamond, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny, text="BoS")
 plotshape(evChoch, title="CHoCH", style=shape.triangledown, location=location.abovebar, color=color.new(color.yellow, 0), size=size.tiny, text="CH")
 plotshape(evCb, title="Continuation Break", style=shape.square, location=location.abovebar, color=color.new(color.fuchsia, 0), size=size.tiny, text="CB")
-plotshape(evWeakBreak and showWeakBreakDots ? close : na, title="Weak break", style=shape.circle, location=location.absolute, color=color.new(color.gray, 20), size=size.tiny)
+plotshape(evWeakBreak and showWeakBreakDots and debugView ? close : na, title="Weak break", style=shape.circle, location=location.absolute, color=color.new(color.gray, 20), size=size.tiny)
 
 if evBos and not na(bosFromPrice) and not na(bosFromIdx)
     line.new(bosFromIdx, bosFromPrice, bar_index, close, xloc=xloc.bar_index, extend=extend.none, color=color.new(color.green, 0), width=2)
@@ -586,8 +587,8 @@ plot(regimeDir == "bullish" ? validatedHigh : na, title="Validated High (bull)",
 plot(regimeDir == "bearish" ? validatedLow : na, title="Validated Low (bear)", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
 plot(regimeDir == "bearish" ? activeBearAnchor : na, title="Active Anchor High (bear)", color=color.new(color.red, 50), linewidth=1, style=plot.style_linebr)
 plot(regimeDir == "bullish" ? activeBullAnchor : na, title="Active Anchor Low (bull)", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
-plot(regimeDir == "bullish" ? candHigh : na, title="Candidate High (bull)", color=color.new(color.blue, 70), linewidth=1, style=plot.style_linebr)
-plot(regimeDir == "bearish" ? candLow : na, title="Candidate Low (bear)", color=color.new(color.orange, 70), linewidth=1, style=plot.style_linebr)
+plot(debugView and regimeDir == "bullish" ? candHigh : na, title="Candidate High (bull)", color=color.new(color.blue, 70), linewidth=1, style=plot.style_linebr)
+plot(debugView and regimeDir == "bearish" ? candLow : na, title="Candidate Low (bear)", color=color.new(color.orange, 70), linewidth=1, style=plot.style_linebr)
 
 pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != validatedHighIdx) : (na(validatedLowIdx) or candLowIdx != validatedLowIdx)
 // Temporarily disable chart background painting due TradingView scope parser quirks.
@@ -596,7 +597,7 @@ pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != va
 regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
 
 var table t = table.new(position.top_right, 1, 24, border_width=1)
-if barstate.islast and showGateTable
+if barstate.islast and showGateTable and debugView
     gateTxt = strictGating ? (pendingNow ? "CLOSED (pending sweep)" : "OPEN") : "OPEN (strict off)"
     anchorSourceTxt = "structural-only"
     activeAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(activeBullAnchor, format.mintick)) : ("High " + str.tostring(activeBearAnchor, format.mintick))
