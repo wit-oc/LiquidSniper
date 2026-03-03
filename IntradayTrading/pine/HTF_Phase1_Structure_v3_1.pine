@@ -57,6 +57,12 @@ weakBreakAbove(level) =>
 weakBreakBelow(level) =>
     close < level and not convincingBosBelow(level)
 
+idxToTime(idx) =>
+    ta.valuewhen(bar_index == idx, time, 0)
+
+fmtTs(ts) =>
+    na(ts) ? "-" : str.format_time(ts, "yyyy-MM-dd")
+
 // ---------------------------- Regime state -----------------------------------
 var string regimeDir = manualInitialBullish ? "bullish" : "bearish"
 var string regimeConf = "confirmed"               // confirmed | transitional
@@ -114,6 +120,14 @@ var int cbFromIdx = na
 string chochBlockedReason = "none"
 bool chochCheck = false
 
+// BoS instrumentation fields (updated each bar).
+string bosBlockedReason = "none"
+bool bosCheck = false
+var float lastBosAnchorPrice = na
+var int lastBosAnchorIdx = na
+var int lastBosAnchorTime = na
+var string lastBosDir = ""
+
 // Seed state only on recent history window so ancient bars don't anchor structure.
 if not processActive and bar_index >= processStartIdx
     processActive := true
@@ -148,6 +162,11 @@ if not processActive and bar_index >= processStartIdx
     activeChochLevel := na
     transAnchor := na
     transAnchorIdx := na
+
+    lastBosAnchorPrice := na
+    lastBosAnchorIdx := na
+    lastBosAnchorTime := na
+    lastBosDir := ""
 
     cbActive := false
     cbDir := ""
@@ -240,6 +259,18 @@ if processReady and regimeDir == "bullish"
     // Gate C: structural events only when gate open (if strict mode).
     canEvaluateStructure = strictGating ? bullGateOpen : true
 
+    // BoS diagnostics (bullish continuation check).
+    bosAttemptUp = close > validatedHigh
+    bosConvUp = convincingBosAbove(validatedHigh)
+    if bosAttemptUp
+        bosCheck := true
+        if not bosConvUp
+            bosBlockedReason := "weak_close"
+        else if strictGating and not bullGateOpen
+            bosBlockedReason := "gate_closed"
+        else
+            bosBlockedReason := "none"
+
     // Fork signal: continuation break while strict gate is closed.
     if enableContinuationBreak and strictGating and not bullGateOpen and convincingBosAbove(validatedHigh)
         isNewCb = (not cbActive) or cbDir != "bullish" or cbFromIdx != validatedHighIdx
@@ -265,6 +296,11 @@ if processReady and regimeDir == "bullish"
             label.new(protectedLowIdx, protectedLow, "VL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
         if showBosBreakLabels
             label.new(bar_index, high, "BoS→VL", style=label.style_label_down, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
+
+        lastBosAnchorPrice := protectedLow
+        lastBosAnchorIdx := protectedLowIdx
+        lastBosAnchorTime := idxToTime(protectedLowIdx)
+        lastBosDir := "bullish"
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
@@ -368,6 +404,18 @@ else if processReady
 
     canEvaluateStructure = strictGating ? bearGateOpen : true
 
+    // BoS diagnostics (bearish continuation check).
+    bosAttemptDown = close < validatedLow
+    bosConvDown = convincingBosBelow(validatedLow)
+    if bosAttemptDown
+        bosCheck := true
+        if not bosConvDown
+            bosBlockedReason := "weak_close"
+        else if strictGating and not bearGateOpen
+            bosBlockedReason := "gate_closed"
+        else
+            bosBlockedReason := "none"
+
     // Fork signal: continuation break while strict gate is closed.
     if enableContinuationBreak and strictGating and not bearGateOpen and convincingBosBelow(validatedLow)
         isNewCb = (not cbActive) or cbDir != "bearish" or cbFromIdx != validatedLowIdx
@@ -392,6 +440,11 @@ else if processReady
             label.new(protectedHighIdx, protectedHigh, "VH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
         if showBosBreakLabels
             label.new(bar_index, low, "BoS→VH", style=label.style_label_up, color=color.new(color.green, 0), textcolor=color.white, size=size.tiny)
+
+        lastBosAnchorPrice := protectedHigh
+        lastBosAnchorIdx := protectedHighIdx
+        lastBosAnchorTime := idxToTime(protectedHighIdx)
+        lastBosDir := "bearish"
 
         regimeConf := "confirmed"
         regimeReason := "bos_confirmed"
@@ -485,24 +538,34 @@ pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != va
 
 regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
 
-var table t = table.new(position.top_right, 1, 12, border_width=1)
+var table t = table.new(position.top_right, 1, 16, border_width=1)
 if barstate.islast and showGateTable
     gateTxt = strictGating ? (pendingNow ? "CLOSED (pending sweep)" : "OPEN") : "OPEN (strict off)"
     anchorSourceTxt = regimeConf == "transitional" and not na(transAnchor) ? "transitional-local" : "bos-structural"
     activeAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(activeBullAnchor, format.mintick)) : ("High " + str.tostring(activeBearAnchor, format.mintick))
+    activeAnchorIdxTxt = regimeDir == "bullish" ? str.tostring(activeBullAnchorIdx) : str.tostring(activeBearAnchorIdx)
+    activeAnchorTime = regimeDir == "bullish" ? idxToTime(activeBullAnchorIdx) : idxToTime(activeBearAnchorIdx)
     structuralAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(protectedLow, format.mintick)) : ("High " + str.tostring(protectedHigh, format.mintick))
+    structuralAnchorIdxTxt = regimeDir == "bullish" ? str.tostring(protectedLowIdx) : str.tostring(protectedHighIdx)
+    structuralAnchorTime = regimeDir == "bullish" ? idxToTime(protectedLowIdx) : idxToTime(protectedHighIdx)
     validatedRefTxt = regimeDir == "bullish" ? ("High " + str.tostring(validatedHigh, format.mintick)) : ("Low " + str.tostring(validatedLow, format.mintick))
     chochCheckTxt = chochCheck ? "true" : "false"
+    bosCheckTxt = bosCheck ? "true" : "false"
     cbStateTxt = cbActive ? ("active " + cbDir + " @ " + str.tostring(cbLevel, format.mintick)) : "none"
+    lastBosTxt = na(lastBosAnchorPrice) ? "-" : (lastBosDir + " @ " + str.tostring(lastBosAnchorPrice, format.mintick))
     table.cell(t, 0, 0, "Dir: " + regimeDir, text_color=color.white, bgcolor=color.new(regimeColor, 0))
     table.cell(t, 0, 1, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
     table.cell(t, 0, 2, "Reason: " + regimeReason, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 0, 3, "Gate: " + gateTxt, text_color=color.white, bgcolor=color.new(pendingNow ? color.orange : color.teal, 35))
     table.cell(t, 0, 4, "Anchor source: " + anchorSourceTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 5, "Active anchor: " + activeAnchorTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 6, "Structural anchor: " + structuralAnchorTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 5, "Active anchor: " + activeAnchorTxt + " | idx " + activeAnchorIdxTxt + " | " + fmtTs(activeAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 6, "Structural anchor: " + structuralAnchorTxt + " | idx " + structuralAnchorIdxTxt + " | " + fmtTs(structuralAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 0, 7, "Validated ref: " + validatedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 0, 8, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 0, 9, "CHoCH check: " + chochCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 0, 10, "CHoCH blocked: " + chochBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 11, "Continuation (CB): " + cbStateTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 11, "BoS check: " + bosCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 12, "BoS blocked: " + bosBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 13, "Last BoS anchor: " + lastBosTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 14, "Last BoS idx: " + (na(lastBosAnchorIdx) ? "-" : str.tostring(lastBosAnchorIdx)), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 15, "Last BoS date: " + fmtTs(lastBosAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
