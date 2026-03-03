@@ -27,13 +27,13 @@ bosRequireFreshCross = input.bool(true, "BoS requires fresh cross of validated r
 chochBreakMinFrac = input.float(0.15, "CHoCH min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
 enableContinuationBreak = input.bool(true, "Enable Continuation Break (CB) while strict gate is closed")
 strictGating = input.bool(false, "Strict gate: no BoS/CHoCH while in-trend swing is pending")
-debugView = input.bool(false, "Debug view (diagnostics + internal overlays)")
+debugView = input.bool(false, "Debug view (internal overlays)")
+panelMode = input.string("minimal", "Panel mode", options=["off", "minimal", "full"])
 showSwingLabels = input.bool(false, "Show internal validated labels (debug)")
 showBosAnchorLabels = input.bool(true, "Show BoS anchor labels (VL/VH)")
 showBosBreakLabels = input.bool(true, "Show BoS break labels (BoS→VL/VH)")
 showFlipAnchorLabels = input.bool(true, "Show CHoCH flip-anchor labels (FlipVH/FlipVL)")
 showWeakBreakDots = input.bool(true, "Show weak break dots")
-showGateTable = input.bool(true, "Show gate table")
 showPendingBg = input.bool(true, "Shade background while gate is closed")
 
 // ---------------------------- Helpers ----------------------------------------
@@ -596,47 +596,57 @@ pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != va
 
 regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
 
-var table t = table.new(position.top_right, 1, 24, border_width=1)
-if barstate.islast and showGateTable and debugView
-    gateTxt = strictGating ? (pendingNow ? "CLOSED (pending sweep)" : "OPEN") : "OPEN (strict off)"
-    anchorSourceTxt = "structural-only"
-    activeAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(activeBullAnchor, format.mintick)) : ("High " + str.tostring(activeBearAnchor, format.mintick))
-    activeAnchorIdxTxt = regimeDir == "bullish" ? str.tostring(activeBullAnchorIdx) : str.tostring(activeBearAnchorIdx)
-    activeAnchorTime = regimeDir == "bullish" ? idxToTime(activeBullAnchorIdx) : idxToTime(activeBearAnchorIdx)
-    structuralAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(protectedLow, format.mintick)) : ("High " + str.tostring(protectedHigh, format.mintick))
-    structuralAnchorIdxTxt = regimeDir == "bullish" ? str.tostring(protectedLowIdx) : str.tostring(protectedHighIdx)
-    structuralAnchorTime = regimeDir == "bullish" ? idxToTime(protectedLowIdx) : idxToTime(protectedHighIdx)
-    validatedRefTxt = regimeDir == "bullish" ? ("High " + str.tostring(validatedHigh, format.mintick)) : ("Low " + str.tostring(validatedLow, format.mintick))
-    chochCheckTxt = chochCheck ? "true" : "false"
-    bosCheckTxt = bosCheck ? "true" : "false"
-    bosEligibleTxt = bosEligible ? "true" : "false"
-    bosModeTxt = bosRequireFreshCross ? "fresh-cross" : "close-through"
-    bosRefLatchTxt = "bull=" + (na(lastBosBullRefIdx) ? "-" : str.tostring(lastBosBullRefIdx)) + " | bear=" + (na(lastBosBearRefIdx) ? "-" : str.tostring(lastBosBearRefIdx))
-    pendingDiagTxt = regimeDir == "bullish" ? ("bull=" + str.tostring(bullPendingDiag)) : ("bear=" + str.tostring(bearPendingDiag))
-    idxPairTxt = "cand=" + (na(candRefIdxDiag) ? "-" : str.tostring(candRefIdxDiag)) + " vs val=" + (na(validatedRefIdxDiag) ? "-" : str.tostring(validatedRefIdxDiag))
-    cbStateTxt = cbActive ? ("active " + cbDir + " @ " + str.tostring(cbLevel, format.mintick)) : "none"
-    lastBosTxt = na(lastBosAnchorPrice) ? "-" : (lastBosDir + " @ " + str.tostring(lastBosAnchorPrice, format.mintick))
-    table.cell(t, 0, 0, "Dir: " + regimeDir, text_color=color.white, bgcolor=color.new(regimeColor, 0))
-    table.cell(t, 0, 1, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
-    table.cell(t, 0, 2, "Reason: " + regimeReason, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 3, "Gate: " + gateTxt, text_color=color.white, bgcolor=color.new(pendingNow ? color.orange : color.teal, 35))
-    table.cell(t, 0, 4, "BoS eligible: " + bosEligibleTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 5, "Pending diag: " + pendingDiagTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 6, "Idx pair: " + idxPairTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 7, "Anchor source: " + anchorSourceTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 8, "Active anchor: " + activeAnchorTxt + " | idx " + activeAnchorIdxTxt + " | " + fmtTs(activeAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 9, "Structural anchor: " + structuralAnchorTxt + " | idx " + structuralAnchorIdxTxt + " | " + fmtTs(structuralAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 10, "Validated ref: " + validatedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 11, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 12, "CHoCH check: " + chochCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 13, "CHoCH blocked: " + chochBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 14, "BoS check: " + bosCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 15, "BoS blocked: " + bosBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 16, "Last BoS anchor: " + lastBosTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 17, "Last BoS idx: " + (na(lastBosAnchorIdx) ? "-" : str.tostring(lastBosAnchorIdx)), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 18, "Last BoS date: " + fmtTs(lastBosAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 19, "Process: ready=" + str.tostring(processReady) + " bootLocked=" + str.tostring(bootstrapLocked) + " seedIdx=" + (na(processSeedIdx) ? "-" : str.tostring(processSeedIdx)), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 20, "Lock windows: bull " + str.tostring(lenBullRaw) + "->" + str.tostring(lenBull) + " | bear " + str.tostring(lenBearRaw) + "->" + str.tostring(lenBear), text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 21, "BoS mode: " + bosModeTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 22, "BoS ref latches: " + bosRefLatchTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
-    table.cell(t, 0, 23, "Flip windows: bear " + str.tostring(lenFlipBearRaw) + "->" + str.tostring(lenFlipBear) + " | bull " + str.tostring(lenFlipBullRaw) + "->" + str.tostring(lenFlipBull), text_color=color.white, bgcolor=color.new(color.black, 0))
+var table t = table.new(position.top_right, 1, 26, border_width=1)
+if barstate.islast
+    for r = 0 to 25
+        table.cell(t, 0, r, "", text_color=color.new(color.white, 100), bgcolor=color.new(color.black, 100))
+
+    if panelMode != "off"
+        bosConfirmedByBos = regimeReason == "bos_confirmed"
+        table.cell(t, 0, 0, "Dir: " + regimeDir, text_color=color.white, bgcolor=color.new(regimeColor, 0))
+        table.cell(t, 0, 1, "BoS confirmed: " + (bosConfirmedByBos ? "yes" : "no"), text_color=color.white, bgcolor=color.new(bosConfirmedByBos ? color.green : color.orange, 55))
+
+        if panelMode == "full"
+            gateTxt = strictGating ? (pendingNow ? "CLOSED (pending sweep)" : "OPEN") : "OPEN (strict off)"
+            anchorSourceTxt = "structural-only"
+            activeAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(activeBullAnchor, format.mintick)) : ("High " + str.tostring(activeBearAnchor, format.mintick))
+            activeAnchorIdxTxt = regimeDir == "bullish" ? str.tostring(activeBullAnchorIdx) : str.tostring(activeBearAnchorIdx)
+            activeAnchorTime = regimeDir == "bullish" ? idxToTime(activeBullAnchorIdx) : idxToTime(activeBearAnchorIdx)
+            structuralAnchorTxt = regimeDir == "bullish" ? ("Low " + str.tostring(protectedLow, format.mintick)) : ("High " + str.tostring(protectedHigh, format.mintick))
+            structuralAnchorIdxTxt = regimeDir == "bullish" ? str.tostring(protectedLowIdx) : str.tostring(protectedHighIdx)
+            structuralAnchorTime = regimeDir == "bullish" ? idxToTime(protectedLowIdx) : idxToTime(protectedHighIdx)
+            validatedRefTxt = regimeDir == "bullish" ? ("High " + str.tostring(validatedHigh, format.mintick)) : ("Low " + str.tostring(validatedLow, format.mintick))
+            chochCheckTxt = chochCheck ? "true" : "false"
+            bosCheckTxt = bosCheck ? "true" : "false"
+            bosEligibleTxt = bosEligible ? "true" : "false"
+            bosModeTxt = bosRequireFreshCross ? "fresh-cross" : "close-through"
+            bosRefLatchTxt = "bull=" + (na(lastBosBullRefIdx) ? "-" : str.tostring(lastBosBullRefIdx)) + " | bear=" + (na(lastBosBearRefIdx) ? "-" : str.tostring(lastBosBearRefIdx))
+            pendingDiagTxt = regimeDir == "bullish" ? ("bull=" + str.tostring(bullPendingDiag)) : ("bear=" + str.tostring(bearPendingDiag))
+            idxPairTxt = "cand=" + (na(candRefIdxDiag) ? "-" : str.tostring(candRefIdxDiag)) + " vs val=" + (na(validatedRefIdxDiag) ? "-" : str.tostring(validatedRefIdxDiag))
+            cbStateTxt = cbActive ? ("active " + cbDir + " @ " + str.tostring(cbLevel, format.mintick)) : "none"
+            lastBosTxt = na(lastBosAnchorPrice) ? "-" : (lastBosDir + " @ " + str.tostring(lastBosAnchorPrice, format.mintick))
+
+            table.cell(t, 0, 2, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
+            table.cell(t, 0, 3, "Reason: " + regimeReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 4, "Gate: " + gateTxt, text_color=color.white, bgcolor=color.new(pendingNow ? color.orange : color.teal, 35))
+            table.cell(t, 0, 5, "BoS eligible: " + bosEligibleTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 6, "Pending diag: " + pendingDiagTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 7, "Idx pair: " + idxPairTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 8, "Anchor source: " + anchorSourceTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 9, "Active anchor: " + activeAnchorTxt + " | idx " + activeAnchorIdxTxt + " | " + fmtTs(activeAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 10, "Structural anchor: " + structuralAnchorTxt + " | idx " + structuralAnchorIdxTxt + " | " + fmtTs(structuralAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 11, "Validated ref: " + validatedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 12, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 13, "CHoCH check: " + chochCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 14, "CHoCH blocked: " + chochBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 15, "BoS check: " + bosCheckTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 16, "BoS blocked: " + bosBlockedReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 17, "Last BoS anchor: " + lastBosTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 18, "Last BoS idx: " + (na(lastBosAnchorIdx) ? "-" : str.tostring(lastBosAnchorIdx)), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 19, "Last BoS date: " + fmtTs(lastBosAnchorTime), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 20, "Process: ready=" + str.tostring(processReady) + " bootLocked=" + str.tostring(bootstrapLocked) + " seedIdx=" + (na(processSeedIdx) ? "-" : str.tostring(processSeedIdx)), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 21, "Lock windows: bull " + str.tostring(lenBullRaw) + "->" + str.tostring(lenBull) + " | bear " + str.tostring(lenBearRaw) + "->" + str.tostring(lenBear), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 22, "BoS mode: " + bosModeTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 23, "BoS ref latches: " + bosRefLatchTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 24, "Flip windows: bear " + str.tostring(lenFlipBearRaw) + "->" + str.tostring(lenFlipBear) + " | bull " + str.tostring(lenFlipBullRaw) + "->" + str.tostring(lenFlipBull), text_color=color.white, bgcolor=color.new(color.black, 0))
+            table.cell(t, 0, 25, "Continuation (CB): " + cbStateTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
