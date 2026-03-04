@@ -1,5 +1,5 @@
 //@version=5
-indicator("Phase2A S/R Watcher V3.2 (Reaction Cloud + Expedition)", overlay=true, scale=scale.none, format=format.price, max_boxes_count=260, max_lines_count=260, max_labels_count=200)
+indicator("Phase2A S/R Watcher V3.2 (Reaction Cloud + Expedition)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=260, max_lines_count=260, max_labels_count=200)
 
 // =====================================================
 // V3.2 Reaction Cloud + Expedition Lane (Foxian-aligned)
@@ -542,6 +542,8 @@ htfPh = request.security(syminfo.tickerid, htfTf, ta.pivothigh(high, pivotL, piv
 htfPl = request.security(syminfo.tickerid, htfTf, ta.pivotlow(low, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
 plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsia, 40), style=plot.style_circles, linewidth=1)
 plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 40), style=plot.style_circles, linewidth=1)
+// Hidden anchor to force indicator binding to chart price scale/right axis.
+plot(close, "price_scale_anchor", display=display.none)
 
 // ---------- Debug table ----------
 var table t = table.new(position.top_right, 2, 21, border_width=1)

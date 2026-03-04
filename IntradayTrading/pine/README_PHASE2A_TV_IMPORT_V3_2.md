@@ -32,6 +32,6 @@
 - `Exp lane on / ATR / win`
 
 ## Notes
-- Uses `xloc.bar_time` and chart price-scale anchoring (`scale.none`) to avoid side-axis drift.
+- Uses `xloc.bar_time` plus right-axis price anchoring (`scale.right`) with a hidden price-scale anchor plot.
 - Watcher-only; no trigger/entry logic.
 - In `CERT`, diagnostics are suppressed but expedition lane can still contribute to qualification.
