@@ -21,7 +21,9 @@ pivotL              = input.int(3, "Pivot Left", minval=1)
 pivotR              = input.int(3, "Pivot Right", minval=1)
 maxZones            = input.int(24, "Max zones", minval=4, maxval=80)
 showReasonLabels    = input.bool(true, "Show reason labels")
+showProgressLabels  = input.bool(false, "Show progress labels (noisy)")
 showDebug           = input.bool(false, "Show debug")
+highContrastZones   = input.bool(true, "High-contrast zones")
 
 htfTf               = input.timeframe("60", "HTF timeframe")
 showHtfMarkers      = input.bool(true, "Show HTF markers")
@@ -64,9 +66,17 @@ minW = minTicksInput * syminfo.mintick
 maxW = maxTicksInput * syminfo.mintick
 zoneW = f_clamp(kAtr * atrv, minW, maxW)
 
+var int lastReasonBar = na
+var string lastReasonTxt = ""
+
 f_reason(_txt, _y, _c) =>
-    if showReasonLabels
+    noisyProgress = _txt == "SR_FLIP_BASE_PROGRESS" or _txt == "SR_RETEST_INCREMENTED"
+    shouldShow = showReasonLabels and (showProgressLabels or not noisyProgress)
+    isDuplicate = bar_index == lastReasonBar and _txt == lastReasonTxt
+    if shouldShow and not isDuplicate
         label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
+        lastReasonBar := bar_index
+        lastReasonTxt := _txt
 
 f_overlap_ratio(_t1, _b1, _t2, _b2) =>
     interTop = math.min(_t1, _t2)
@@ -76,11 +86,23 @@ f_overlap_ratio(_t1, _b1, _t2, _b2) =>
     uni > 0 ? inter / uni : 0.0
 
 f_zone_color(_state, _side) =>
-    _state == STATE_INVALID ? color.new(color.red, 80) :
-      _state == STATE_FLIP_CAND ? color.new(color.orange, 78) :
-      _state == STATE_FLIPPED ? color.new(color.aqua, 80) :
-      _state == STATE_EXPIRED ? color.new(color.gray, 82) :
-      _side == SIDE_SUPPORT ? color.new(color.green, 82) : color.new(color.purple, 82)
+    aInvalid = highContrastZones ? 55 : 80
+    aFlipCand = highContrastZones ? 50 : 78
+    aFlipped = highContrastZones ? 55 : 80
+    aExpired = highContrastZones ? 65 : 82
+    aActive = highContrastZones ? 60 : 82
+    _state == STATE_INVALID ? color.new(color.red, aInvalid) :
+      _state == STATE_FLIP_CAND ? color.new(color.orange, aFlipCand) :
+      _state == STATE_FLIPPED ? color.new(color.aqua, aFlipped) :
+      _state == STATE_EXPIRED ? color.new(color.gray, aExpired) :
+      _side == SIDE_SUPPORT ? color.new(color.green, aActive) : color.new(color.purple, aActive)
+
+f_zone_border_color(_state, _side) =>
+    _state == STATE_INVALID ? color.new(color.red, 0) :
+      _state == STATE_FLIP_CAND ? color.new(color.orange, 0) :
+      _state == STATE_FLIPPED ? color.new(color.aqua, 0) :
+      _state == STATE_EXPIRED ? color.new(color.gray, 10) :
+      _side == SIDE_SUPPORT ? color.new(color.lime, 0) : color.new(color.fuchsia, 0)
 
 f_trim() =>
     while array.size(zTop) > maxZones
@@ -139,7 +161,7 @@ f_add_zone(_mid, _width, _side, _strength) =>
                         array.set(zBaseCount, i, 0)
                         array.set(zCreatedBar, i, bar_index)
                         array.set(zLastTouchBar, i, na)
-                        nb = box.new(bar_index - 1, _top, bar_index, _bot, border_color=color.new(color.white, 50), bgcolor=f_zone_color(STATE_ACTIVE, _side))
+                        nb = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=2, bgcolor=f_zone_color(STATE_ACTIVE, _side))
                         array.set(zBox, i, nb)
                         f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 10))
                     else
@@ -161,7 +183,7 @@ f_add_zone(_mid, _width, _side, _strength) =>
         array.push(zBaseCount, 0)
         array.push(zCreatedBar, bar_index)
         array.push(zLastTouchBar, na)
-        b = box.new(bar_index - 1, _top, bar_index, _bot, border_color=color.new(color.white, 50), bgcolor=f_zone_color(STATE_ACTIVE, _side))
+        b = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=2, bgcolor=f_zone_color(STATE_ACTIVE, _side))
         array.push(zBox, b)
         f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
 
@@ -258,6 +280,7 @@ f_update_zone(i) =>
     if not na(b)
         box.set_right(b, bar_index)
         box.set_bgcolor(b, f_zone_color(iState, iSide))
+        box.set_border_color(b, f_zone_border_color(iState, iSide))
 
 // === Build zones from pivots (reaction loci) ===
 ph = ta.pivothigh(high, pivotL, pivotR)
