@@ -48,6 +48,8 @@ displayFocusPrice     = input.float(0.0, "Display focus price (DIAG; 0=current)"
 proximityWeight       = input.float(2.0, "Display proximity weight (DIAG)", minval=0.0, step=0.25)
 diagTargetPrice       = input.float(72000.0, "Diagnostic target price", minval=0.0, step=100.0)
 showDiagTarget        = input.bool(true, "Show target diagnostics")
+diagTargetAffectsSelection = input.bool(true, "DIAG: target affects zone selection")
+diagForceNearestVisible = input.bool(true, "DIAG: force nearest target zone visible")
 showCandidates        = input.bool(false, "Show candidate zones (DIAG)")
 candidateFallback     = input.bool(true, "Show candidates when no qualified (DIAG)")
 diagBypassMerge       = input.bool(false, "DIAG: bypass seed merge")
@@ -67,6 +69,8 @@ isDiagMode            = mode == "DIAG"
 effShowReasonLabels   = isDiagMode and showReasonLabels
 effShowDebugTable     = isDiagMode and showDebugTable
 effShowDiagTarget     = isDiagMode and showDiagTarget
+effTargetAffectsSel   = isDiagMode and diagTargetAffectsSelection
+effForceNearestVis    = isDiagMode and diagForceNearestVisible
 effShowCandidates     = isDiagMode and showCandidates
 effCandidateFallback  = isDiagMode and candidateFallback
 effFocusPrice         = isDiagMode ? displayFocusPrice : 0.0
@@ -464,7 +468,7 @@ f_compute_visibility() =>
                 already = array.get(zVisible, i)
                 st = array.get(zState, i)
                 m = array.get(zMid, i)
-                nearTarget = effShowDiagTarget and (math.abs(m - tgt) / math.max(tgt, syminfo.mintick) <= 0.03)
+                nearTarget = effTargetAffectsSel and (math.abs(m - tgt) / math.max(tgt, syminfo.mintick) <= 0.03)
                 candAllowed = (effShowCandidates or (effCandidateFallback and not hasQual) or nearTarget) and st == STATE_CAND
                 displayable = st == STATE_QUAL or candAllowed
 
@@ -477,7 +481,7 @@ f_compute_visibility() =>
             if bestIdx >= 0
                 array.set(zVisible, bestIdx, true)
 
-        if effShowDiagTarget and nearestIdx >= 0
+        if effShowDiagTarget and effForceNearestVis and nearestIdx >= 0
             array.set(zVisible, nearestIdx, true)
 
 // ---------- Render ----------
