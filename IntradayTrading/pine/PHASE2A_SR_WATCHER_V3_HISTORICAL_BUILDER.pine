@@ -94,6 +94,9 @@ var zLine             = array.new_line()
 var int lastBuildLookback = na
 
 atrv = ta.atr(14)
+// Precompute pivot series on every bar (critical for historical references in builder pass).
+phSeries = ta.pivothigh(high, pivotL, pivotR)
+plSeries = ta.pivotlow(low, pivotL, pivotR)
 
 // ---------- Helpers ----------
 f_reason(_txt, _y, _c) =>
@@ -278,15 +281,12 @@ f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
 // ---------- Pass A: historical seeds ----------
 f_build_seeds(_eLookback) =>
     if _eLookback > 0
-        ph = ta.pivothigh(high, pivotL, pivotR)
-        pl = ta.pivotlow(low, pivotL, pivotR)
-
         for k = 0 to _eLookback
             off = _eLookback - k
             valid = off >= 0 and off <= bar_index
 
             if valid
-                phv = ph[off]
+                phv = phSeries[off]
                 if not na(phv)
                     wickHi = high[off]
                     bodyHi = math.max(open[off], close[off])
@@ -298,7 +298,7 @@ f_build_seeds(_eLookback) =>
                     if str >= minPivotStrength
                         f_add_or_merge_seed(top, bot, SIDE_RESIST, str, time[off])
 
-                plv = pl[off]
+                plv = plSeries[off]
                 if not na(plv)
                     wickLo = low[off]
                     bodyLo = math.min(open[off], close[off])
