@@ -36,9 +36,11 @@ minEdgeHits           = input.int(1, "Min edge hits per required side", minval=1
 
 mergeOverlap          = input.float(0.35, "Merge overlap", minval=0.0, maxval=1.0, step=0.01)
 minZoneSpacing        = input.float(1.25, "Min zone spacing x height", minval=0.1, step=0.05)
+mergeAcrossSides      = input.bool(true, "Merge across sides (level-is-level)")
 
 maxZoneHeightPct      = input.float(0.06, "Max zone height % of level", minval=0.01, step=0.01)
 maxZoneHeightAtrK     = input.float(10.0, "Max zone height in ATRs", minval=1.0, step=0.5)
+zoneWidthMult         = input.float(1.25, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
 
 maxZonesInternal      = input.int(120, "Max zones internal", minval=20, maxval=220)
 maxDisplayZones       = input.int(14, "Max displayed zones", minval=1, maxval=60)
@@ -199,6 +201,16 @@ f_rebuild_mid(i) =>
         array.set(zTop, i, t)
     array.set(zMid, i, (t + b) * 0.5)
 
+f_apply_width_mult(i) =>
+    t = array.get(zTop, i)
+    b = array.get(zBot, i)
+    m = array.get(zMid, i)
+    h = f_height(t, b)
+    newH = math.max(syminfo.mintick * 2.0, h * zoneWidthMult)
+    half = newH * 0.5
+    array.set(zTop, i, m + half)
+    array.set(zBot, i, m - half)
+
 f_reset_all() =>
     while array.size(zBox) > 0
         b = array.shift(zBox)
@@ -262,7 +274,7 @@ f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
             if not dropped
                 iSide = array.get(zSide, i)
                 iState = array.get(zState, i)
-                if iSide == _side and iState != STATE_INVALID
+                if (mergeAcrossSides or iSide == _side) and iState != STATE_INVALID
                     iTop = array.get(zTop, i)
                     iBot = array.get(zBot, i)
                     iMid = array.get(zMid, i)
@@ -423,6 +435,7 @@ f_corroborate(_eLookback) =>
             array.set(zTop, i, top)
             array.set(zBot, i, bot)
             f_rebuild_mid(i)
+            f_apply_width_mult(i)
             f_cap_zone_height(i)
             f_rebuild_mid(i)
 
@@ -619,8 +632,8 @@ if barstate.islast and effShowDebugTable
     table.cell(t, 0, 8, "Nearest H/moveReq", text_color=color.white)
     hTxt = effShowDiagTarget and nearestIdx >= 0 and not na(nearestH) and not na(nearestMoveReq) ? (str.tostring(nearestH, format.mintick) + " / " + str.tostring(nearestMoveReq, format.mintick)) : "-"
     table.cell(t, 1, 8, hTxt, text_color=color.new(color.white, 0))
-    table.cell(t, 0, 9, "Seed/React wick", text_color=color.white)
-    table.cell(t, 1, 9, str.tostring(seedWickBias, "#.##") + " / " + str.tostring(reactionWickBias, "#.##"), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 9, "Seed/React wick / W", text_color=color.white)
+    table.cell(t, 1, 9, str.tostring(seedWickBias, "#.##") + " / " + str.tostring(reactionWickBias, "#.##") + " / " + str.tostring(zoneWidthMult, "#.##"), text_color=color.new(color.white, 0))
     table.cell(t, 0, 10, "Lookback", text_color=color.white)
     lbTxt = not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-"
     table.cell(t, 1, 10, lbTxt, text_color=color.new(color.white, 0))
@@ -631,8 +644,9 @@ if barstate.islast and effShowDebugTable
     table.cell(t, 1, 12, str.tostring(pivotL) + "/" + str.tostring(pivotR), text_color=color.new(color.white, 0))
     table.cell(t, 0, 13, "Min strength", text_color=color.white)
     table.cell(t, 1, 13, str.tostring(minPivotStrength, "#.##"), text_color=color.new(color.white, 0))
-    table.cell(t, 0, 14, "Merge/Spacing", text_color=color.white)
-    table.cell(t, 1, 14, str.tostring(mergeOverlap, "#.##") + " / " + str.tostring(minZoneSpacing, "#.##"), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 14, "Merge/Spacing/xSide", text_color=color.white)
+    msTxt = str.tostring(mergeOverlap, "#.##") + " / " + str.tostring(minZoneSpacing, "#.##") + " / " + (mergeAcrossSides ? "ON" : "OFF")
+    table.cell(t, 1, 14, msTxt, text_color=color.new(color.white, 0))
     table.cell(t, 0, 15, "Max int/display", text_color=color.white)
     table.cell(t, 1, 15, str.tostring(maxZonesInternal) + " / " + str.tostring(maxDisplayZones), text_color=color.new(color.white, 0))
     table.cell(t, 0, 16, "Raw pivots H/L", text_color=color.white)
