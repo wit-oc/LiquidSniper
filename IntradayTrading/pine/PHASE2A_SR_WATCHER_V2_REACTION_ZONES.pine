@@ -18,6 +18,7 @@ minQualifiedTouches = input.int(3, "Min qualified touches", minval=1)
 reactionMoveK       = input.float(0.25, "Reaction move K (x zone height)", minval=0.05, step=0.05)
 reactionWindowBars  = input.int(8, "Reaction window bars", minval=1)
 edgeHitEpsK         = input.float(0.35, "Edge-hit epsilon K (x zone height)", minval=0.01, step=0.01)
+reactionWickBias    = input.float(0.70, "Reaction boundary wick bias (0=body,1=wick)", minval=0.0, maxval=1.0, step=0.05)
 requireDualEdge     = input.bool(true, "Require both edge types to qualify")
 minEdgeHits         = input.int(1, "Min edge hits per required side", minval=1)
 
@@ -111,6 +112,9 @@ f_overlap_ratio(_t1, _b1, _t2, _b2) =>
     inter = math.max(0.0, interTop - interBot)
     uni = math.max(_t1, _t2) - math.min(_b1, _b2)
     uni > 0 ? inter / uni : 0.0
+
+f_lerp(_a, _b, _w) =>
+    _a + (_b - _a) * _w
 
 f_state_weight(_state) =>
     _state == STATE_QUALIFIED ? 2.0 : _state == STATE_FLIPPED ? 2.5 : _state == STATE_FLIP_CAND ? 1.5 : _state == STATE_CANDIDATE ? 0.5 : -2.0
@@ -368,13 +372,25 @@ f_touch_reaction_update(i) =>
                 array.set(zPending, i, false)
                 array.set(zQTouches, i, array.get(zQTouches, i) + 1)
 
-                // Expand boundaries from observed reaction touch structure
+                // Boundary update with wick-bias anchoring (prevents over-broad drift)
+                curTop = array.get(zTop, i)
+                curBot = array.get(zBot, i)
                 if side == SIDE_RESIST
-                    array.set(zTop, i, math.max(array.get(zTop, i), pHigh))
-                    array.set(zBot, i, math.min(array.get(zBot, i), pBody))
+                    lowerAnchor = f_lerp(pBody, pHigh, reactionWickBias)
+                    newTop = math.max(curTop, pHigh)
+                    newBot = math.max(curBot, lowerAnchor)
+                    if newTop <= newBot
+                        newTop := newBot + syminfo.mintick * 2.0
+                    array.set(zTop, i, newTop)
+                    array.set(zBot, i, newBot)
                 else
-                    array.set(zBot, i, math.min(array.get(zBot, i), pLow))
-                    array.set(zTop, i, math.max(array.get(zTop, i), pBody))
+                    upperAnchor = f_lerp(pBody, pLow, reactionWickBias)
+                    newBot = math.min(curBot, pLow)
+                    newTop = math.min(curTop, upperAnchor)
+                    if newTop <= newBot
+                        newTop := newBot + syminfo.mintick * 2.0
+                    array.set(zBot, i, newBot)
+                    array.set(zTop, i, newTop)
 
                 f_rebuild_mid(i)
                 f_reason("SR_TOUCH_REACTION_CONFIRMED", array.get(zMid, i), color.new(color.green, 10))
