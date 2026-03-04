@@ -197,7 +197,9 @@ f_new_zone(_top, _bot, _side, _strength, _originBar) =>
     zCount = array.size(zTop)
 
     if zCount > 0
-        for i = zCount - 1 to 0 by -1
+        rev = zCount - 1
+        for _j = 0 to zCount - 1
+            i = rev - _j
             if not dropped
                 iSide = array.get(zSide, i)
                 if iSide == _side and array.get(zState, i) != STATE_INVALID
