@@ -10,6 +10,7 @@ indicator("Phase2A S/R Watcher V2 (Reaction-Zone Qualified)", overlay=true, max_
 // =====================================================
 
 // ---------- Inputs ----------
+mode                = input.string("DIAG", "Operating mode", options=["CERT", "DIAG"])
 pivotL              = input.int(8, "Pivot Left", minval=1)
 pivotR              = input.int(8, "Pivot Right", minval=1)
 minPivotStrength    = input.float(0.95, "Min pivot strength", minval=0.1, step=0.05)
@@ -54,6 +55,18 @@ showDebugTable      = input.bool(true, "Show debug table")
 
 htfTf               = input.timeframe("240", "HTF timeframe marker")
 showHtfMarkers      = input.bool(true, "Show HTF pivot markers")
+
+// ---------- Mode guards ----------
+isDiagMode          = mode == "DIAG"
+effShowReasonLabels = isDiagMode and showReasonLabels
+effShowDebugTable   = isDiagMode and showDebugTable
+effShowDiagTarget   = isDiagMode and showDiagTarget
+effShowCandidates   = isDiagMode and showCandidates
+effCandidateFallback = isDiagMode and candidateFallback
+effDisplayFocusPrice = isDiagMode ? displayFocusPrice : 0.0
+effProximityWeight   = isDiagMode ? proximityWeight : 0.0
+effRequireDualEdge   = isDiagMode ? requireDualEdge : true
+effMinQualifiedTouches = isDiagMode ? minQualifiedTouches : math.max(minQualifiedTouches, 3)
 
 // ---------- Constants ----------
 STATE_CANDIDATE     = 0
@@ -100,7 +113,7 @@ atrv = ta.atr(14)
 
 // ---------- Helpers ----------
 f_reason(_txt, _y, _c) =>
-    if showReasonLabels
+    if effShowReasonLabels
         _ = label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
 
 f_height(_top, _bot) =>
@@ -138,12 +151,12 @@ f_display_score(i) =>
     mid = array.get(zMid, i)
     top = array.get(zTop, i)
     bot = array.get(zBot, i)
-    focus = displayFocusPrice > 0.0 ? displayFocusPrice : close
+    focus = effDisplayFocusPrice > 0.0 ? effDisplayFocusPrice : close
     denom = math.max(math.abs(focus), syminfo.mintick)
     prox = 1.0 / (1.0 + math.abs(mid - focus) / denom)
     hPct = f_height(top, bot) / math.max(math.abs(mid), syminfo.mintick)
     giantPenalty = math.max(0.0, hPct - maxZoneHeightPct) * 50.0
-    base + proximityWeight * prox - giantPenalty
+    base + effProximityWeight * prox - giantPenalty
 
 f_fill_color(_state, _side) =>
     aC = highContrastZones ? 72 : 88
@@ -407,8 +420,8 @@ f_qualify_if_ready(i) =>
         uh = array.get(zUpperHits, i)
         lh = array.get(zLowerHits, i)
 
-        edgeOk = requireDualEdge ? (uh >= minEdgeHits and lh >= minEdgeHits) : (uh + lh >= minEdgeHits)
-        if q >= minQualifiedTouches and edgeOk
+        edgeOk = effRequireDualEdge ? (uh >= minEdgeHits and lh >= minEdgeHits) : (uh + lh >= minEdgeHits)
+        if q >= effMinQualifiedTouches and edgeOk
             array.set(zState, i, STATE_QUALIFIED)
             f_reason("SR_ZONE_QUALIFIED_3T", array.get(zMid, i), color.new(color.blue, 0))
 
@@ -512,8 +525,8 @@ f_compute_visibility() =>
                 already = array.get(zVisible, i)
                 st = array.get(zState, i)
                 m = array.get(zMid, i)
-                nearTarget = math.abs(m - tgt) / math.max(tgt, syminfo.mintick) <= 0.03
-                candidateAllowed = (showCandidates or (candidateFallback and not hasQualifiedLike) or nearTarget) and st == STATE_CANDIDATE
+                nearTarget = effShowDiagTarget and (math.abs(m - tgt) / math.max(tgt, syminfo.mintick) <= 0.03)
+                candidateAllowed = (effShowCandidates or (effCandidateFallback and not hasQualifiedLike) or nearTarget) and st == STATE_CANDIDATE
                 displayable = st == STATE_QUALIFIED or st == STATE_FLIPPED or st == STATE_FLIP_CAND or candidateAllowed
 
                 if (not already) and displayable and st != STATE_INVALID
@@ -526,7 +539,7 @@ f_compute_visibility() =>
                 array.set(zVisible, bestIdx, true)
 
         // Always surface nearest non-invalid zone to diagnostic target for troubleshooting.
-        if showDiagTarget and nearestIdx >= 0
+        if effShowDiagTarget and nearestIdx >= 0
             array.set(zVisible, nearestIdx, true)
 
 f_render_zone(i) =>
@@ -614,7 +627,7 @@ plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 4
 
 // ---------- Debug table ----------
 var table t = table.new(position.top_right, 2, 10, border_width=1)
-if barstate.islast and showDebugTable
+if barstate.islast and effShowDebugTable
     cand = 0
     qual = 0
     flipc = 0
@@ -666,11 +679,12 @@ if barstate.islast and showDebugTable
     table.cell(t, 0, 6, "Disp Sup/Res", text_color=color.white)
     table.cell(t, 1, 6, str.tostring(dispSup) + "/" + str.tostring(dispRes), text_color=color.white)
     table.cell(t, 0, 7, "Legend", text_color=color.white)
-    legendTxt = colorBySide ? "SUP=green RES=purple" : "LEVELS=blue (side-neutral)"
+    legendBase = colorBySide ? "SUP=green RES=purple" : "LEVELS=blue (side-neutral)"
+    legendTxt = legendBase + " | mode=" + mode
     table.cell(t, 1, 7, legendTxt, text_color=color.new(color.white, 0))
     table.cell(t, 0, 8, "Nearest to target", text_color=color.white)
-    nearTxt = showDiagTarget and not na(nearestMid) ? (str.tostring(nearestMid, format.mintick) + " (" + nearestState + ")") : "-"
+    nearTxt = effShowDiagTarget and not na(nearestMid) ? (str.tostring(nearestMid, format.mintick) + " (" + nearestState + ")") : "-"
     table.cell(t, 1, 8, nearTxt, text_color=color.new(color.white, 0))
     table.cell(t, 0, 9, "Target dist %", text_color=color.white)
-    distTxt = showDiagTarget and not na(nearestDistPct) ? str.tostring(nearestDistPct, "#.##") + "%" : "-"
+    distTxt = effShowDiagTarget and not na(nearestDistPct) ? str.tostring(nearestDistPct, "#.##") + "%" : "-"
     table.cell(t, 1, 9, distTxt, text_color=color.new(color.white, 0))

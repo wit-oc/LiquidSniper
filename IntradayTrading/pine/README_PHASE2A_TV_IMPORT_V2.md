@@ -17,7 +17,17 @@ V2 refactors zone logic to better match Foxian constraints:
 3. Paste contents of `PHASE2A_SR_WATCHER_V2_REACTION_ZONES.pine`.
 4. Save and Add to chart.
 
-## Recommended Daily defaults
+## Mode toggle (important)
+- `Operating mode = CERT`:
+  - Faithful/default behavior for certification.
+  - Disables diagnostic forcing (target-based auto-surfacing, candidate fallback display, debug labels/table).
+  - Enforces stricter qualification intent (`requireDualEdge=true`, min qualified touches >= 3).
+- `Operating mode = DIAG`:
+  - Enables diagnostics for root-cause analysis of missing levels.
+  - Allows target/focus assists and candidate fallback visualization.
+
+## Recommended Daily defaults (CERT)
+- Operating mode: `CERT`
 - Pivot Left/Right: `8 / 8`
 - Min pivot strength: `0.95`
 - Min qualified touches: `3`
@@ -30,14 +40,19 @@ V2 refactors zone logic to better match Foxian constraints:
 - Max zone height in ATRs: `6.0`
 - Max zones internal: `140`
 - Max displayed zones: `12`
-- Show candidates: `false` (fallback-on when none qualified)
-- Show reason labels: `false`
 - Color by support/resistance side: `false` (side-neutral)
 - Support solid / Resistance dashed: `false`
+
+## Recommended Daily defaults (DIAG)
+- Operating mode: `DIAG`
+- Keep CERT defaults, plus optionally:
+  - Diagnostic target price: `72000`
+  - Display focus price: `72000`
+  - Show target diagnostics: `true`
 
 ## Notes
 - This remains watcher-only (no entries/triggers).
 - EXPIRED remains out of default flow.
 - Drawing now uses `xloc.bar_time` for long-history stability on lower timeframes.
 - If chart gets busy, reduce `Max displayed zones` first (not internal pool).
-- Use `Diagnostic target price` (e.g., `72000`) to inspect nearest computed zone in the debug table.
+- In `DIAG` mode, use `Diagnostic target price` (e.g., `72000`) to inspect nearest computed zone in the debug table.
