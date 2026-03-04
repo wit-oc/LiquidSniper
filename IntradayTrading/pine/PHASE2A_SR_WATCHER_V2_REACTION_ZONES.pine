@@ -339,6 +339,9 @@ f_touch_reaction_update(i) =>
             else if elapsed > reactionWindowBars
                 array.set(zPending, i, false)
 
+        // force void tail for Pine if-branch type consistency
+        array.set(zPending, i, array.get(zPending, i))
+
 f_qualify_if_ready(i) =>
     st = array.get(zState, i)
     if st == STATE_CANDIDATE
@@ -350,6 +353,9 @@ f_qualify_if_ready(i) =>
         if q >= minQualifiedTouches and edgeOk
             array.set(zState, i, STATE_QUALIFIED)
             f_reason("SR_ZONE_QUALIFIED_3T", array.get(zMid, i), color.new(color.blue, 0))
+
+        // force void tail for Pine if-branch type consistency
+        array.set(zState, i, array.get(zState, i))
 
 f_flip_update(i) =>
     st = array.get(zState, i)
