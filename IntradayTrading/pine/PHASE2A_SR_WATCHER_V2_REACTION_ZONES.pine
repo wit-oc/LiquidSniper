@@ -588,9 +588,9 @@ if barstate.islast and showDebugTable
     disp = 0
     dispSup = 0
     dispRes = 0
-    nearestMid = na
-    nearestState = "-"
-    nearestDistPct = na
+    float nearestMid = na
+    string nearestState = "-"
+    float nearestDistPct = na
 
     if zCount > 0
         bestDist = 1e10
