@@ -31,4 +31,5 @@ If debugging a specific level (e.g., 72k):
 
 ## Notes
 - Uses `xloc.bar_time` drawing for deep-history stability.
+- Indicator is pinned to price axis (`scale.right`, `format.price`) to avoid drift when zooming/scaling.
 - CERT mode disables diagnostic forcing behavior.
