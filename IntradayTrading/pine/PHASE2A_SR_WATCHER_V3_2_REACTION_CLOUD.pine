@@ -57,6 +57,10 @@ candidateFallback     = input.bool(true, "Show candidates when no qualified (DIA
 diagBypassMerge       = input.bool(false, "DIAG: bypass seed merge")
 showCloudPoints       = input.bool(true, "DIAG: show cloud points")
 cloudPointMode        = input.string("reacted+expedition", "DIAG cloud point mode", options=["touches", "reacted", "reacted+expedition"])
+cloudFromVisibleOnly  = input.bool(true, "DIAG cloud source: visible zones only")
+cloudRecentFirst      = input.bool(true, "DIAG cloud order: recent first")
+cloudLookbackBars     = input.int(1200, "DIAG cloud lookback bars", minval=200, maxval=5000)
+cloudPerZoneCap       = input.int(40, "DIAG max cloud points per zone", minval=5, maxval=200)
 maxCloudPoints        = input.int(180, "DIAG max cloud points", minval=10, maxval=450)
 showCloudOutliers     = input.bool(true, "DIAG show outlier cloud points")
 
@@ -579,22 +583,28 @@ if barstate.islast and buildLookback > 10
         emitted = 0
         zCountNow = array.size(zTop)
         reqBarsCloud = math.max(reactionWindowBars, math.max(expeditionWindowBars, expeditionNoRevisitBars))
+        cloudLb = math.max(0, math.min(buildLookback, cloudLookbackBars))
 
-        if zCountNow > 0
+        if zCountNow > 0 and cloudLb > reqBarsCloud
             for i = 0 to zCountNow - 1
                 vis = array.get(zVisible, i)
-                if vis and emitted < maxCloudPoints
+                st = array.get(zState, i)
+                zoneEligible = cloudFromVisibleOnly ? vis : (st != STATE_INVALID)
+
+                if zoneEligible and emitted < maxCloudPoints
                     side = array.get(zSide, i)
                     top = array.get(zTop, i)
                     bot = array.get(zBot, i)
                     h = f_height(top, bot)
                     eps = touchEpsilonK * h
                     moveReq = math.max(reactionMoveK * h, syminfo.mintick * 2.0)
+                    zoneEmitted = 0
 
-                    for k = 0 to buildLookback - 1
-                        off = buildLookback - k
+                    for k = 0 to cloudLb - 1
+                        off = cloudRecentFirst ? (reqBarsCloud + 1 + k) : (cloudLb - k)
                         valid = off > reqBarsCloud and off <= bar_index
-                        if valid and emitted < maxCloudPoints
+
+                        if valid and emitted < maxCloudPoints and zoneEmitted < cloudPerZoneCap
                             touch = high[off] >= (bot - eps) and low[off] <= (top + eps)
                             if touch
                                 dbgCloudTouch += 1
@@ -643,6 +653,7 @@ if barstate.islast and buildLookback > 10
                                         d = label.new(time[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=clr, textcolor=clr, size=size.tiny)
                                         array.push(cloudDots, d)
                                         emitted += 1
+                                        zoneEmitted += 1
 
         dbgCloudEmitted := emitted
 
@@ -753,11 +764,12 @@ if barstate.islast and effShowDebugTable
     table.cell(t, 0, 20, "Exp ON / ATR / win / nrv", text_color=color.white)
     expTxt = (allowExpeditionQual ? "ON" : "OFF") + " / " + str.tostring(expeditionMoveATRMin, "#.##") + " / " + str.tostring(expeditionWindowBars) + " / " + str.tostring(expeditionNoRevisitBars)
     table.cell(t, 1, 20, expTxt, text_color=color.new(color.white, 0))
-    table.cell(t, 0, 21, "Cloud mode / max", text_color=color.white)
-    cloudModeTxt = (effShowCloudPoints ? cloudPointMode : "OFF") + " / " + str.tostring(maxCloudPoints)
+    table.cell(t, 0, 21, "Cloud mode/src/order", text_color=color.white)
+    cloudModeTxt = (effShowCloudPoints ? cloudPointMode : "OFF") + " / " + (cloudFromVisibleOnly ? "vis" : "all") + " / " + (cloudRecentFirst ? "recent" : "old")
     table.cell(t, 1, 21, cloudModeTxt, text_color=color.new(color.white, 0))
     table.cell(t, 0, 22, "Cloud T/R/E/O", text_color=color.white)
     cloudCntTxt = str.tostring(dbgCloudTouch) + " / " + str.tostring(dbgCloudReact) + " / " + str.tostring(dbgCloudExp) + " / " + str.tostring(dbgCloudOut)
     table.cell(t, 1, 22, cloudCntTxt, text_color=color.new(color.white, 0))
-    table.cell(t, 0, 23, "Cloud emitted", text_color=color.white)
-    table.cell(t, 1, 23, str.tostring(dbgCloudEmitted), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 23, "Cloud emitted/lb/zcap", text_color=color.white)
+    cloudMetaTxt = str.tostring(dbgCloudEmitted) + " / " + str.tostring(cloudLookbackBars) + " / " + str.tostring(cloudPerZoneCap)
+    table.cell(t, 1, 23, cloudMetaTxt, text_color=color.new(color.white, 0))

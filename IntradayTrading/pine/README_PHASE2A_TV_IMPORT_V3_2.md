@@ -9,7 +9,8 @@
 - Adds direct `Zone width multiplier` (single-knob width tuning).
 - Adds `Merge across sides (level-is-level)` to reduce clustered duplicates.
 - DIAG target controls are decoupled from selection by toggle.
-- Adds DIAG cloud-point overlay (dots) so you can inspect raw cloud anchors directly on chart.
+- Adds DIAG cloud-point overlay (dots) so you can inspect cloud anchors directly on chart.
+- Cloud overlay now supports source/order/lookback controls to avoid missing points from point-budget clipping.
 
 ## New expedition inputs
 - `Allow expedition qualification lane`
@@ -32,6 +33,10 @@
 - DIAG force nearest visible: `OFF` (only turn on when isolating a target)
 - DIAG show cloud points: `ON`
 - DIAG cloud point mode: `reacted+expedition`
+- DIAG cloud source: visible zones only: `OFF` (for cloud troubleshooting)
+- DIAG cloud order: recent first: `ON`
+- DIAG cloud lookback bars: `1200`
+- DIAG max cloud points per zone: `40`
 - DIAG show outlier cloud points: `ON`
 - Diagnostic target price: `54000`, then `108000`
 - Display focus price: match target during diagnosis
