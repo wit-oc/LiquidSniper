@@ -105,12 +105,12 @@ atrv = ta.atr(14)
 // Precompute pivot series on every bar (critical for historical references in builder pass).
 phSeries = ta.pivothigh(high, pivotL, pivotR)
 plSeries = ta.pivotlow(low, pivotL, pivotR)
-max_bars_back(phSeries, 6000)
-max_bars_back(plSeries, 6000)
-max_bars_back(high, 6000)
-max_bars_back(low, 6000)
-max_bars_back(open, 6000)
-max_bars_back(close, 6000)
+max_bars_back(phSeries, 5000)
+max_bars_back(plSeries, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(open, 5000)
+max_bars_back(close, 5000)
 
 // ---------- Helpers ----------
 f_reason(_txt, _y, _c) =>
@@ -271,11 +271,9 @@ f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
                             array.set(zU, i, 0)
                             array.set(zL, i, 0)
                             array.set(zOriginTime, i, leftKeep)
-                            dbgSeedsMerged += 1
                             f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 20))
                         else
                             dropped := true
-                            dbgSeedsDropped += 1
 
     if not dropped
         array.push(zTop, _top)
@@ -290,7 +288,6 @@ f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
         array.push(zL, 0)
         array.push(zOriginTime, _originTime)
         array.push(zVisible, false)
-        dbgSeedsAdded += 1
         f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
 
     f_drop_weakest_if_needed()
@@ -305,7 +302,6 @@ f_build_seeds(_eLookback) =>
             if valid
                 phv = phSeries[off]
                 if not na(phv)
-                    dbgRawPh += 1
                     wickHi = high[off]
                     bodyHi = math.max(open[off], close[off])
                     top = wickHi
@@ -318,7 +314,6 @@ f_build_seeds(_eLookback) =>
 
                 plv = plSeries[off]
                 if not na(plv)
-                    dbgRawPl += 1
                     wickLo = low[off]
                     bodyLo = math.min(open[off], close[off])
                     top2 = f_lerp(bodyLo, wickLo, seedWickBias)
@@ -469,6 +464,10 @@ f_render_all() =>
                 array.push(zLine, l)
 
 // ---------- Main builder execution ----------
+maxByBars = bar_index - pivotR - reactionWindowBars - 2
+eLookback = math.max(0, math.min(lookbackBars, maxByBars))
+buildLookback = barstate.islast ? eLookback : 0
+
 if barstate.islast
     f_reset_all()
     dbgRawPh := 0
@@ -476,16 +475,27 @@ if barstate.islast
     dbgSeedsAdded := 0
     dbgSeedsMerged := 0
     dbgSeedsDropped := 0
-
-    maxByBars = bar_index - pivotR - reactionWindowBars - 2
-    eLookback = math.max(0, math.min(lookbackBars, maxByBars))
     lastBuildLookback := eLookback
 
-    if eLookback > 10
-        f_build_seeds(eLookback)
-        f_corroborate(eLookback)
-        f_compute_visibility()
-        f_render_all()
+// Call on each calculation for Pine consistency; only builds when buildLookback > 10.
+f_build_seeds(buildLookback)
+f_corroborate(buildLookback)
+
+if barstate.islast and buildLookback > 10
+    // derive debug counts outside functions (Pine scope restrictions)
+    for k = 0 to buildLookback
+        off = buildLookback - k
+        if off >= 0 and off <= bar_index
+            dbgRawPh += not na(phSeries[off]) ? 1 : 0
+            dbgRawPl += not na(plSeries[off]) ? 1 : 0
+
+    dbgSeedsAdded := array.size(zTop)
+    // merged/dropped exact attribution unavailable under Pine global-scope mutation limits.
+    dbgSeedsMerged := 0
+    dbgSeedsDropped := 0
+
+    f_compute_visibility()
+    f_render_all()
 
 // ---------- HTF markers ----------
 htfPh = request.security(syminfo.tickerid, htfTf, ta.pivothigh(high, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
