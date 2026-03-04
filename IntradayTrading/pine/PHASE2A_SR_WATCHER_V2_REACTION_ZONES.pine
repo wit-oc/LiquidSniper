@@ -89,7 +89,7 @@ atrv = ta.atr(14)
 // ---------- Helpers ----------
 f_reason(_txt, _y, _c) =>
     if showReasonLabels
-        label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
+        _ = label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
 
 f_height(_top, _bot) =>
     math.max(syminfo.mintick * 2.0, _top - _bot)
