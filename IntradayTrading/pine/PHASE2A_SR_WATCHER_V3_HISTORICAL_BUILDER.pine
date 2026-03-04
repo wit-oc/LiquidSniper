@@ -470,7 +470,7 @@ plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsi
 plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 40), style=plot.style_circles, linewidth=1)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 12, border_width=1)
+var table t = table.new(position.top_right, 2, 16, border_width=1)
 if barstate.islast and effShowDebugTable
     zCount = array.size(zTop)
     cand = 0
@@ -545,3 +545,11 @@ if barstate.islast and effShowDebugTable
     table.cell(t, 0, 11, "Legend", text_color=color.white)
     legendBase = colorBySide ? "SUP=green RES=purple" : "LEVELS=blue"
     table.cell(t, 1, 11, legendBase, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 12, "Pivot L/R", text_color=color.white)
+    table.cell(t, 1, 12, str.tostring(pivotL) + "/" + str.tostring(pivotR), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 13, "Min strength", text_color=color.white)
+    table.cell(t, 1, 13, str.tostring(minPivotStrength, "#.##"), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 14, "Merge/Spacing", text_color=color.white)
+    table.cell(t, 1, 14, str.tostring(mergeOverlap, "#.##") + " / " + str.tostring(minZoneSpacing, "#.##"), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 15, "Max int/display", text_color=color.white)
+    table.cell(t, 1, 15, str.tostring(maxZonesInternal) + " / " + str.tostring(maxDisplayZones), text_color=color.new(color.white, 0))
