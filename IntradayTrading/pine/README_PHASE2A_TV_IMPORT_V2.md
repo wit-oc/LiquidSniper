@@ -33,7 +33,8 @@ V2 refactors zone logic to better match Foxian constraints:
 - Min qualified touches: `3`
 - Reaction move K: `0.25`
 - Reaction window bars: `8`
-- Reaction boundary wick bias: `0.70` (pushes resistance zones toward wick rejection area)
+- Reaction boundary wick bias: `0.70` (updates boundaries from reaction touches toward wick extremes)
+- Seed boundary wick bias: `0.65` (initial pivot zone seeded closer to wick extremes)
 - Merge overlap: `0.35`
 - Min zone spacing: `1.25`
 - Max zone height % of level: `0.04`

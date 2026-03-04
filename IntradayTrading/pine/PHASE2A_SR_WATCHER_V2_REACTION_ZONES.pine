@@ -20,6 +20,7 @@ reactionMoveK       = input.float(0.25, "Reaction move K (x zone height)", minva
 reactionWindowBars  = input.int(8, "Reaction window bars", minval=1)
 edgeHitEpsK         = input.float(0.35, "Edge-hit epsilon K (x zone height)", minval=0.01, step=0.01)
 reactionWickBias    = input.float(0.70, "Reaction boundary wick bias (0=body,1=wick)", minval=0.0, maxval=1.0, step=0.05)
+seedWickBias        = input.float(0.65, "Seed boundary wick bias (0=body,1=wick)", minval=0.0, maxval=1.0, step=0.05)
 requireDualEdge     = input.bool(true, "Require both edge types to qualify")
 minEdgeHits         = input.int(1, "Min edge hits per required side", minval=1)
 
@@ -593,8 +594,10 @@ ph = ta.pivothigh(high, pivotL, pivotR)
 pl = ta.pivotlow(low, pivotL, pivotR)
 
 if not na(ph)
-    pTop = high[pivotR]
-    pBot = math.max(open[pivotR], close[pivotR])
+    wickHi = high[pivotR]
+    bodyHi = math.max(open[pivotR], close[pivotR])
+    pTop = wickHi
+    pBot = f_lerp(bodyHi, wickHi, seedWickBias)
     if pTop <= pBot
         pBot := pTop - syminfo.mintick * 2.0
     str = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
@@ -602,8 +605,10 @@ if not na(ph)
         f_new_zone(pTop, pBot, SIDE_RESIST, str, time[pivotR])
 
 if not na(pl)
-    pTop = math.min(open[pivotR], close[pivotR])
-    pBot = low[pivotR]
+    wickLo = low[pivotR]
+    bodyLo = math.min(open[pivotR], close[pivotR])
+    pTop = f_lerp(bodyLo, wickLo, seedWickBias)
+    pBot = wickLo
     if pTop <= pBot
         pTop := pBot + syminfo.mintick * 2.0
     str = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
@@ -630,7 +635,7 @@ plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsi
 plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 40), style=plot.style_circles, linewidth=1)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 10, border_width=1)
+var table t = table.new(position.top_right, 2, 12, border_width=1)
 if barstate.islast and effShowDebugTable
     cand = 0
     qual = 0
@@ -643,6 +648,12 @@ if barstate.islast and effShowDebugTable
     float nearestMid = na
     string nearestState = "-"
     float nearestDistPct = na
+    int nearestIdx = -1
+    int nearestQ = na
+    int nearestU = na
+    int nearestL = na
+    float nearestH = na
+    float nearestMoveReq = na
 
     if zCount > 0
         bestDist = 1e10
@@ -664,9 +675,19 @@ if barstate.islast and effShowDebugTable
             d = math.abs(m - tgt)
             if d < bestDist
                 bestDist := d
+                nearestIdx := i
                 nearestMid := m
                 nearestState := f_state_name(s)
                 nearestDistPct := d / math.max(tgt, syminfo.mintick) * 100.0
+
+        if nearestIdx >= 0
+            nearestQ := array.get(zQTouches, nearestIdx)
+            nearestU := array.get(zUpperHits, nearestIdx)
+            nearestL := array.get(zLowerHits, nearestIdx)
+            nTop = array.get(zTop, nearestIdx)
+            nBot = array.get(zBot, nearestIdx)
+            nearestH := f_height(nTop, nBot)
+            nearestMoveReq := reactionMoveK * nearestH
 
     table.cell(t, 0, 0, "Zones pool", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 1, 0, str.tostring(zCount), text_color=color.white, bgcolor=color.new(color.black, 0))
@@ -692,3 +713,9 @@ if barstate.islast and effShowDebugTable
     table.cell(t, 0, 9, "Target dist %", text_color=color.white)
     distTxt = effShowDiagTarget and not na(nearestDistPct) ? str.tostring(nearestDistPct, "#.##") + "%" : "-"
     table.cell(t, 1, 9, distTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 10, "Nearest Q/U/L", text_color=color.white)
+    qulTxt = effShowDiagTarget and nearestIdx >= 0 ? (str.tostring(nearestQ) + "/" + str.tostring(nearestU) + "/" + str.tostring(nearestL)) : "-"
+    table.cell(t, 1, 10, qulTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 11, "Nearest H / moveReq", text_color=color.white)
+    hTxt = effShowDiagTarget and nearestIdx >= 0 and not na(nearestH) and not na(nearestMoveReq) ? (str.tostring(nearestH, format.mintick) + " / " + str.tostring(nearestMoveReq, format.mintick)) : "-"
+    table.cell(t, 1, 11, hTxt, text_color=color.new(color.white, 0))
