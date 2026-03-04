@@ -1,0 +1,598 @@
+//@version=5
+indicator("Phase2A S/R Watcher V3.1 (Reaction Cloud)", overlay=true, max_boxes_count=260, max_lines_count=260, max_labels_count=200)
+
+// =====================================================
+// V3.1 Reaction Cloud (Foxian-aligned refactor)
+// Pass A: Historical reaction-anchor extraction (old -> new)
+// Pass B: Historical corroboration (touch + reaction)
+// Pass C: Clustered zone display selection (CERT/DIAG aware)
+// =====================================================
+
+// ---------- Inputs ----------
+mode                  = input.string("CERT", "Operating mode", options=["CERT", "DIAG"])
+lookbackBars          = input.int(1200, "Historical build lookback bars", minval=200, maxval=5000)
+
+pivotL                = input.int(8, "Pivot Left", minval=1)
+pivotR                = input.int(8, "Pivot Right", minval=1)
+minPivotStrength      = input.float(0.95, "Min pivot strength", minval=0.1, step=0.05)
+
+seedWickBias          = input.float(0.70, "Seed boundary wick bias (0=body,1=wick)", minval=0.0, maxval=1.0, step=0.05)
+reactionWickBias      = input.float(0.75, "Reaction boundary wick bias (0=body,1=wick)", minval=0.0, maxval=1.0, step=0.05)
+
+touchEpsilonK         = input.float(0.03, "Touch epsilon K (x zone height)", minval=0.0, step=0.01)
+edgeHitEpsK           = input.float(0.35, "Edge-hit epsilon K (x zone height)", minval=0.01, step=0.01)
+reactionMoveK         = input.float(0.20, "Reaction move K (x zone height)", minval=0.05, step=0.05)
+reactionWindowBars    = input.int(12, "Reaction window bars", minval=1, maxval=50)
+
+minQualifiedTouches   = input.int(3, "Min qualified touches", minval=1)
+requireDualEdge       = input.bool(true, "Require both edge types to qualify")
+minEdgeHits           = input.int(1, "Min edge hits per required side", minval=1)
+
+mergeOverlap          = input.float(0.35, "Merge overlap", minval=0.0, maxval=1.0, step=0.01)
+minZoneSpacing        = input.float(1.25, "Min zone spacing x height", minval=0.1, step=0.05)
+
+maxZoneHeightPct      = input.float(0.04, "Max zone height % of level", minval=0.01, step=0.01)
+maxZoneHeightAtrK     = input.float(6.0, "Max zone height in ATRs", minval=1.0, step=0.5)
+
+maxZonesInternal      = input.int(120, "Max zones internal", minval=20, maxval=220)
+maxDisplayZones       = input.int(14, "Max displayed zones", minval=1, maxval=60)
+
+// DIAG tools
+displayFocusPrice     = input.float(0.0, "Display focus price (DIAG; 0=current)", minval=0.0, step=100.0)
+proximityWeight       = input.float(2.0, "Display proximity weight (DIAG)", minval=0.0, step=0.25)
+diagTargetPrice       = input.float(72000.0, "Diagnostic target price", minval=0.0, step=100.0)
+showDiagTarget        = input.bool(true, "Show target diagnostics")
+showCandidates        = input.bool(false, "Show candidate zones (DIAG)")
+candidateFallback     = input.bool(true, "Show candidates when no qualified (DIAG)")
+diagBypassMerge       = input.bool(false, "DIAG: bypass seed merge")
+
+showReasonLabels      = input.bool(false, "Show reason labels (DIAG)")
+showZoneMidline       = input.bool(true, "Show zone midline")
+showSideStyle         = input.bool(false, "Support solid / Resistance dashed")
+colorBySide           = input.bool(false, "Color by support/resistance side")
+highContrastZones     = input.bool(true, "High-contrast zones")
+showDebugTable        = input.bool(true, "Show debug table")
+
+htfTf                 = input.timeframe("240", "HTF timeframe marker")
+showHtfMarkers        = input.bool(true, "Show HTF pivot markers")
+
+// ---------- Mode guards ----------
+isDiagMode            = mode == "DIAG"
+effShowReasonLabels   = isDiagMode and showReasonLabels
+effShowDebugTable     = isDiagMode and showDebugTable
+effShowDiagTarget     = isDiagMode and showDiagTarget
+effShowCandidates     = isDiagMode and showCandidates
+effCandidateFallback  = isDiagMode and candidateFallback
+effFocusPrice         = isDiagMode ? displayFocusPrice : 0.0
+effProxWeight         = isDiagMode ? proximityWeight : 0.0
+effRequireDualEdge    = isDiagMode ? requireDualEdge : true
+effMinQualified       = isDiagMode ? minQualifiedTouches : math.max(minQualifiedTouches, 3)
+
+// ---------- Constants ----------
+STATE_CAND            = 0
+STATE_QUAL            = 1
+STATE_INVALID         = 2
+
+SIDE_SUPPORT          = 1
+SIDE_RESIST           = -1
+
+// ---------- Storage ----------
+var zTop              = array.new_float()
+var zBot              = array.new_float()
+var zMid              = array.new_float()
+var zSide             = array.new_int()
+var zState            = array.new_int()
+var zStrength         = array.new_float()
+var zQ                = array.new_int()
+var zT                = array.new_int()
+var zU                = array.new_int()
+var zL                = array.new_int()
+var zOriginTime       = array.new_int()
+var zVisible          = array.new_bool()
+
+var zBox              = array.new_box()
+var zLine             = array.new_line()
+var int lastBuildLookback = na
+
+// DIAG counters for Pass A
+var int dbgRawPh = 0
+var int dbgRawPl = 0
+var int dbgSeedsAdded = 0
+var int dbgSeedsMerged = 0
+var int dbgSeedsDropped = 0
+
+atrv = ta.atr(14)
+// Precompute pivot series on every bar (critical for historical references in builder pass).
+phSeries = ta.pivothigh(high, pivotL, pivotR)
+plSeries = ta.pivotlow(low, pivotL, pivotR)
+max_bars_back(phSeries, 5000)
+max_bars_back(plSeries, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(open, 5000)
+max_bars_back(close, 5000)
+
+// ---------- Helpers ----------
+f_reason(_txt, _y, _c) =>
+    if effShowReasonLabels
+        _ = label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
+
+f_lerp(_a, _b, _w) =>
+    _a + (_b - _a) * _w
+
+f_height(_top, _bot) =>
+    math.max(syminfo.mintick * 2.0, _top - _bot)
+
+f_overlap_ratio(_t1, _b1, _t2, _b2) =>
+    interTop = math.min(_t1, _t2)
+    interBot = math.max(_b1, _b2)
+    inter = math.max(0.0, interTop - interBot)
+    uni = math.max(_t1, _t2) - math.min(_b1, _b2)
+    uni > 0 ? inter / uni : 0.0
+
+f_state_name(_s) =>
+    _s == STATE_CAND ? "CAND" : _s == STATE_QUAL ? "QUAL" : "INVALID"
+
+f_fill_color(_state, _side) =>
+    aC = highContrastZones ? 74 : 90
+    aQ = highContrastZones ? 58 : 82
+    aI = highContrastZones ? 58 : 82
+    baseCand = colorBySide ? (_side == SIDE_SUPPORT ? color.new(color.green, aC) : color.new(color.purple, aC)) : color.new(color.blue, aC)
+    baseQual = colorBySide ? (_side == SIDE_SUPPORT ? color.new(color.green, aQ) : color.new(color.purple, aQ)) : color.new(color.blue, aQ)
+    _state == STATE_INVALID ? color.new(color.red, aI) : _state == STATE_QUAL ? baseQual : baseCand
+
+f_border_color(_state, _side) =>
+    base = colorBySide ? (_side == SIDE_SUPPORT ? color.new(color.lime, 0) : color.new(color.fuchsia, 0)) : color.new(color.blue, 0)
+    _state == STATE_INVALID ? color.new(color.red, 0) : base
+
+f_score(i) =>
+    st = array.get(zState, i)
+    str = array.get(zStrength, i)
+    q = array.get(zQ, i)
+    t = array.get(zT, i)
+    edge = math.min(array.get(zU, i), array.get(zL, i))
+    stW = st == STATE_QUAL ? 2.0 : st == STATE_CAND ? 0.5 : -2.0
+    str + q * 1.8 + t * 0.2 + edge * 0.6 + stW
+
+f_display_score(i) =>
+    base = f_score(i)
+    mid = array.get(zMid, i)
+    top = array.get(zTop, i)
+    bot = array.get(zBot, i)
+    focus = effFocusPrice > 0.0 ? effFocusPrice : close
+    denom = math.max(math.abs(focus), syminfo.mintick)
+    prox = 1.0 / (1.0 + math.abs(mid - focus) / denom)
+    hPct = f_height(top, bot) / math.max(math.abs(mid), syminfo.mintick)
+    giantPenalty = math.max(0.0, hPct - maxZoneHeightPct) * 50.0
+    base + effProxWeight * prox - giantPenalty
+
+f_cap_zone_height(i) =>
+    top = array.get(zTop, i)
+    bot = array.get(zBot, i)
+    mid = array.get(zMid, i)
+    h = f_height(top, bot)
+    capH_pct = math.abs(mid) * maxZoneHeightPct
+    capH_atr = atrv * maxZoneHeightAtrK
+    capH = math.max(syminfo.mintick * 4.0, math.min(capH_pct, capH_atr))
+    if h > capH
+        half = capH * 0.5
+        array.set(zTop, i, mid + half)
+        array.set(zBot, i, mid - half)
+
+f_rebuild_mid(i) =>
+    t = array.get(zTop, i)
+    b = array.get(zBot, i)
+    if t <= b
+        t := b + syminfo.mintick * 2.0
+        array.set(zTop, i, t)
+    array.set(zMid, i, (t + b) * 0.5)
+
+f_reset_all() =>
+    while array.size(zBox) > 0
+        b = array.shift(zBox)
+        if not na(b)
+            box.delete(b)
+    while array.size(zLine) > 0
+        l = array.shift(zLine)
+        if not na(l)
+            line.delete(l)
+
+    array.clear(zTop)
+    array.clear(zBot)
+    array.clear(zMid)
+    array.clear(zSide)
+    array.clear(zState)
+    array.clear(zStrength)
+    array.clear(zQ)
+    array.clear(zT)
+    array.clear(zU)
+    array.clear(zL)
+    array.clear(zOriginTime)
+    array.clear(zVisible)
+
+f_drop_weakest_if_needed() =>
+    while array.size(zTop) > maxZonesInternal
+        sz = array.size(zTop)
+        weakest = 0
+        weakestScore = f_score(0)
+        if sz > 1
+            for i = 1 to sz - 1
+                sc = f_score(i)
+                if sc < weakestScore
+                    weakestScore := sc
+                    weakest := i
+
+        array.remove(zTop, weakest)
+        array.remove(zBot, weakest)
+        array.remove(zMid, weakest)
+        array.remove(zSide, weakest)
+        array.remove(zState, weakest)
+        array.remove(zStrength, weakest)
+        array.remove(zQ, weakest)
+        array.remove(zT, weakest)
+        array.remove(zU, weakest)
+        array.remove(zL, weakest)
+        array.remove(zOriginTime, weakest)
+        array.remove(zVisible, weakest)
+
+f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
+    _h = f_height(_top, _bot)
+    _mid = (_top + _bot) * 0.5
+    dropped = false
+
+    zCount = array.size(zTop)
+    if zCount > 0 and not (isDiagMode and diagBypassMerge)
+        rev = zCount - 1
+        for k = 0 to zCount - 1
+            i = rev - k
+            if not dropped
+                iSide = array.get(zSide, i)
+                iState = array.get(zState, i)
+                if iSide == _side and iState != STATE_INVALID
+                    iTop = array.get(zTop, i)
+                    iBot = array.get(zBot, i)
+                    iMid = array.get(zMid, i)
+                    iH = f_height(iTop, iBot)
+                    ov = f_overlap_ratio(_top, _bot, iTop, iBot)
+                    spacing = math.abs(_mid - iMid) / math.max(_h, iH)
+
+                    if ov > mergeOverlap or spacing < minZoneSpacing
+                        iSc = f_score(i)
+                        nSc = _str + 0.25
+                        if nSc > iSc
+                            leftKeep = math.min(array.get(zOriginTime, i), _originTime)
+                            array.set(zTop, i, _top)
+                            array.set(zBot, i, _bot)
+                            array.set(zMid, i, _mid)
+                            array.set(zStrength, i, _str)
+                            array.set(zState, i, STATE_CAND)
+                            array.set(zQ, i, 0)
+                            array.set(zT, i, 0)
+                            array.set(zU, i, 0)
+                            array.set(zL, i, 0)
+                            array.set(zOriginTime, i, leftKeep)
+                            f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 20))
+                        else
+                            dropped := true
+
+    if not dropped
+        array.push(zTop, _top)
+        array.push(zBot, _bot)
+        array.push(zMid, _mid)
+        array.push(zSide, _side)
+        array.push(zState, STATE_CAND)
+        array.push(zStrength, _str)
+        array.push(zQ, 0)
+        array.push(zT, 0)
+        array.push(zU, 0)
+        array.push(zL, 0)
+        array.push(zOriginTime, _originTime)
+        array.push(zVisible, false)
+        f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
+
+    f_drop_weakest_if_needed()
+
+// ---------- Pass A: historical seeds ----------
+f_build_seeds(_eLookback) =>
+    if _eLookback > 0
+        for k = 0 to _eLookback
+            off = _eLookback - k
+            valid = off >= 0 and off <= bar_index
+
+            if valid
+                phv = phSeries[off]
+                if not na(phv)
+                    wickHi = high[off]
+                    bodyHi = math.max(open[off], close[off])
+                    top = wickHi
+                    bot = f_lerp(bodyHi, wickHi, seedWickBias)
+                    if top <= bot
+                        bot := top - syminfo.mintick * 2.0
+                    str = (high[off] - low[off]) / math.max(atrv[off], syminfo.mintick)
+                    if str >= minPivotStrength
+                        f_add_or_merge_seed(top, bot, SIDE_RESIST, str, time[off])
+
+                plv = plSeries[off]
+                if not na(plv)
+                    wickLo = low[off]
+                    bodyLo = math.min(open[off], close[off])
+                    top2 = f_lerp(bodyLo, wickLo, seedWickBias)
+                    bot2 = wickLo
+                    if top2 <= bot2
+                        top2 := bot2 + syminfo.mintick * 2.0
+                    str2 = (high[off] - low[off]) / math.max(atrv[off], syminfo.mintick)
+                    if str2 >= minPivotStrength
+                        f_add_or_merge_seed(top2, bot2, SIDE_SUPPORT, str2, time[off])
+
+// ---------- Pass B: historical corroboration ----------
+f_corroborate(_eLookback) =>
+    zCount = array.size(zTop)
+    if zCount > 0 and _eLookback > 1
+        for i = 0 to zCount - 1
+            f_cap_zone_height(i)
+            f_rebuild_mid(i)
+
+            side = array.get(zSide, i)
+            top = array.get(zTop, i)
+            bot = array.get(zBot, i)
+            h = f_height(top, bot)
+            eps = touchEpsilonK * h
+            edgeEps = edgeHitEpsK * h
+            moveReq = math.max(reactionMoveK * h, syminfo.mintick * 2.0)
+
+            q = 0
+            t = 0
+            u = 0
+            l = 0
+
+            for k = 0 to _eLookback - 1
+                off = _eLookback - k
+                valid = off > reactionWindowBars and off <= bar_index
+                if valid
+                    touch = high[off] >= (bot - eps) and low[off] <= (top + eps)
+                    if touch
+                        t += 1
+                        if high[off] >= (top - edgeEps)
+                            u += 1
+                        if low[off] <= (bot + edgeEps)
+                            l += 1
+
+                        reacted = false
+                        for w = 1 to reactionWindowBars
+                            off2 = off - w
+                            if off2 >= 0
+                                stepReact = (side == SIDE_RESIST and low[off2] <= low[off] - moveReq) or (side == SIDE_SUPPORT and high[off2] >= high[off] + moveReq)
+                                if stepReact
+                                    reacted := true
+
+                        if reacted
+                            q += 1
+                            if side == SIDE_RESIST
+                                lowerAnchor = f_lerp(math.max(open[off], close[off]), high[off], reactionWickBias)
+                                top := math.max(top, high[off])
+                                bot := math.max(bot, lowerAnchor)
+                            else
+                                upperAnchor = f_lerp(math.min(open[off], close[off]), low[off], reactionWickBias)
+                                bot := math.min(bot, low[off])
+                                top := math.min(top, upperAnchor)
+
+                            if top <= bot
+                                top := bot + syminfo.mintick * 2.0
+
+            array.set(zTop, i, top)
+            array.set(zBot, i, bot)
+            f_rebuild_mid(i)
+            f_cap_zone_height(i)
+            f_rebuild_mid(i)
+
+            array.set(zQ, i, q)
+            array.set(zT, i, t)
+            array.set(zU, i, u)
+            array.set(zL, i, l)
+
+            edgeOk = effRequireDualEdge ? (u >= minEdgeHits and l >= minEdgeHits) : (u + l >= minEdgeHits)
+            st = q >= effMinQualified and edgeOk ? STATE_QUAL : STATE_CAND
+            array.set(zState, i, st)
+
+// ---------- Pass C: visibility ----------
+f_compute_visibility() =>
+    zCount = array.size(zTop)
+    if zCount > 0
+        tgt = diagTargetPrice > 0.0 ? diagTargetPrice : close
+
+        for i = 0 to zCount - 1
+            array.set(zVisible, i, false)
+
+        hasQual = false
+        nearestIdx = -1
+        nearestDist = 1e10
+
+        for i = 0 to zCount - 1
+            st = array.get(zState, i)
+            m = array.get(zMid, i)
+            d = math.abs(m - tgt)
+            if st != STATE_INVALID and d < nearestDist
+                nearestDist := d
+                nearestIdx := i
+            if st == STATE_QUAL
+                hasQual := true
+
+        for pick = 0 to maxDisplayZones - 1
+            bestIdx = -1
+            bestScore = -1e10
+
+            for i = 0 to zCount - 1
+                already = array.get(zVisible, i)
+                st = array.get(zState, i)
+                m = array.get(zMid, i)
+                nearTarget = effShowDiagTarget and (math.abs(m - tgt) / math.max(tgt, syminfo.mintick) <= 0.03)
+                candAllowed = (effShowCandidates or (effCandidateFallback and not hasQual) or nearTarget) and st == STATE_CAND
+                displayable = st == STATE_QUAL or candAllowed
+
+                if (not already) and displayable and st != STATE_INVALID
+                    sc = f_display_score(i)
+                    if sc > bestScore
+                        bestScore := sc
+                        bestIdx := i
+
+            if bestIdx >= 0
+                array.set(zVisible, bestIdx, true)
+
+        if effShowDiagTarget and nearestIdx >= 0
+            array.set(zVisible, nearestIdx, true)
+
+// ---------- Render ----------
+f_render_all() =>
+    zCount = array.size(zTop)
+    if zCount > 0
+        for i = 0 to zCount - 1
+            vis = array.get(zVisible, i)
+            if vis
+                top = array.get(zTop, i)
+                bot = array.get(zBot, i)
+                mid = array.get(zMid, i)
+                side = array.get(zSide, i)
+                st = array.get(zState, i)
+                origin = array.get(zOriginTime, i)
+
+                b = box.new(origin, top, time, bot, xloc=xloc.bar_time, border_color=f_border_color(st, side), border_width=3, bgcolor=f_fill_color(st, side))
+                l = line.new(origin, mid, time, mid, xloc=xloc.bar_time, extend=extend.none, color=f_border_color(st, side), width=showZoneMidline ? 2 : 1)
+                if showSideStyle
+                    line.set_style(l, side == SIDE_SUPPORT ? line.style_solid : line.style_dashed)
+
+                array.push(zBox, b)
+                array.push(zLine, l)
+
+// ---------- Main builder execution ----------
+maxByBars = bar_index - pivotR - reactionWindowBars - 2
+eLookback = math.max(0, math.min(lookbackBars, maxByBars))
+buildLookback = barstate.islast ? eLookback : 0
+
+if barstate.islast
+    f_reset_all()
+    dbgRawPh := 0
+    dbgRawPl := 0
+    dbgSeedsAdded := 0
+    dbgSeedsMerged := 0
+    dbgSeedsDropped := 0
+    lastBuildLookback := eLookback
+
+// Call on each calculation for Pine consistency; only builds when buildLookback > 10.
+f_build_seeds(buildLookback)
+f_corroborate(buildLookback)
+
+if barstate.islast and buildLookback > 10
+    // derive debug counts outside functions (Pine scope restrictions)
+    for k = 0 to buildLookback
+        off = buildLookback - k
+        if off >= 0 and off <= bar_index
+            dbgRawPh += not na(phSeries[off]) ? 1 : 0
+            dbgRawPl += not na(plSeries[off]) ? 1 : 0
+
+    dbgSeedsAdded := array.size(zTop)
+    // merged/dropped exact attribution unavailable under Pine global-scope mutation limits.
+    dbgSeedsMerged := 0
+    dbgSeedsDropped := 0
+
+    f_compute_visibility()
+    f_render_all()
+
+// ---------- HTF markers ----------
+htfPh = request.security(syminfo.tickerid, htfTf, ta.pivothigh(high, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
+htfPl = request.security(syminfo.tickerid, htfTf, ta.pivotlow(low, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
+plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsia, 40), style=plot.style_circles, linewidth=1)
+plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 40), style=plot.style_circles, linewidth=1)
+
+// ---------- Debug table ----------
+var table t = table.new(position.top_right, 2, 20, border_width=1)
+if barstate.islast and effShowDebugTable
+    zCount = array.size(zTop)
+    cand = 0
+    qual = 0
+    disp = 0
+    float nearestMid = na
+    string nearestState = "-"
+    float nearestDistPct = na
+    int nearestIdx = -1
+    int nearestQ = na
+    int nearestU = na
+    int nearestL = na
+    float nearestH = na
+    float nearestMoveReq = na
+
+    tgt = diagTargetPrice > 0.0 ? diagTargetPrice : close
+
+    if zCount > 0
+        bestDist = 1e10
+        for i = 0 to zCount - 1
+            st = array.get(zState, i)
+            v = array.get(zVisible, i)
+            m = array.get(zMid, i)
+            cand += st == STATE_CAND ? 1 : 0
+            qual += st == STATE_QUAL ? 1 : 0
+            disp += v ? 1 : 0
+
+            d = math.abs(m - tgt)
+            if d < bestDist
+                bestDist := d
+                nearestIdx := i
+                nearestMid := m
+                nearestState := f_state_name(st)
+                nearestDistPct := d / math.max(tgt, syminfo.mintick) * 100.0
+
+        if nearestIdx >= 0
+            nearestQ := array.get(zQ, nearestIdx)
+            nearestU := array.get(zU, nearestIdx)
+            nearestL := array.get(zL, nearestIdx)
+            nTop = array.get(zTop, nearestIdx)
+            nBot = array.get(zBot, nearestIdx)
+            nearestH := f_height(nTop, nBot)
+            nearestMoveReq := reactionMoveK * nearestH
+
+    table.cell(t, 0, 0, "Zones pool", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 1, 0, str.tostring(zCount), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 1, "Candidate", text_color=color.white)
+    table.cell(t, 1, 1, str.tostring(cand), text_color=color.white)
+    table.cell(t, 0, 2, "Qualified", text_color=color.white)
+    table.cell(t, 1, 2, str.tostring(qual), text_color=color.white)
+    table.cell(t, 0, 3, "Displayed", text_color=color.white)
+    table.cell(t, 1, 3, str.tostring(disp), text_color=color.white)
+    table.cell(t, 0, 4, "Mode", text_color=color.white)
+    table.cell(t, 1, 4, mode, text_color=color.white)
+    table.cell(t, 0, 5, "Nearest to target", text_color=color.white)
+    nearTxt = effShowDiagTarget and not na(nearestMid) ? (str.tostring(nearestMid, format.mintick) + " (" + nearestState + ")") : "-"
+    table.cell(t, 1, 5, nearTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 6, "Target dist %", text_color=color.white)
+    distTxt = effShowDiagTarget and not na(nearestDistPct) ? str.tostring(nearestDistPct, "#.##") + "%" : "-"
+    table.cell(t, 1, 6, distTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 7, "Nearest Q/U/L", text_color=color.white)
+    qulTxt = effShowDiagTarget and nearestIdx >= 0 ? (str.tostring(nearestQ) + "/" + str.tostring(nearestU) + "/" + str.tostring(nearestL)) : "-"
+    table.cell(t, 1, 7, qulTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 8, "Nearest H/moveReq", text_color=color.white)
+    hTxt = effShowDiagTarget and nearestIdx >= 0 and not na(nearestH) and not na(nearestMoveReq) ? (str.tostring(nearestH, format.mintick) + " / " + str.tostring(nearestMoveReq, format.mintick)) : "-"
+    table.cell(t, 1, 8, hTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 9, "Seed/React wick", text_color=color.white)
+    table.cell(t, 1, 9, str.tostring(seedWickBias, "#.##") + " / " + str.tostring(reactionWickBias, "#.##"), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 10, "Lookback", text_color=color.white)
+    lbTxt = not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-"
+    table.cell(t, 1, 10, lbTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 11, "Legend", text_color=color.white)
+    legendBase = colorBySide ? "SUP=green RES=purple" : "LEVELS=blue"
+    table.cell(t, 1, 11, legendBase, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 12, "Pivot L/R", text_color=color.white)
+    table.cell(t, 1, 12, str.tostring(pivotL) + "/" + str.tostring(pivotR), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 13, "Min strength", text_color=color.white)
+    table.cell(t, 1, 13, str.tostring(minPivotStrength, "#.##"), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 14, "Merge/Spacing", text_color=color.white)
+    table.cell(t, 1, 14, str.tostring(mergeOverlap, "#.##") + " / " + str.tostring(minZoneSpacing, "#.##"), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 15, "Max int/display", text_color=color.white)
+    table.cell(t, 1, 15, str.tostring(maxZonesInternal) + " / " + str.tostring(maxDisplayZones), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 16, "Raw pivots H/L", text_color=color.white)
+    table.cell(t, 1, 16, str.tostring(dbgRawPh) + " / " + str.tostring(dbgRawPl), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 17, "Seeds add/merge/drop", text_color=color.white)
+    table.cell(t, 1, 17, str.tostring(dbgSeedsAdded) + " / " + str.tostring(dbgSeedsMerged) + " / " + str.tostring(dbgSeedsDropped), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 18, "DIAG bypass merge", text_color=color.white)
+    table.cell(t, 1, 18, (isDiagMode and diagBypassMerge) ? "ON" : "OFF", text_color=color.new(color.white, 0))
+    table.cell(t, 0, 19, "Build status", text_color=color.white)
+    statusTxt = zCount > 0 ? "OK" : "NO_SEEDS"
+    table.cell(t, 1, 19, statusTxt, text_color=color.new(color.white, 0))
