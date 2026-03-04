@@ -44,6 +44,7 @@ diagTargetPrice       = input.float(72000.0, "Diagnostic target price", minval=0
 showDiagTarget        = input.bool(true, "Show target diagnostics")
 showCandidates        = input.bool(false, "Show candidate zones (DIAG)")
 candidateFallback     = input.bool(true, "Show candidates when no qualified (DIAG)")
+diagBypassMerge       = input.bool(false, "DIAG: bypass seed merge")
 
 showReasonLabels      = input.bool(false, "Show reason labels (DIAG)")
 showZoneMidline       = input.bool(true, "Show zone midline")
@@ -93,10 +94,23 @@ var zBox              = array.new_box()
 var zLine             = array.new_line()
 var int lastBuildLookback = na
 
+// DIAG counters for Pass A
+var int dbgRawPh = 0
+var int dbgRawPl = 0
+var int dbgSeedsAdded = 0
+var int dbgSeedsMerged = 0
+var int dbgSeedsDropped = 0
+
 atrv = ta.atr(14)
 // Precompute pivot series on every bar (critical for historical references in builder pass).
 phSeries = ta.pivothigh(high, pivotL, pivotR)
 plSeries = ta.pivotlow(low, pivotL, pivotR)
+max_bars_back(phSeries, 6000)
+max_bars_back(plSeries, 6000)
+max_bars_back(high, 6000)
+max_bars_back(low, 6000)
+max_bars_back(open, 6000)
+max_bars_back(close, 6000)
 
 // ---------- Helpers ----------
 f_reason(_txt, _y, _c) =>
@@ -227,7 +241,7 @@ f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
     dropped = false
 
     zCount = array.size(zTop)
-    if zCount > 0
+    if zCount > 0 and not (isDiagMode and diagBypassMerge)
         rev = zCount - 1
         for k = 0 to zCount - 1
             i = rev - k
@@ -257,9 +271,11 @@ f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
                             array.set(zU, i, 0)
                             array.set(zL, i, 0)
                             array.set(zOriginTime, i, leftKeep)
+                            dbgSeedsMerged += 1
                             f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 20))
                         else
                             dropped := true
+                            dbgSeedsDropped += 1
 
     if not dropped
         array.push(zTop, _top)
@@ -274,6 +290,7 @@ f_add_or_merge_seed(_top, _bot, _side, _str, _originTime) =>
         array.push(zL, 0)
         array.push(zOriginTime, _originTime)
         array.push(zVisible, false)
+        dbgSeedsAdded += 1
         f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
 
     f_drop_weakest_if_needed()
@@ -288,6 +305,7 @@ f_build_seeds(_eLookback) =>
             if valid
                 phv = phSeries[off]
                 if not na(phv)
+                    dbgRawPh += 1
                     wickHi = high[off]
                     bodyHi = math.max(open[off], close[off])
                     top = wickHi
@@ -300,6 +318,7 @@ f_build_seeds(_eLookback) =>
 
                 plv = plSeries[off]
                 if not na(plv)
+                    dbgRawPl += 1
                     wickLo = low[off]
                     bodyLo = math.min(open[off], close[off])
                     top2 = f_lerp(bodyLo, wickLo, seedWickBias)
@@ -452,6 +471,11 @@ f_render_all() =>
 // ---------- Main builder execution ----------
 if barstate.islast
     f_reset_all()
+    dbgRawPh := 0
+    dbgRawPl := 0
+    dbgSeedsAdded := 0
+    dbgSeedsMerged := 0
+    dbgSeedsDropped := 0
 
     maxByBars = bar_index - pivotR - reactionWindowBars - 2
     eLookback = math.max(0, math.min(lookbackBars, maxByBars))
@@ -470,7 +494,7 @@ plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsi
 plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 40), style=plot.style_circles, linewidth=1)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 16, border_width=1)
+var table t = table.new(position.top_right, 2, 20, border_width=1)
 if barstate.islast and effShowDebugTable
     zCount = array.size(zTop)
     cand = 0
@@ -553,3 +577,12 @@ if barstate.islast and effShowDebugTable
     table.cell(t, 1, 14, str.tostring(mergeOverlap, "#.##") + " / " + str.tostring(minZoneSpacing, "#.##"), text_color=color.new(color.white, 0))
     table.cell(t, 0, 15, "Max int/display", text_color=color.white)
     table.cell(t, 1, 15, str.tostring(maxZonesInternal) + " / " + str.tostring(maxDisplayZones), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 16, "Raw pivots H/L", text_color=color.white)
+    table.cell(t, 1, 16, str.tostring(dbgRawPh) + " / " + str.tostring(dbgRawPl), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 17, "Seeds add/merge/drop", text_color=color.white)
+    table.cell(t, 1, 17, str.tostring(dbgSeedsAdded) + " / " + str.tostring(dbgSeedsMerged) + " / " + str.tostring(dbgSeedsDropped), text_color=color.new(color.white, 0))
+    table.cell(t, 0, 18, "DIAG bypass merge", text_color=color.white)
+    table.cell(t, 1, 18, (isDiagMode and diagBypassMerge) ? "ON" : "OFF", text_color=color.new(color.white, 0))
+    table.cell(t, 0, 19, "Build status", text_color=color.white)
+    statusTxt = zCount > 0 ? "OK" : "NO_SEEDS"
+    table.cell(t, 1, 19, statusTxt, text_color=color.new(color.white, 0))

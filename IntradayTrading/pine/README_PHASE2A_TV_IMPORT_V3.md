@@ -40,6 +40,9 @@ This is closer to the mentorship intent of corroborating levels over full histor
   - Target dist %
   - Nearest Q/U/L
   - Nearest H/moveReq
+  - Raw pivots H/L
+  - Seeds add/merge/drop
+- Optional deep check: toggle `DIAG: bypass seed merge` to isolate whether merge policy is collapsing seeds.
 
 ## Notes
 - Watcher-only indicator (no entries/triggers/execution).
