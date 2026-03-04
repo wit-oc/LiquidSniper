@@ -6,8 +6,8 @@ atrLen              = input.int(14, "ATR Length", minval=1)
 kAtr                = input.float(0.35, "kAtr", minval=0.01, step=0.01)
 minTicksInput       = input.int(20, "minTicks (global)", minval=1)
 maxTicksInput       = input.int(5000, "maxTicks (global)", minval=2)
-mergeOverlap        = input.float(0.30, "mergeOverlap", minval=0.0, maxval=1.0, step=0.01)
-minZoneSpacing      = input.float(1.25, "minZoneSpacing x width", minval=0.1, step=0.05)
+mergeOverlap        = input.float(0.20, "mergeOverlap", minval=0.0, maxval=1.0, step=0.01)
+minZoneSpacing      = input.float(2.00, "minZoneSpacing x width", minval=0.1, step=0.05)
 closeBreakTolK      = input.float(0.05, "closeBreakTolK", minval=0.0, step=0.01)
 sepK                = input.float(0.75, "sepK", minval=0.0, step=0.05)
 baseTolK            = input.float(1.00, "baseTolK", minval=0.1, step=0.05)
@@ -17,9 +17,10 @@ reclaimK            = input.float(0.25, "reclaimK", minval=0.0, step=0.01)
 flipConfirmWindow   = input.int(12, "flipConfirmWindowBars", minval=1)
 touchEpsilonK       = input.float(0.02, "touchEpsilonK", minval=0.0, step=0.01)
 
-pivotL              = input.int(3, "Pivot Left", minval=1)
-pivotR              = input.int(3, "Pivot Right", minval=1)
-maxZones            = input.int(24, "Max zones", minval=4, maxval=80)
+pivotL              = input.int(8, "Pivot Left", minval=1)
+pivotR              = input.int(8, "Pivot Right", minval=1)
+minStrength         = input.float(1.25, "Min pivot strength", minval=0.1, step=0.05)
+maxZones            = input.int(10, "Max zones", minval=4, maxval=80)
 showReasonLabels    = input.bool(false, "Show reason labels")
 showProgressLabels  = input.bool(false, "Show progress labels (noisy)")
 showDebug           = input.bool(false, "Show debug")
@@ -56,6 +57,7 @@ var zBreakBar       = array.new_int()
 var zSepSeen        = array.new_bool()
 var zBaseCount      = array.new_int()
 var zCreatedBar     = array.new_int()
+var zOriginBar      = array.new_int()
 var zLastTouchBar   = array.new_int()
 var zBox            = array.new_box()
 var zMidLine        = array.new_line()
@@ -122,11 +124,13 @@ f_trim() =>
         array.shift(zSepSeen)
         array.shift(zBaseCount)
         array.shift(zCreatedBar)
+        array.shift(zOriginBar)
         array.shift(zLastTouchBar)
 
-f_add_zone(_mid, _width, _side, _strength) =>
+f_add_zone(_mid, _width, _side, _strength, _originBar) =>
     _top = _mid + _width * 0.5
     _bot = _mid - _width * 0.5
+    _left = math.max(0, _originBar)
 
     // De-dupe / spacing against same-side zones; keep stronger locus.
     bool dropped = false
@@ -160,13 +164,14 @@ f_add_zone(_mid, _width, _side, _strength) =>
                         array.set(zSepSeen, i, false)
                         array.set(zBaseCount, i, 0)
                         array.set(zCreatedBar, i, bar_index)
+                        array.set(zOriginBar, i, _left)
                         array.set(zLastTouchBar, i, na)
-                        nb = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
+                        nb = box.new(_left, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
                         array.set(zBox, i, nb)
                         oldMl = array.get(zMidLine, i)
                         if not na(oldMl)
                             line.delete(oldMl)
-                        ml = line.new(bar_index - 1, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
+                        ml = line.new(_left, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
                         array.set(zMidLine, i, ml)
                         f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 10))
                     else
@@ -187,10 +192,11 @@ f_add_zone(_mid, _width, _side, _strength) =>
         array.push(zSepSeen, false)
         array.push(zBaseCount, 0)
         array.push(zCreatedBar, bar_index)
+        array.push(zOriginBar, _left)
         array.push(zLastTouchBar, na)
-        b = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
+        b = box.new(_left, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
         array.push(zBox, b)
-        ml = line.new(bar_index - 1, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
+        ml = line.new(_left, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
         array.push(zMidLine, ml)
         f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
 
@@ -208,6 +214,7 @@ f_update_zone(i) =>
     iBreakBar = array.get(zBreakBar, i)
     iSep = array.get(zSepSeen, i)
     iBase = array.get(zBaseCount, i)
+    iOrigin = array.get(zOriginBar, i)
 
     eps = touchEpsilonK * iWidth
     touch = high >= (iBot - eps) and low <= (iTop + eps)
@@ -285,12 +292,14 @@ f_update_zone(i) =>
 
     b = array.get(zBox, i)
     if not na(b)
+        box.set_left(b, iOrigin)
         box.set_right(b, bar_index)
         box.set_bgcolor(b, f_zone_color(iState, iSide))
         box.set_border_color(b, f_zone_border_color(iState, iSide))
 
     ml = array.get(zMidLine, i)
     if not na(ml)
+        line.set_x1(ml, iOrigin)
         line.set_x2(ml, bar_index)
         line.set_y1(ml, iMid)
         line.set_y2(ml, iMid)
@@ -304,13 +313,15 @@ if not na(ph)
     // resistance from pivot high
     c = ph
     strength = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
-    f_add_zone(c, zoneW[pivotR], SIDE_RESIST, strength)
+    if strength >= minStrength
+        f_add_zone(c, zoneW[pivotR], SIDE_RESIST, strength, bar_index - pivotR)
 
 if not na(pl)
     // support from pivot low
     c = pl
     strength = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
-    f_add_zone(c, zoneW[pivotR], SIDE_SUPPORT, strength)
+    if strength >= minStrength
+        f_add_zone(c, zoneW[pivotR], SIDE_SUPPORT, strength, bar_index - pivotR)
 
 // === HTF markers (authority hint) ===
 htfPh = request.security(syminfo.tickerid, htfTf, ta.pivothigh(high, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
