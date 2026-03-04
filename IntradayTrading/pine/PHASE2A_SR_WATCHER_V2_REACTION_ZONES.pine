@@ -15,9 +15,11 @@ pivotR              = input.int(10, "Pivot Right", minval=1)
 minPivotStrength    = input.float(1.20, "Min pivot strength", minval=0.1, step=0.05)
 
 minQualifiedTouches = input.int(3, "Min qualified touches", minval=1)
-reactionMoveK       = input.float(0.35, "Reaction move K (x zone height)", minval=0.05, step=0.05)
+reactionMoveK       = input.float(0.25, "Reaction move K (x zone height)", minval=0.05, step=0.05)
 reactionWindowBars  = input.int(8, "Reaction window bars", minval=1)
-edgeHitEpsK         = input.float(0.20, "Edge-hit epsilon K (x zone height)", minval=0.01, step=0.01)
+edgeHitEpsK         = input.float(0.35, "Edge-hit epsilon K (x zone height)", minval=0.01, step=0.01)
+requireDualEdge     = input.bool(true, "Require both edge types to qualify")
+minEdgeHits         = input.int(1, "Min edge hits per required side", minval=1)
 
 mergeOverlap        = input.float(0.20, "Merge overlap", minval=0.0, maxval=1.0, step=0.01)
 minZoneSpacing      = input.float(2.00, "Min zone spacing x height", minval=0.1, step=0.05)
@@ -35,6 +37,7 @@ touchEpsilonK       = input.float(0.03, "touchEpsilonK", minval=0.0, step=0.01)
 maxZonesInternal    = input.int(140, "Max zones internal (history pool)", minval=10, maxval=200)
 maxDisplayZones     = input.int(12, "Max displayed zones", minval=1, maxval=40)
 showCandidates      = input.bool(false, "Show candidate zones")
+candidateFallback   = input.bool(true, "Show candidates when no qualified zones")
 showReasonLabels    = input.bool(false, "Show major reason labels")
 showZoneMidline     = input.bool(true, "Show zone midline")
 highContrastZones   = input.bool(true, "High-contrast zones")
@@ -288,6 +291,7 @@ f_touch_reaction_update(i) =>
         edgeEps = edgeHitEpsK * h
         touch = high >= (bot - eps) and low <= (top + eps)
 
+        pending0 = array.get(zPending, i)
         lastTouch = array.get(zLastTouchBar, i)
         if touch and bar_index != lastTouch
             array.set(zLastTouchBar, i, bar_index)
@@ -298,12 +302,14 @@ f_touch_reaction_update(i) =>
             if low <= (bot + edgeEps)
                 array.set(zLowerHits, i, array.get(zLowerHits, i) + 1)
 
-            array.set(zPending, i, true)
-            array.set(zPendBar, i, bar_index)
-            array.set(zPendHigh, i, high)
-            array.set(zPendLow, i, low)
-            bodyRef = side == SIDE_RESIST ? math.max(open, close) : math.min(open, close)
-            array.set(zPendBody, i, bodyRef)
+            // Do not overwrite pending touch while waiting for reaction outcome.
+            if not pending0
+                array.set(zPending, i, true)
+                array.set(zPendBar, i, bar_index)
+                array.set(zPendHigh, i, high)
+                array.set(zPendLow, i, low)
+                bodyRef = side == SIDE_RESIST ? math.max(open, close) : math.min(open, close)
+                array.set(zPendBody, i, bodyRef)
 
         pending = array.get(zPending, i)
         if pending
@@ -330,10 +336,8 @@ f_touch_reaction_update(i) =>
 
                 f_rebuild_mid(i)
                 f_reason("SR_TOUCH_REACTION_CONFIRMED", array.get(zMid, i), color.new(color.green, 10))
-                array.set(zPending, i, array.get(zPending, i))
             else if elapsed > reactionWindowBars
                 array.set(zPending, i, false)
-                array.set(zPending, i, array.get(zPending, i))
 
 f_qualify_if_ready(i) =>
     st = array.get(zState, i)
@@ -342,7 +346,8 @@ f_qualify_if_ready(i) =>
         uh = array.get(zUpperHits, i)
         lh = array.get(zLowerHits, i)
 
-        if q >= minQualifiedTouches and uh > 0 and lh > 0
+        edgeOk = requireDualEdge ? (uh >= minEdgeHits and lh >= minEdgeHits) : (uh + lh >= minEdgeHits)
+        if q >= minQualifiedTouches and edgeOk
             array.set(zState, i, STATE_QUALIFIED)
             f_reason("SR_ZONE_QUALIFIED_3T", array.get(zMid, i), color.new(color.blue, 0))
 
@@ -373,7 +378,6 @@ f_flip_update(i) =>
             if reclaimHit
                 st := STATE_INVALID
                 f_reason("SR_INVALID_RECLAIM", mid, color.new(color.red, 0))
-                array.set(zState, i, array.get(zState, i))
             else
                 sepHit = (side == SIDE_SUPPORT and low < bot - sepK * h) or (side == SIDE_RESIST and high > top + sepK * h)
                 if sepHit
@@ -416,6 +420,12 @@ f_compute_visibility() =>
         for i = 0 to zCount - 1
             array.set(zVisible, i, false)
 
+        hasQualifiedLike = false
+        for i = 0 to zCount - 1
+            st0 = array.get(zState, i)
+            if st0 == STATE_QUALIFIED or st0 == STATE_FLIPPED or st0 == STATE_FLIP_CAND
+                hasQualifiedLike := true
+
         for pick = 0 to maxDisplayZones - 1
             bestIdx = -1
             bestScore = -1e10
@@ -423,7 +433,7 @@ f_compute_visibility() =>
             for i = 0 to zCount - 1
                 already = array.get(zVisible, i)
                 st = array.get(zState, i)
-                candidateAllowed = showCandidates and st == STATE_CANDIDATE
+                candidateAllowed = (showCandidates or (candidateFallback and not hasQualifiedLike)) and st == STATE_CANDIDATE
                 displayable = st == STATE_QUALIFIED or st == STATE_FLIPPED or st == STATE_FLIP_CAND or candidateAllowed
 
                 if (not already) and displayable and st != STATE_INVALID
