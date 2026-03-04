@@ -234,6 +234,7 @@ f_new_zone(_top, _bot, _side, _strength, _originBar) =>
                             array.set(zOriginBar, i, leftKeep)
                             array.set(zLastTouchBar, i, na)
                             f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 15))
+                            array.set(zLastTouchBar, i, array.get(zLastTouchBar, i))
                         else
                             dropped := true
 
@@ -327,8 +328,10 @@ f_touch_reaction_update(i) =>
 
                 f_rebuild_mid(i)
                 f_reason("SR_TOUCH_REACTION_CONFIRMED", array.get(zMid, i), color.new(color.green, 10))
+                array.set(zPending, i, array.get(zPending, i))
             else if elapsed > reactionWindowBars
                 array.set(zPending, i, false)
+                array.set(zPending, i, array.get(zPending, i))
 
 f_qualify_if_ready(i) =>
     st = array.get(zState, i)
@@ -368,6 +371,7 @@ f_flip_update(i) =>
             if reclaimHit
                 st := STATE_INVALID
                 f_reason("SR_INVALID_RECLAIM", mid, color.new(color.red, 0))
+                array.set(zState, i, array.get(zState, i))
             else
                 sepHit = (side == SIDE_SUPPORT and low < bot - sepK * h) or (side == SIDE_RESIST and high > top + sepK * h)
                 if sepHit
