@@ -20,10 +20,11 @@ touchEpsilonK       = input.float(0.02, "touchEpsilonK", minval=0.0, step=0.01)
 pivotL              = input.int(3, "Pivot Left", minval=1)
 pivotR              = input.int(3, "Pivot Right", minval=1)
 maxZones            = input.int(24, "Max zones", minval=4, maxval=80)
-showReasonLabels    = input.bool(true, "Show reason labels")
+showReasonLabels    = input.bool(false, "Show reason labels")
 showProgressLabels  = input.bool(false, "Show progress labels (noisy)")
 showDebug           = input.bool(false, "Show debug")
 highContrastZones   = input.bool(true, "High-contrast zones")
+showZoneMidline     = input.bool(true, "Show zone midline")
 
 htfTf               = input.timeframe("60", "HTF timeframe")
 showHtfMarkers      = input.bool(true, "Show HTF markers")
@@ -57,6 +58,7 @@ var zBaseCount      = array.new_int()
 var zCreatedBar     = array.new_int()
 var zLastTouchBar   = array.new_int()
 var zBox            = array.new_box()
+var zMidLine        = array.new_line()
 
 f_clamp(_x, _lo, _hi) =>
     math.max(_lo, math.min(_hi, _x))
@@ -67,8 +69,9 @@ maxW = maxTicksInput * syminfo.mintick
 zoneW = f_clamp(kAtr * atrv, minW, maxW)
 
 f_reason(_txt, _y, _c) =>
-    noisyProgress = _txt == "SR_FLIP_BASE_PROGRESS" or _txt == "SR_RETEST_INCREMENTED"
-    shouldShow = showReasonLabels and (showProgressLabels or not noisyProgress)
+    noisyProgress = _txt == "SR_FLIP_BASE_PROGRESS" or _txt == "SR_RETEST_INCREMENTED" or _txt == "SR_FLIP_SEPARATION_MET"
+    majorEvent = _txt == "SR_ZONE_CREATED" or _txt == "SR_FIRST_RETEST" or _txt == "SR_BREAK_CLOSE_CONFIRMED" or _txt == "SR_FLIP_CONFIRMED" or _txt == "SR_INVALID_RECLAIM"
+    shouldShow = showReasonLabels and (majorEvent or showProgressLabels) and (showProgressLabels or not noisyProgress)
     if shouldShow
         label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
 
@@ -103,6 +106,9 @@ f_trim() =>
         oldBox = array.shift(zBox)
         if not na(oldBox)
             box.delete(oldBox)
+        oldLine = array.shift(zMidLine)
+        if not na(oldLine)
+            line.delete(oldLine)
         array.shift(zTop)
         array.shift(zBot)
         array.shift(zMid)
@@ -155,8 +161,13 @@ f_add_zone(_mid, _width, _side, _strength) =>
                         array.set(zBaseCount, i, 0)
                         array.set(zCreatedBar, i, bar_index)
                         array.set(zLastTouchBar, i, na)
-                        nb = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=2, bgcolor=f_zone_color(STATE_ACTIVE, _side))
+                        nb = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
                         array.set(zBox, i, nb)
+                        oldMl = array.get(zMidLine, i)
+                        if not na(oldMl)
+                            line.delete(oldMl)
+                        ml = line.new(bar_index - 1, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
+                        array.set(zMidLine, i, ml)
                         f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 10))
                     else
                         dropped := true
@@ -177,8 +188,10 @@ f_add_zone(_mid, _width, _side, _strength) =>
         array.push(zBaseCount, 0)
         array.push(zCreatedBar, bar_index)
         array.push(zLastTouchBar, na)
-        b = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=2, bgcolor=f_zone_color(STATE_ACTIVE, _side))
+        b = box.new(bar_index - 1, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
         array.push(zBox, b)
+        ml = line.new(bar_index - 1, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
+        array.push(zMidLine, ml)
         f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
 
     f_trim()
@@ -275,6 +288,13 @@ f_update_zone(i) =>
         box.set_right(b, bar_index)
         box.set_bgcolor(b, f_zone_color(iState, iSide))
         box.set_border_color(b, f_zone_border_color(iState, iSide))
+
+    ml = array.get(zMidLine, i)
+    if not na(ml)
+        line.set_x2(ml, bar_index)
+        line.set_y1(ml, iMid)
+        line.set_y2(ml, iMid)
+        line.set_color(ml, showZoneMidline ? f_zone_border_color(iState, iSide) : color.new(color.white, 100))
 
 // === Build zones from pivots (reaction loci) ===
 ph = ta.pivothigh(high, pivotL, pivotR)
