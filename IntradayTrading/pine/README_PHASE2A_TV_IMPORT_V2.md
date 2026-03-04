@@ -25,7 +25,8 @@ V2 refactors zone logic to better match Foxian constraints:
 - Reaction window bars: `8`
 - Merge overlap: `0.35`
 - Min zone spacing: `1.25`
-- Max zone height % of level: `0.08`
+- Max zone height % of level: `0.04`
+- Max zone height in ATRs: `6.0`
 - Max zones internal: `140`
 - Max displayed zones: `12`
 - Show candidates: `false` (fallback-on when none qualified)
