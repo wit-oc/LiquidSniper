@@ -66,17 +66,11 @@ minW = minTicksInput * syminfo.mintick
 maxW = maxTicksInput * syminfo.mintick
 zoneW = f_clamp(kAtr * atrv, minW, maxW)
 
-var int lastReasonBar = na
-var string lastReasonTxt = ""
-
 f_reason(_txt, _y, _c) =>
     noisyProgress = _txt == "SR_FLIP_BASE_PROGRESS" or _txt == "SR_RETEST_INCREMENTED"
     shouldShow = showReasonLabels and (showProgressLabels or not noisyProgress)
-    isDuplicate = bar_index == lastReasonBar and _txt == lastReasonTxt
-    if shouldShow and not isDuplicate
+    if shouldShow
         label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
-        lastReasonBar := bar_index
-        lastReasonTxt := _txt
 
 f_overlap_ratio(_t1, _b1, _t2, _b2) =>
     interTop = math.min(_t1, _t2)
