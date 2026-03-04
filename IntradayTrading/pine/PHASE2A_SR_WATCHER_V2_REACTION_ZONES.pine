@@ -33,14 +33,20 @@ reclaimK            = input.float(0.25, "reclaimK", minval=0.0, step=0.01)
 flipConfirmWindow   = input.int(12, "flipConfirmWindowBars", minval=1)
 
 touchEpsilonK       = input.float(0.03, "touchEpsilonK", minval=0.0, step=0.01)
+maxZoneHeightPct    = input.float(0.08, "Max zone height % of level", minval=0.01, step=0.01)
 
 maxZonesInternal    = input.int(140, "Max zones internal (history pool)", minval=10, maxval=200)
 maxDisplayZones     = input.int(12, "Max displayed zones", minval=1, maxval=40)
+displayFocusPrice   = input.float(0.0, "Display focus price (0 = current close)", minval=0.0, step=100.0)
+proximityWeight     = input.float(2.0, "Display proximity weight", minval=0.0, step=0.25)
+diagTargetPrice     = input.float(72000.0, "Diagnostic target price", minval=0.0, step=100.0)
+showDiagTarget      = input.bool(true, "Show target diagnostics")
 showCandidates      = input.bool(false, "Show candidate zones")
 candidateFallback   = input.bool(true, "Show candidates when no qualified zones")
 showReasonLabels    = input.bool(false, "Show major reason labels")
 showZoneMidline     = input.bool(true, "Show zone midline")
-showSideStyle       = input.bool(true, "Support solid / Resistance dashed")
+showSideStyle       = input.bool(false, "Support solid / Resistance dashed")
+colorBySide         = input.bool(false, "Color by support/resistance side")
 highContrastZones   = input.bool(true, "High-contrast zones")
 showDebugTable      = input.bool(true, "Show debug table")
 
@@ -81,7 +87,7 @@ var zSepSeen        = array.new_bool()
 var zBaseCount      = array.new_int()
 
 var zCreatedBar     = array.new_int()
-var zOriginBar      = array.new_int()
+var zOriginTime     = array.new_int()
 var zLastTouchBar   = array.new_int()
 
 var zVisible        = array.new_bool()
@@ -108,6 +114,12 @@ f_overlap_ratio(_t1, _b1, _t2, _b2) =>
 f_state_weight(_state) =>
     _state == STATE_QUALIFIED ? 2.0 : _state == STATE_FLIPPED ? 2.5 : _state == STATE_FLIP_CAND ? 1.5 : _state == STATE_CANDIDATE ? 0.5 : -2.0
 
+f_state_name(_state) =>
+    _state == STATE_CANDIDATE ? "CAND" :
+      _state == STATE_QUALIFIED ? "QUAL" :
+      _state == STATE_FLIP_CAND ? "FLIP_C" :
+      _state == STATE_FLIPPED ? "FLIPPED" : "INVALID"
+
 f_score(i) =>
     st = array.get(zState, i)
     str = array.get(zStrength, i)
@@ -116,22 +128,47 @@ f_score(i) =>
     edge = math.min(array.get(zUpperHits, i), array.get(zLowerHits, i))
     str + qt * 1.8 + tt * 0.20 + edge * 0.6 + f_state_weight(st)
 
+f_display_score(i) =>
+    base = f_score(i)
+    mid = array.get(zMid, i)
+    top = array.get(zTop, i)
+    bot = array.get(zBot, i)
+    focus = displayFocusPrice > 0.0 ? displayFocusPrice : close
+    denom = math.max(math.abs(focus), syminfo.mintick)
+    prox = 1.0 / (1.0 + math.abs(mid - focus) / denom)
+    hPct = f_height(top, bot) / math.max(math.abs(mid), syminfo.mintick)
+    giantPenalty = math.max(0.0, hPct - maxZoneHeightPct) * 50.0
+    base + proximityWeight * prox - giantPenalty
+
 f_fill_color(_state, _side) =>
     aC = highContrastZones ? 72 : 88
     aQ = highContrastZones ? 58 : 82
     aF = highContrastZones ? 52 : 78
     aI = highContrastZones ? 58 : 82
+    baseCand = colorBySide ? (_side == SIDE_SUPPORT ? color.new(color.green, aC) : color.new(color.purple, aC)) : color.new(color.blue, aC)
+    baseQual = colorBySide ? (_side == SIDE_SUPPORT ? color.new(color.green, aQ) : color.new(color.purple, aQ)) : color.new(color.blue, aQ)
     _state == STATE_INVALID ? color.new(color.red, aI) :
       _state == STATE_FLIP_CAND ? color.new(color.orange, aF) :
       _state == STATE_FLIPPED ? color.new(color.aqua, aF) :
-      _state == STATE_QUALIFIED ? (_side == SIDE_SUPPORT ? color.new(color.green, aQ) : color.new(color.purple, aQ)) :
-      (_side == SIDE_SUPPORT ? color.new(color.green, aC) : color.new(color.purple, aC))
+      _state == STATE_QUALIFIED ? baseQual : baseCand
 
 f_border_color(_state, _side) =>
+    base = colorBySide ? (_side == SIDE_SUPPORT ? color.new(color.lime, 0) : color.new(color.fuchsia, 0)) : color.new(color.blue, 0)
     _state == STATE_INVALID ? color.new(color.red, 0) :
       _state == STATE_FLIP_CAND ? color.new(color.orange, 0) :
       _state == STATE_FLIPPED ? color.new(color.aqua, 0) :
-      (_side == SIDE_SUPPORT ? color.new(color.lime, 0) : color.new(color.fuchsia, 0))
+      base
+
+f_cap_zone_height(i) =>
+    top = array.get(zTop, i)
+    bot = array.get(zBot, i)
+    mid = array.get(zMid, i)
+    h = f_height(top, bot)
+    capH = math.max(syminfo.mintick * 4.0, math.abs(mid) * maxZoneHeightPct)
+    if h > capH
+        half = capH * 0.5
+        array.set(zTop, i, mid + half)
+        array.set(zBot, i, mid - half)
 
 f_remove_at(idx) =>
     b = array.get(zBox, idx)
@@ -164,7 +201,7 @@ f_remove_at(idx) =>
     array.remove(zBaseCount, idx)
 
     array.remove(zCreatedBar, idx)
-    array.remove(zOriginBar, idx)
+    array.remove(zOriginTime, idx)
     array.remove(zLastTouchBar, idx)
 
     array.remove(zVisible, idx)
@@ -192,8 +229,8 @@ f_rebuild_mid(i) =>
         array.set(zTop, i, t)
     array.set(zMid, i, (t + b) * 0.5)
 
-f_new_zone(_top, _bot, _side, _strength, _originBar) =>
-    _left = math.max(0, _originBar)
+f_new_zone(_top, _bot, _side, _strength, _originTime) =>
+    _left = _originTime
     _h = f_height(_top, _bot)
     _mid = (_top + _bot) * 0.5
 
@@ -218,7 +255,7 @@ f_new_zone(_top, _bot, _side, _strength, _originBar) =>
                         iSc = f_score(i)
                         nSc = _strength + 0.25
                         if nSc > iSc
-                            leftKeep = math.min(array.get(zOriginBar, i), _left)
+                            leftKeep = math.min(array.get(zOriginTime, i), _left)
                             array.set(zTop, i, _top)
                             array.set(zBot, i, _bot)
                             array.set(zMid, i, _mid)
@@ -237,7 +274,7 @@ f_new_zone(_top, _bot, _side, _strength, _originBar) =>
                             array.set(zSepSeen, i, false)
                             array.set(zBaseCount, i, 0)
                             array.set(zCreatedBar, i, bar_index)
-                            array.set(zOriginBar, i, leftKeep)
+                            array.set(zOriginTime, i, leftKeep)
                             array.set(zLastTouchBar, i, na)
                             f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 15))
                             array.set(zLastTouchBar, i, array.get(zLastTouchBar, i))
@@ -268,15 +305,16 @@ f_new_zone(_top, _bot, _side, _strength, _originBar) =>
         array.push(zBaseCount, 0)
 
         array.push(zCreatedBar, bar_index)
-        array.push(zOriginBar, _left)
+        array.push(zOriginTime, _left)
         array.push(zLastTouchBar, na)
 
         array.push(zVisible, false)
-        b = box.new(_left, _top, bar_index, _bot, border_color=color.new(color.white, 70), border_width=2, bgcolor=color.new(color.white, 100))
-        l = line.new(_left, _mid, bar_index, _mid, extend=extend.none, color=color.new(color.white, 100), width=1)
+        b = box.new(_left, _top, time, _bot, xloc=xloc.bar_time, border_color=color.new(color.white, 70), border_width=2, bgcolor=color.new(color.white, 100))
+        l = line.new(_left, _mid, time, _mid, xloc=xloc.bar_time, extend=extend.none, color=color.new(color.white, 100), width=1)
         array.push(zBox, b)
         array.push(zLine, l)
         f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
+        _noop = 0
 
     f_trim_weakest()
 
@@ -379,12 +417,14 @@ f_flip_update(i) =>
             sepSeen := false
             baseCount := 0
             f_reason("SR_BREAK_CLOSE_CONFIRMED", mid, color.new(color.orange, 0))
+            baseCount := baseCount
 
         if st == STATE_FLIP_CAND
             reclaimHit = (side == SIDE_SUPPORT and close > bot + reclaimK * h) or (side == SIDE_RESIST and close < top - reclaimK * h)
             if reclaimHit
                 st := STATE_INVALID
                 f_reason("SR_INVALID_RECLAIM", mid, color.new(color.red, 0))
+                baseCount := baseCount
             else
                 sepHit = (side == SIDE_SUPPORT and low < bot - sepK * h) or (side == SIDE_RESIST and high > top + sepK * h)
                 if sepHit
@@ -401,6 +441,7 @@ f_flip_update(i) =>
                     sepSeen := false
                     baseCount := 0
                     f_reason("SR_FLIP_CANDIDATE_CANCELLED", mid, color.new(color.gray, 10))
+                    baseCount := baseCount
 
                 if sepSeen and baseCount >= baseBarsMin and baseCount <= baseBarsMax
                     st := STATE_FLIPPED
@@ -414,6 +455,7 @@ f_flip_update(i) =>
                     array.set(zUpperHits, i, 0)
                     array.set(zLowerHits, i, 0)
                     f_reason("SR_FLIP_CONFIRMED", mid, color.new(color.aqua, 0))
+                    breakBar := breakBar
 
         array.set(zState, i, st)
         array.set(zSide, i, side)
@@ -444,7 +486,7 @@ f_compute_visibility() =>
                 displayable = st == STATE_QUALIFIED or st == STATE_FLIPPED or st == STATE_FLIP_CAND or candidateAllowed
 
                 if (not already) and displayable and st != STATE_INVALID
-                    sc = f_score(i)
+                    sc = f_display_score(i)
                     if sc > bestScore
                         bestScore := sc
                         bestIdx := i
@@ -458,15 +500,20 @@ f_render_zone(i) =>
     mid = array.get(zMid, i)
     side = array.get(zSide, i)
     st = array.get(zState, i)
-    origin = array.get(zOriginBar, i)
+    origin = array.get(zOriginTime, i)
     vis = array.get(zVisible, i)
+
+    f_cap_zone_height(i)
+    top := array.get(zTop, i)
+    bot := array.get(zBot, i)
+    mid := array.get(zMid, i)
 
     b = array.get(zBox, i)
     l = array.get(zLine, i)
 
     if not na(b)
         box.set_left(b, origin)
-        box.set_right(b, bar_index)
+        box.set_right(b, time)
         box.set_top(b, top)
         box.set_bottom(b, bot)
 
@@ -480,7 +527,7 @@ f_render_zone(i) =>
 
     if not na(l)
         line.set_x1(l, origin)
-        line.set_x2(l, bar_index)
+        line.set_x2(l, time)
         line.set_y1(l, mid)
         line.set_y2(l, mid)
         lc = (vis and showZoneMidline) ? f_border_color(st, side) : color.new(color.white, 100)
@@ -500,7 +547,7 @@ if not na(ph)
         pBot := pTop - syminfo.mintick * 2.0
     str = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
     if str >= minPivotStrength
-        f_new_zone(pTop, pBot, SIDE_RESIST, str, bar_index - pivotR)
+        f_new_zone(pTop, pBot, SIDE_RESIST, str, time[pivotR])
 
 if not na(pl)
     pTop = math.min(open[pivotR], close[pivotR])
@@ -509,7 +556,7 @@ if not na(pl)
         pTop := pBot + syminfo.mintick * 2.0
     str = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
     if str >= minPivotStrength
-        f_new_zone(pTop, pBot, SIDE_SUPPORT, str, bar_index - pivotR)
+        f_new_zone(pTop, pBot, SIDE_SUPPORT, str, time[pivotR])
 
 // ---------- Per-zone updates ----------
 zCount = array.size(zTop)
@@ -531,7 +578,7 @@ plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsi
 plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 40), style=plot.style_circles, linewidth=1)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 8, border_width=1)
+var table t = table.new(position.top_right, 2, 10, border_width=1)
 if barstate.islast and showDebugTable
     cand = 0
     qual = 0
@@ -541,12 +588,18 @@ if barstate.islast and showDebugTable
     disp = 0
     dispSup = 0
     dispRes = 0
+    nearestMid = na
+    nearestState = "-"
+    nearestDistPct = na
 
     if zCount > 0
+        bestDist = 1e10
+        tgt = diagTargetPrice > 0.0 ? diagTargetPrice : close
         for i = 0 to zCount - 1
             s = array.get(zState, i)
             v = array.get(zVisible, i)
             sd = array.get(zSide, i)
+            m = array.get(zMid, i)
             cand += s == STATE_CANDIDATE ? 1 : 0
             qual += s == STATE_QUALIFIED ? 1 : 0
             flipc += s == STATE_FLIP_CAND ? 1 : 0
@@ -555,6 +608,13 @@ if barstate.islast and showDebugTable
             disp += v ? 1 : 0
             dispSup += (v and sd == SIDE_SUPPORT) ? 1 : 0
             dispRes += (v and sd == SIDE_RESIST) ? 1 : 0
+
+            d = math.abs(m - tgt)
+            if d < bestDist
+                bestDist := d
+                nearestMid := m
+                nearestState := f_state_name(s)
+                nearestDistPct := d / math.max(tgt, syminfo.mintick) * 100.0
 
     table.cell(t, 0, 0, "Zones pool", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 1, 0, str.tostring(zCount), text_color=color.white, bgcolor=color.new(color.black, 0))
@@ -571,4 +631,11 @@ if barstate.islast and showDebugTable
     table.cell(t, 0, 6, "Disp Sup/Res", text_color=color.white)
     table.cell(t, 1, 6, str.tostring(dispSup) + "/" + str.tostring(dispRes), text_color=color.white)
     table.cell(t, 0, 7, "Legend", text_color=color.white)
-    table.cell(t, 1, 7, "SUP=green RES=purple", text_color=color.new(color.white, 0))
+    legendTxt = colorBySide ? "SUP=green RES=purple" : "LEVELS=blue (side-neutral)"
+    table.cell(t, 1, 7, legendTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 8, "Nearest to target", text_color=color.white)
+    nearTxt = showDiagTarget and not na(nearestMid) ? (str.tostring(nearestMid, format.mintick) + " (" + nearestState + ")") : "-"
+    table.cell(t, 1, 8, nearTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 9, "Target dist %", text_color=color.white)
+    distTxt = showDiagTarget and not na(nearestDistPct) ? str.tostring(nearestDistPct, "#.##") + "%" : "-"
+    table.cell(t, 1, 9, distTxt, text_color=color.new(color.white, 0))

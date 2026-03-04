@@ -25,13 +25,17 @@ V2 refactors zone logic to better match Foxian constraints:
 - Reaction window bars: `8`
 - Merge overlap: `0.35`
 - Min zone spacing: `1.25`
+- Max zone height % of level: `0.08`
 - Max zones internal: `140`
 - Max displayed zones: `12`
 - Show candidates: `false` (fallback-on when none qualified)
 - Show reason labels: `false`
-- Support solid / Resistance dashed: `true`
+- Color by support/resistance side: `false` (side-neutral)
+- Support solid / Resistance dashed: `false`
 
 ## Notes
 - This remains watcher-only (no entries/triggers).
 - EXPIRED remains out of default flow.
+- Drawing now uses `xloc.bar_time` for long-history stability on lower timeframes.
 - If chart gets busy, reduce `Max displayed zones` first (not internal pool).
+- Use `Diagnostic target price` (e.g., `72000`) to inspect nearest computed zone in the debug table.
