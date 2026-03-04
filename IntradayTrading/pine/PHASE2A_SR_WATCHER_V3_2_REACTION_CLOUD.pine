@@ -1,5 +1,5 @@
 //@version=5
-indicator("Phase2A S/R Watcher V3.2 (Reaction Cloud + Expedition)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=260, max_lines_count=260, max_labels_count=200)
+indicator("Phase2A S/R Watcher V3.2 (Reaction Cloud + Expedition)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=260, max_lines_count=260, max_labels_count=500)
 
 // =====================================================
 // V3.2 Reaction Cloud + Expedition Lane (Foxian-aligned)
@@ -55,6 +55,10 @@ diagForceNearestVisible = input.bool(true, "DIAG: force nearest target zone visi
 showCandidates        = input.bool(false, "Show candidate zones (DIAG)")
 candidateFallback     = input.bool(true, "Show candidates when no qualified (DIAG)")
 diagBypassMerge       = input.bool(false, "DIAG: bypass seed merge")
+showCloudPoints       = input.bool(true, "DIAG: show cloud points")
+cloudPointMode        = input.string("reacted+expedition", "DIAG cloud point mode", options=["touches", "reacted", "reacted+expedition"])
+maxCloudPoints        = input.int(180, "DIAG max cloud points", minval=10, maxval=450)
+showCloudOutliers     = input.bool(true, "DIAG show outlier cloud points")
 
 showReasonLabels      = input.bool(false, "Show reason labels (DIAG)")
 showZoneMidline       = input.bool(true, "Show zone midline")
@@ -75,6 +79,7 @@ effTargetAffectsSel   = isDiagMode and diagTargetAffectsSelection
 effForceNearestVis    = isDiagMode and diagForceNearestVisible
 effShowCandidates     = isDiagMode and showCandidates
 effCandidateFallback  = isDiagMode and candidateFallback
+effShowCloudPoints    = isDiagMode and showCloudPoints
 effFocusPrice         = isDiagMode ? displayFocusPrice : 0.0
 effProxWeight         = isDiagMode ? proximityWeight : 0.0
 effRequireDualEdge    = isDiagMode ? requireDualEdge : true
@@ -105,6 +110,7 @@ var zVisible          = array.new_bool()
 
 var zBox              = array.new_box()
 var zLine             = array.new_line()
+var cloudDots         = array.new_label()
 var int lastBuildLookback = na
 
 // DIAG counters for Pass A
@@ -113,6 +119,11 @@ var int dbgRawPl = 0
 var int dbgSeedsAdded = 0
 var int dbgSeedsMerged = 0
 var int dbgSeedsDropped = 0
+var int dbgCloudTouch = 0
+var int dbgCloudReact = 0
+var int dbgCloudExp = 0
+var int dbgCloudOut = 0
+var int dbgCloudEmitted = 0
 
 atrv = ta.atr(14)
 // Precompute pivot series on every bar (critical for historical references in builder pass).
@@ -220,6 +231,10 @@ f_reset_all() =>
         l = array.shift(zLine)
         if not na(l)
             line.delete(l)
+    while array.size(cloudDots) > 0
+        d = array.shift(cloudDots)
+        if not na(d)
+            label.delete(d)
 
     array.clear(zTop)
     array.clear(zBot)
@@ -532,6 +547,11 @@ if barstate.islast
     dbgSeedsAdded := 0
     dbgSeedsMerged := 0
     dbgSeedsDropped := 0
+    dbgCloudTouch := 0
+    dbgCloudReact := 0
+    dbgCloudExp := 0
+    dbgCloudOut := 0
+    dbgCloudEmitted := 0
     lastBuildLookback := eLookback
 
 // Call on each calculation for Pine consistency; only builds when buildLookback > 10.
@@ -554,6 +574,78 @@ if barstate.islast and buildLookback > 10
     f_compute_visibility()
     f_render_all()
 
+    // Optional DIAG cloud-point overlay to visualize reaction cloud composition.
+    if effShowCloudPoints
+        emitted = 0
+        zCountNow = array.size(zTop)
+        reqBarsCloud = math.max(reactionWindowBars, math.max(expeditionWindowBars, expeditionNoRevisitBars))
+
+        if zCountNow > 0
+            for i = 0 to zCountNow - 1
+                vis = array.get(zVisible, i)
+                if vis and emitted < maxCloudPoints
+                    side = array.get(zSide, i)
+                    top = array.get(zTop, i)
+                    bot = array.get(zBot, i)
+                    h = f_height(top, bot)
+                    eps = touchEpsilonK * h
+                    moveReq = math.max(reactionMoveK * h, syminfo.mintick * 2.0)
+
+                    for k = 0 to buildLookback - 1
+                        off = buildLookback - k
+                        valid = off > reqBarsCloud and off <= bar_index
+                        if valid and emitted < maxCloudPoints
+                            touch = high[off] >= (bot - eps) and low[off] <= (top + eps)
+                            if touch
+                                dbgCloudTouch += 1
+                                reacted = false
+                                for w = 1 to reactionWindowBars
+                                    off2 = off - w
+                                    if off2 >= 0
+                                        stepReact = (side == SIDE_RESIST and low[off2] <= low[off] - moveReq) or (side == SIDE_SUPPORT and high[off2] >= high[off] + moveReq)
+                                        if stepReact
+                                            reacted := true
+
+                                expHit = false
+                                if allowExpeditionQual
+                                    expReq = expeditionMoveATRMin * math.max(atrv[off], syminfo.mintick)
+                                    bestMove = 0.0
+                                    noRevisit = true
+                                    for wexp = 1 to expeditionWindowBars
+                                        offe = off - wexp
+                                        if offe >= 0
+                                            mv = side == SIDE_RESIST ? (high[off] - low[offe]) : (high[offe] - low[off])
+                                            if mv > bestMove
+                                                bestMove := mv
+                                    for r = 1 to expeditionNoRevisitBars
+                                        offr = off - r
+                                        if offr >= 0
+                                            revisit = side == SIDE_RESIST ? close[offr] > (top + eps) : close[offr] < (bot - eps)
+                                            if revisit
+                                                noRevisit := false
+                                    expHit := bestMove >= expReq and noRevisit
+
+                                if reacted
+                                    dbgCloudReact += 1
+                                if expHit
+                                    dbgCloudExp += 1
+
+                                showPoint = cloudPointMode == "touches" ? true : cloudPointMode == "reacted" ? reacted : (reacted or expHit)
+                                if showPoint
+                                    p = side == SIDE_RESIST ? high[off] : low[off]
+                                    outlier = p > top or p < bot
+                                    if outlier
+                                        dbgCloudOut += 1
+                                    if (not outlier) or showCloudOutliers
+                                        clr = expHit ? color.new(color.fuchsia, 0) : reacted ? color.new(color.aqua, 0) : color.new(color.gray, 0)
+                                        if outlier
+                                            clr := color.new(color.yellow, 0)
+                                        d = label.new(time[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=clr, textcolor=clr, size=size.tiny)
+                                        array.push(cloudDots, d)
+                                        emitted += 1
+
+        dbgCloudEmitted := emitted
+
 // ---------- HTF markers ----------
 htfPh = request.security(syminfo.tickerid, htfTf, ta.pivothigh(high, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
 htfPl = request.security(syminfo.tickerid, htfTf, ta.pivotlow(low, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
@@ -563,7 +655,7 @@ plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 4
 plot(close, "price_scale_anchor", display=display.none)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 21, border_width=1)
+var table t = table.new(position.top_right, 2, 24, border_width=1)
 if barstate.islast and effShowDebugTable
     zCount = array.size(zTop)
     cand = 0
@@ -661,3 +753,11 @@ if barstate.islast and effShowDebugTable
     table.cell(t, 0, 20, "Exp ON / ATR / win / nrv", text_color=color.white)
     expTxt = (allowExpeditionQual ? "ON" : "OFF") + " / " + str.tostring(expeditionMoveATRMin, "#.##") + " / " + str.tostring(expeditionWindowBars) + " / " + str.tostring(expeditionNoRevisitBars)
     table.cell(t, 1, 20, expTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 21, "Cloud mode / max", text_color=color.white)
+    cloudModeTxt = (effShowCloudPoints ? cloudPointMode : "OFF") + " / " + str.tostring(maxCloudPoints)
+    table.cell(t, 1, 21, cloudModeTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 22, "Cloud T/R/E/O", text_color=color.white)
+    cloudCntTxt = str.tostring(dbgCloudTouch) + " / " + str.tostring(dbgCloudReact) + " / " + str.tostring(dbgCloudExp) + " / " + str.tostring(dbgCloudOut)
+    table.cell(t, 1, 22, cloudCntTxt, text_color=color.new(color.white, 0))
+    table.cell(t, 0, 23, "Cloud emitted", text_color=color.white)
+    table.cell(t, 1, 23, str.tostring(dbgCloudEmitted), text_color=color.new(color.white, 0))

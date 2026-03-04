@@ -9,6 +9,7 @@
 - Adds direct `Zone width multiplier` (single-knob width tuning).
 - Adds `Merge across sides (level-is-level)` to reduce clustered duplicates.
 - DIAG target controls are decoupled from selection by toggle.
+- Adds DIAG cloud-point overlay (dots) so you can inspect raw cloud anchors directly on chart.
 
 ## New expedition inputs
 - `Allow expedition qualification lane`
@@ -29,6 +30,9 @@
 - Expedition lane: ON (defaults)
 - DIAG target affects selection: `OFF` (for unbiased baseline)
 - DIAG force nearest visible: `OFF` (only turn on when isolating a target)
+- DIAG show cloud points: `ON`
+- DIAG cloud point mode: `reacted+expedition`
+- DIAG show outlier cloud points: `ON`
 - Diagnostic target price: `54000`, then `108000`
 - Display focus price: match target during diagnosis
 
@@ -40,6 +44,9 @@
 - `Seed/React wick / W`
 - `Merge/Spacing/xSide`
 - `Exp ON / ATR / win / nrv`
+- `Cloud mode / max`
+- `Cloud T/R/E/O` (touch / reacted / expedition / outlier)
+- `Cloud emitted`
 
 ## Notes
 - Uses `xloc.bar_time` plus right-axis price anchoring (`scale.right`) with a hidden price-scale anchor plot.
