@@ -18,17 +18,18 @@ V2 refactors zone logic to better match Foxian constraints:
 4. Save and Add to chart.
 
 ## Recommended Daily defaults
-- Pivot Left/Right: `10 / 10`
-- Min pivot strength: `1.20`
+- Pivot Left/Right: `8 / 8`
+- Min pivot strength: `0.95`
 - Min qualified touches: `3`
-- Reaction move K: `0.35`
+- Reaction move K: `0.25`
 - Reaction window bars: `8`
-- Merge overlap: `0.20`
-- Min zone spacing: `2.00`
+- Merge overlap: `0.35`
+- Min zone spacing: `1.25`
 - Max zones internal: `140`
 - Max displayed zones: `12`
-- Show candidates: `false`
+- Show candidates: `false` (fallback-on when none qualified)
 - Show reason labels: `false`
+- Support solid / Resistance dashed: `true`
 
 ## Notes
 - This remains watcher-only (no entries/triggers).

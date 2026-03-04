@@ -10,9 +10,9 @@ indicator("Phase2A S/R Watcher V2 (Reaction-Zone Qualified)", overlay=true, max_
 // =====================================================
 
 // ---------- Inputs ----------
-pivotL              = input.int(10, "Pivot Left", minval=1)
-pivotR              = input.int(10, "Pivot Right", minval=1)
-minPivotStrength    = input.float(1.20, "Min pivot strength", minval=0.1, step=0.05)
+pivotL              = input.int(8, "Pivot Left", minval=1)
+pivotR              = input.int(8, "Pivot Right", minval=1)
+minPivotStrength    = input.float(0.95, "Min pivot strength", minval=0.1, step=0.05)
 
 minQualifiedTouches = input.int(3, "Min qualified touches", minval=1)
 reactionMoveK       = input.float(0.25, "Reaction move K (x zone height)", minval=0.05, step=0.05)
@@ -21,8 +21,8 @@ edgeHitEpsK         = input.float(0.35, "Edge-hit epsilon K (x zone height)", mi
 requireDualEdge     = input.bool(true, "Require both edge types to qualify")
 minEdgeHits         = input.int(1, "Min edge hits per required side", minval=1)
 
-mergeOverlap        = input.float(0.20, "Merge overlap", minval=0.0, maxval=1.0, step=0.01)
-minZoneSpacing      = input.float(2.00, "Min zone spacing x height", minval=0.1, step=0.05)
+mergeOverlap        = input.float(0.35, "Merge overlap", minval=0.0, maxval=1.0, step=0.01)
+minZoneSpacing      = input.float(1.25, "Min zone spacing x height", minval=0.1, step=0.05)
 
 closeBreakTolK      = input.float(0.05, "closeBreakTolK", minval=0.0, step=0.01)
 sepK                = input.float(0.75, "sepK", minval=0.0, step=0.05)
@@ -40,6 +40,7 @@ showCandidates      = input.bool(false, "Show candidate zones")
 candidateFallback   = input.bool(true, "Show candidates when no qualified zones")
 showReasonLabels    = input.bool(false, "Show major reason labels")
 showZoneMidline     = input.bool(true, "Show zone midline")
+showSideStyle       = input.bool(true, "Support solid / Resistance dashed")
 highContrastZones   = input.bool(true, "High-contrast zones")
 showDebugTable      = input.bool(true, "Show debug table")
 
@@ -485,6 +486,8 @@ f_render_zone(i) =>
         lc = (vis and showZoneMidline) ? f_border_color(st, side) : color.new(color.white, 100)
         line.set_color(l, lc)
         line.set_width(l, vis ? 2 : 1)
+        if showSideStyle
+            line.set_style(l, side == SIDE_SUPPORT ? line.style_solid : line.style_dashed)
 
 // ---------- Candidate generation from pivots ----------
 ph = ta.pivothigh(high, pivotL, pivotR)
@@ -528,7 +531,7 @@ plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsi
 plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 40), style=plot.style_circles, linewidth=1)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 6, border_width=1)
+var table t = table.new(position.top_right, 2, 8, border_width=1)
 if barstate.islast and showDebugTable
     cand = 0
     qual = 0
@@ -536,16 +539,22 @@ if barstate.islast and showDebugTable
     flipd = 0
     inval = 0
     disp = 0
+    dispSup = 0
+    dispRes = 0
 
     if zCount > 0
         for i = 0 to zCount - 1
             s = array.get(zState, i)
+            v = array.get(zVisible, i)
+            sd = array.get(zSide, i)
             cand += s == STATE_CANDIDATE ? 1 : 0
             qual += s == STATE_QUALIFIED ? 1 : 0
             flipc += s == STATE_FLIP_CAND ? 1 : 0
             flipd += s == STATE_FLIPPED ? 1 : 0
             inval += s == STATE_INVALID ? 1 : 0
-            disp += array.get(zVisible, i) ? 1 : 0
+            disp += v ? 1 : 0
+            dispSup += (v and sd == SIDE_SUPPORT) ? 1 : 0
+            dispRes += (v and sd == SIDE_RESIST) ? 1 : 0
 
     table.cell(t, 0, 0, "Zones pool", text_color=color.white, bgcolor=color.new(color.black, 0))
     table.cell(t, 1, 0, str.tostring(zCount), text_color=color.white, bgcolor=color.new(color.black, 0))
@@ -559,3 +568,7 @@ if barstate.islast and showDebugTable
     table.cell(t, 1, 4, str.tostring(inval), text_color=color.white)
     table.cell(t, 0, 5, "Displayed", text_color=color.white)
     table.cell(t, 1, 5, str.tostring(disp), text_color=color.white)
+    table.cell(t, 0, 6, "Disp Sup/Res", text_color=color.white)
+    table.cell(t, 1, 6, str.tostring(dispSup) + "/" + str.tostring(dispRes), text_color=color.white)
+    table.cell(t, 0, 7, "Legend", text_color=color.white)
+    table.cell(t, 1, 7, "SUP=green RES=purple", text_color=color.new(color.white, 0))
