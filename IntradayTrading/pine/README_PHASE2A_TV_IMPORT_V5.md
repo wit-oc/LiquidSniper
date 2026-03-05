@@ -42,3 +42,4 @@ Then it:
 - To compare windows fairly across timeframes, keep hour-based windows fixed.
 - Tune noise mostly via: `Min anchor score` and `Anchor retention percent`.
 - Keep `showFailedAnchors` OFF by default; turn ON only when diagnosing misses.
+- When failed anchors are ON, failed dots are drawn first (priority). Use `DIAG max failed-anchor dots` to reserve visibility budget.

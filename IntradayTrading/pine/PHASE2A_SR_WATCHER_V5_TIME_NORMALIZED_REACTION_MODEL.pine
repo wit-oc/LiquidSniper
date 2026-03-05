@@ -69,6 +69,7 @@ zoneFillAlpha             = input.int(90, "Zone fill alpha (0=solid,100=transpar
 // DIAG dots
 showAnchorDots            = input.bool(true, "DIAG: show anchor dots")
 showFailedAnchors         = input.bool(false, "DIAG: show failed anchors")
+maxFailedAnchorDots       = input.int(250, "DIAG max failed-anchor dots", minval=0, maxval=1000)
 useDiagDateWindow         = input.bool(false, "DIAG: limit dots to date window")
 diagStartTime             = input.time(1704067200000, "DIAG start time")
 diagEndTime               = input.time(1798761600000, "DIAG end time")
@@ -124,6 +125,7 @@ var int dbgFailRevisit    = 0
 var int dbgFailPersist    = 0
 var int dbgFailScore      = 0
 var int dbgFailGap        = 0
+var int dbgFailDotsEmitted= 0
 var int dbgDotsEmitted    = 0
 
 atrv = ta.atr(14)
@@ -322,6 +324,7 @@ if barstate.islast
     dbgFailPersist := 0
     dbgFailScore := 0
     dbgFailGap := 0
+    dbgFailDotsEmitted := 0
     dbgDotsEmitted := 0
     lastBuildLookback := buildLookback
 
@@ -537,7 +540,24 @@ if barstate.islast and buildLookback > reqBars + 2
     f_select_visible()
     f_render_zones()
 
-    // Draw selected anchor dots first
+    // Draw failed dots first (optional), so they are visible even when cap is reached.
+    if effShowDots and effShowFailed
+        nFail = array.size(failOff)
+        failBudget = math.min(maxFailedAnchorDots, maxAnchorDots)
+        if nFail > 0 and failBudget > 0
+            for i = 0 to nFail - 1
+                if dbgDotsEmitted < maxAnchorDots and dbgFailDotsEmitted < failBudget
+                    off = array.get(failOff, i)
+                    p = array.get(failPrice, i)
+                    code = array.get(failCode, i)
+                    ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
+                    clr = f_fail_color(code)
+                    d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
+                    array.push(dDots, d)
+                    dbgFailDotsEmitted += 1
+                    dbgDotsEmitted += 1
+
+    // Draw selected anchors after failed diagnostics
     if effShowDots and dbgKept > 0
         for i = 0 to dbgKept - 1
             if dbgDotsEmitted < maxAnchorDots
@@ -547,21 +567,6 @@ if barstate.islast and buildLookback > reqBars + 2
                 inDateWindow = not useDiagDateWindow or (time_close[off] >= diagStartTime and time_close[off] <= diagEndTime)
                 if inDateWindow
                     d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
-                    array.push(dDots, d)
-                    dbgDotsEmitted += 1
-
-    // Draw failed dots (optional)
-    if effShowDots and effShowFailed
-        nFail = array.size(failOff)
-        if nFail > 0
-            for i = 0 to nFail - 1
-                if dbgDotsEmitted < maxAnchorDots
-                    off = array.get(failOff, i)
-                    p = array.get(failPrice, i)
-                    code = array.get(failCode, i)
-                    ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
-                    clr = f_fail_color(code)
-                    d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                     array.push(dDots, d)
                     dbgDotsEmitted += 1
 
@@ -621,5 +626,5 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 10, str.tostring(anchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept), text_color=color.white)
     table.cell(t, 0, 11, "Cluster tol/pts/score", text_color=color.white)
     table.cell(t, 1, 11, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
-    table.cell(t, 0, 12, "Dots emitted/max", text_color=color.white)
-    table.cell(t, 1, 12, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
+    table.cell(t, 0, 12, "Dots all/fail/max", text_color=color.white)
+    table.cell(t, 1, 12, str.tostring(dbgDotsEmitted) + " / " + str.tostring(dbgFailDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
