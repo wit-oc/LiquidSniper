@@ -227,7 +227,7 @@ f_finalize_clusters() =>
             array.set(cTop, i, top)
             array.set(cBot, i, bot)
             array.set(cPass, i, pass)
-            array.set(cVisible, false)
+            array.set(cVisible, i, false)
 
 f_zone_score(i) =>
     array.get(cScore, i) + array.get(cCount, i) * 0.25
@@ -414,10 +414,10 @@ if barstate.islast and buildLookback > reqBars + 2
 
                 // Score gate
                 score = (bestMove / atrRef) * scoreMoveWeight + persistCnt * scorePersistWeight + (passRevisit ? scoreNoRevisitBonus : 0.0)
-                passScore = not useAnchorScoreGate or score >= minAnchorScore
+                passScoreGate = not useAnchorScoreGate or score >= minAnchorScore
 
                 corePass = candidateOk and passMove and passRevisit and passPersist and passGap
-                pass = corePass and passScore
+                pass = corePass and passScoreGate
 
                 if candidateOk
                     dbgCand += 1
@@ -445,11 +445,11 @@ if barstate.islast and buildLookback > reqBars + 2
                             dbgFailPersist += 1
                         else if not passGap
                             dbgFailGap += 1
-                        else if not passScore
+                        else if not passScoreGate
                             dbgFailScore += 1
 
                     if effShowDots and effShowFailed and inDateWindow
-                        code = not candidateOk ? FAIL_CANDIDATE : not passMove ? FAIL_MOVE : not passRevisit ? FAIL_REVISIT : not passPersist ? FAIL_PERSIST : not passScore ? FAIL_SCORE : FAIL_GAP
+                        code = not candidateOk ? FAIL_CANDIDATE : not passMove ? FAIL_MOVE : not passRevisit ? FAIL_REVISIT : not passPersist ? FAIL_PERSIST : not passScoreGate ? FAIL_SCORE : FAIL_GAP
                         array.push(failOff, off)
                         array.push(failPrice, p)
                         array.push(failCode, code)
