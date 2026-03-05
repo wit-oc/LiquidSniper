@@ -27,7 +27,8 @@ If dots are hard to see:
 Anchor dots are plotted at the **candle-end timestamp** (`time_close`) and at the anchor price extreme (high/low), so they sit on the reaction candle endpoint.
 
 To avoid hitting dot cap too early:
-- set `DIAG anchor dot lookback bars` to a focused window (e.g., 300–800)
+- enable `DIAG: limit dots to date window`
+- set `DIAG start time` / `DIAG end time` to the period you are investigating
 - keep `DIAG: show failed anchors` OFF unless actively diagnosing gate misses
 
 ## Suggested first DIAG run

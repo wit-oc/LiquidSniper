@@ -48,7 +48,9 @@ zoneFillAlpha           = input.int(88, "Zone fill alpha (0=solid,100=transparen
 // Anchor dot diagnostics
 showAnchorDots          = input.bool(true, "DIAG: show anchor dots")
 showFailedAnchors       = input.bool(false, "DIAG: show failed anchors")
-diagDotLookbackBars     = input.int(500, "DIAG anchor dot lookback bars", minval=50, maxval=5000)
+useDiagDateWindow       = input.bool(false, "DIAG: limit dots to date window")
+diagStartTime           = input.time(timestamp(2024, 1, 1, 0, 0), "DIAG start time")
+diagEndTime             = input.time(timestamp(2027, 1, 1, 0, 0), "DIAG end time")
 maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
 anchorDotSize           = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
 
@@ -274,7 +276,8 @@ if barstate.islast and buildLookback > reqBars + 2
         off = buildLookback - k
         if off > reqBars and off <= bar_index
             atrRef = math.max(atrv[off], syminfo.mintick)
-            dotInWindow = off <= math.min(buildLookback, diagDotLookbackBars)
+            inDateWindow = not useDiagDateWindow or (time_close[off] >= diagStartTime and time_close[off] <= diagEndTime)
+            dotInWindow = inDateWindow
 
             // Evaluate both sides (high and low anchors)
             for s = 0 to 1
@@ -430,5 +433,6 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 9, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
     table.cell(t, 0, 10, "Width mult / maxW%", text_color=color.white)
     table.cell(t, 1, 10, str.tostring(zoneWidthMult, "#.##") + " / " + str.tostring(maxClusterWidthPct * 100, "#.##") + "%", text_color=color.white)
-    table.cell(t, 0, 11, "Anchor dots e/max/lb", text_color=color.white)
-    table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots) + " / " + str.tostring(diagDotLookbackBars), text_color=color.white)
+    table.cell(t, 0, 11, "Anchor dots e/max/date", text_color=color.white)
+    dateModeTxt = useDiagDateWindow ? "window" : "all"
+    table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots) + " / " + dateModeTxt, text_color=color.white)
