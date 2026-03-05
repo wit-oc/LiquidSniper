@@ -303,6 +303,7 @@ f_fail_color(_code) =>
 moveBars = f_hours_to_bars(moveWindowHours)
 noRevisitBars = f_hours_to_bars(noRevisitHours)
 persistBars = f_hours_to_bars(persistHours)
+effMinPersistBars = math.min(minPersistBars, persistBars)
 gapSameBars = f_hours_to_bars(minGapSameSideHours)
 gapOppBars = f_hours_to_bars(minGapOppositeSideHours)
 
@@ -405,7 +406,7 @@ if barstate.islast and buildLookback > reqBars + 2
                         pers = isRes ? close[offp] < (p - persistTol) : close[offp] > (p + persistTol)
                         if pers
                             persistCnt += 1
-                passPersist = persistCnt >= minPersistBars
+                passPersist = persistCnt >= effMinPersistBars
 
                 // Side-aware gap
                 sameGap = isRes ? (math.abs(lastPassOffRes - off) <= gapSameBars) : (math.abs(lastPassOffSup - off) <= gapSameBars)
@@ -605,9 +606,9 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 7, not na(nearPts) ? str.tostring(nearPts) : "-", text_color=color.white)
     table.cell(t, 0, 8, "Hours M/NR/P gS/gO", text_color=color.white)
     table.cell(t, 1, 8, str.tostring(moveWindowHours, "#.##") + "/" + str.tostring(noRevisitHours, "#.##") + "/" + str.tostring(persistHours, "#.##") + "  " + str.tostring(minGapSameSideHours, "#.##") + "/" + str.tostring(minGapOppositeSideHours, "#.##"), text_color=color.white)
-    table.cell(t, 0, 9, "MoveATR/Persist/Smin", text_color=color.white)
+    table.cell(t, 0, 9, "MoveATR/Persist(in->eff)/Smin", text_color=color.white)
     smin = useAnchorScoreGate ? str.tostring(minAnchorScore, "#.##") : "off"
-    table.cell(t, 1, 9, str.tostring(minAnchorMoveATR, "#.##") + " / " + str.tostring(minPersistBars) + "@" + str.tostring(persistTolATR, "#.##") + " / " + smin, text_color=color.white)
+    table.cell(t, 1, 9, str.tostring(minAnchorMoveATR, "#.##") + " / " + str.tostring(minPersistBars) + "->" + str.tostring(effMinPersistBars) + "@" + str.tostring(persistTolATR, "#.##") + " / " + smin, text_color=color.white)
     table.cell(t, 0, 10, "Retention% / maxKept", text_color=color.white)
     table.cell(t, 1, 10, str.tostring(anchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept), text_color=color.white)
     table.cell(t, 0, 11, "Cluster tol/pts/score", text_color=color.white)

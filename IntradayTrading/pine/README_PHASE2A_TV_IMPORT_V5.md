@@ -29,7 +29,7 @@ Then it:
 - Candidate len/range: `3 / 1.0 ATR`
 - Move/NoRevisit/Persist hours: `96 / 96 / 72`
 - Min anchor move ATR: `2.75`
-- Min persistence bars: `5`
+- Min persistence bars: `5` (internally capped to available `persistHours` bars on current timeframe)
 - Persist threshold ATR: `0.60`
 - Use anchor score gate: ON
 - Min anchor score: `6.0`
