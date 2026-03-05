@@ -53,6 +53,7 @@ diagStartTime           = input.time(1704067200000, "DIAG start time")
 diagEndTime             = input.time(1798761600000, "DIAG end time")
 maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
 anchorDotSize           = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
+anchorDotXPosition      = input.string("wick-center", "DIAG anchor x-position", options=["wick-center", "candle-end"])
 
 showDebugTable          = input.bool(true, "Show debug table")
 
@@ -283,6 +284,7 @@ if barstate.islast and buildLookback > reqBars + 2
             for s = 0 to 1
                 isRes = s == 0
                 p = isRes ? high[off] : low[off]
+                dotTs = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
 
                 // Candidate prefilter (reduces near-every-bar anchor spam)
                 barRangeATR = (high[off] - low[off]) / atrRef
@@ -354,7 +356,7 @@ if barstate.islast and buildLookback > reqBars + 2
                     lastAcceptedOff := off
 
                     if effShowDots and dotInWindow and dbgDotsEmitted < maxAnchorDots
-                        d = label.new(time_close[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
+                        d = label.new(dotTs, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
                 else
@@ -368,7 +370,7 @@ if barstate.islast and buildLookback > reqBars + 2
 
                     if effShowDots and effShowFailed and dotInWindow and dbgDotsEmitted < maxAnchorDots
                         clr = not candidateOk ? color.new(color.purple, 0) : not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
-                        d = label.new(time_close[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
+                        d = label.new(dotTs, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
 

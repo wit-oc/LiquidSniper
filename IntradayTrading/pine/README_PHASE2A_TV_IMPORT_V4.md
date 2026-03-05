@@ -24,7 +24,9 @@ If dots are hard to see:
 - set `DIAG anchor dot size` to `large` or `huge`
 - increase `Zone fill alpha` (more transparent zone fills)
 
-Anchor dots are plotted at the **candle-end timestamp** (`time_close`) and at the anchor price extreme (high/low), so they sit on the reaction candle endpoint.
+Anchor dots are plotted at anchor price extreme (high/low). You can choose x-position via `DIAG anchor x-position`:
+- `wick-center` (recommended for visual wick alignment)
+- `candle-end` (right edge of bar)
 
 To avoid hitting dot cap too early:
 - enable `DIAG: limit dots to date window`
