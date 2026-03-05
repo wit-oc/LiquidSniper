@@ -61,6 +61,11 @@ targetAffectsSelection    = input.bool(false, "DIAG: target affects selection")
 proximityWeight           = input.float(2.0, "DIAG proximity weight", minval=0.0, step=0.25)
 forceNearestVisible       = input.bool(true, "DIAG: force nearest visible")
 
+inspectCandleEnabled      = input.bool(false, "DIAG: inspect one candle")
+inspectCandleTime         = input.time(1710028800000, "DIAG inspect candle time")
+inspectCandleSide         = input.string("both", "DIAG inspect side", options=["both", "resistance", "support"])
+
+
 // Visuals
 showZones                 = input.bool(true, "Show zones")
 showZoneMidline           = input.bool(true, "Show zone midline")
@@ -127,6 +132,18 @@ var int dbgFailScore      = 0
 var int dbgFailGap        = 0
 var int dbgFailDotsEmitted= 0
 var int dbgDotsEmitted    = 0
+
+// Inspect-candle outputs
+var int dbgInspectResCode = FAIL_NONE
+var int dbgInspectSupCode = FAIL_NONE
+var bool dbgInspectResSeen = false
+var bool dbgInspectSupSeen = false
+var float dbgInspectResScore = na
+var float dbgInspectSupScore = na
+var float dbgInspectResMoveATR = na
+var float dbgInspectSupMoveATR = na
+var int dbgInspectResPersist = na
+var int dbgInspectSupPersist = na
 
 atrv = ta.atr(14)
 max_bars_back(high, 5000)
@@ -301,6 +318,14 @@ f_fail_color(_code) =>
       _code == FAIL_PERSIST ? color.new(color.yellow, 0) :
       _code == FAIL_SCORE ? color.new(color.fuchsia, 0) : color.new(color.gray, 0)
 
+f_fail_name(_code) =>
+    _code == FAIL_NONE ? "PASS" :
+      _code == FAIL_CANDIDATE ? "FAIL_C" :
+      _code == FAIL_MOVE ? "FAIL_M" :
+      _code == FAIL_REVISIT ? "FAIL_R" :
+      _code == FAIL_PERSIST ? "FAIL_P" :
+      _code == FAIL_SCORE ? "FAIL_S" : "FAIL_G"
+
 // ---------- Main build ----------
 moveBars = f_hours_to_bars(moveWindowHours)
 noRevisitBars = f_hours_to_bars(noRevisitHours)
@@ -326,6 +351,16 @@ if barstate.islast
     dbgFailGap := 0
     dbgFailDotsEmitted := 0
     dbgDotsEmitted := 0
+    dbgInspectResCode := FAIL_NONE
+    dbgInspectSupCode := FAIL_NONE
+    dbgInspectResSeen := false
+    dbgInspectSupSeen := false
+    dbgInspectResScore := na
+    dbgInspectSupScore := na
+    dbgInspectResMoveATR := na
+    dbgInspectSupMoveATR := na
+    dbgInspectResPersist := na
+    dbgInspectSupPersist := na
     lastBuildLookback := buildLookback
 
 if barstate.islast and buildLookback > reqBars + 2
@@ -422,6 +457,23 @@ if barstate.islast and buildLookback > reqBars + 2
 
                 corePass = candidateOk and passMove and passRevisit and passPersist and passGap
                 pass = corePass and passScoreGate
+
+                // Inspect one candle diagnostics
+                inspectHit = inspectCandleEnabled and (time[off] <= inspectCandleTime and time_close[off] >= inspectCandleTime)
+                if inspectHit
+                    failCodeInspect = pass ? FAIL_NONE : (not candidateOk ? FAIL_CANDIDATE : not passMove ? FAIL_MOVE : not passRevisit ? FAIL_REVISIT : not passPersist ? FAIL_PERSIST : not passScoreGate ? FAIL_SCORE : FAIL_GAP)
+                    if isRes and (inspectCandleSide == "both" or inspectCandleSide == "resistance")
+                        dbgInspectResSeen := true
+                        dbgInspectResCode := failCodeInspect
+                        dbgInspectResScore := score
+                        dbgInspectResMoveATR := bestMove / atrRef
+                        dbgInspectResPersist := persistCnt
+                    if (not isRes) and (inspectCandleSide == "both" or inspectCandleSide == "support")
+                        dbgInspectSupSeen := true
+                        dbgInspectSupCode := failCodeInspect
+                        dbgInspectSupScore := score
+                        dbgInspectSupMoveATR := bestMove / atrRef
+                        dbgInspectSupPersist := persistCnt
 
                 if candidateOk
                     dbgCand += 1
@@ -574,7 +626,7 @@ if barstate.islast and buildLookback > reqBars + 2
 plot(close, "price_scale_anchor", display=display.none)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 13, border_width=1)
+var table t = table.new(position.top_right, 2, 15, border_width=1)
 if barstate.islast and effShowDebug
     zCount = array.size(cMid)
     passClusters = 0
@@ -628,3 +680,10 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 11, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
     table.cell(t, 0, 12, "Dots all/fail/max", text_color=color.white)
     table.cell(t, 1, 12, str.tostring(dbgDotsEmitted) + " / " + str.tostring(dbgFailDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
+    table.cell(t, 0, 13, "Inspect R/S code", text_color=color.white)
+    inspectCodeTxt = inspectCandleEnabled ? ((dbgInspectResSeen ? f_fail_name(dbgInspectResCode) : "-") + " / " + (dbgInspectSupSeen ? f_fail_name(dbgInspectSupCode) : "-")) : "OFF"
+    table.cell(t, 1, 13, inspectCodeTxt, text_color=color.white)
+    table.cell(t, 0, 14, "Inspect R/S mATR|p|S", text_color=color.white)
+    rTxt = dbgInspectResSeen ? (str.tostring(dbgInspectResMoveATR, "#.##") + "|" + str.tostring(dbgInspectResPersist) + "|" + str.tostring(dbgInspectResScore, "#.##")) : "-"
+    sTxt = dbgInspectSupSeen ? (str.tostring(dbgInspectSupMoveATR, "#.##") + "|" + str.tostring(dbgInspectSupPersist) + "|" + str.tostring(dbgInspectSupScore, "#.##")) : "-"
+    table.cell(t, 1, 14, inspectCandleEnabled ? (rTxt + " / " + sTxt) : "OFF", text_color=color.white)
