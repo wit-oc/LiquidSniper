@@ -49,7 +49,7 @@ zoneFillAlpha           = input.int(88, "Zone fill alpha (0=solid,100=transparen
 showAnchorDots          = input.bool(true, "DIAG: show anchor dots")
 showFailedAnchors       = input.bool(false, "DIAG: show failed anchors")
 maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
-anchorDotSize           = input.string("small", "DIAG anchor dot size", options=["tiny", "small", "normal"])
+anchorDotSize           = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
 
 showDebugTable          = input.bool(true, "Show debug table")
 
@@ -99,7 +99,7 @@ f_cluster_fill() =>
     color.new(color.blue, a)
 
 f_dot_size() =>
-    anchorDotSize == "tiny" ? size.tiny : anchorDotSize == "normal" ? size.normal : size.small
+    anchorDotSize == "huge" ? size.huge : anchorDotSize == "large" ? size.large : anchorDotSize == "normal" ? size.normal : size.small
 
 f_cluster_border() =>
     color.new(color.blue, 0)
@@ -349,7 +349,7 @@ if barstate.islast and buildLookback > reqBars + 2
                     lastAcceptedOff := off
 
                     if effShowDots and dbgDotsEmitted < maxAnchorDots
-                        d = label.new(time[off], p, "•", xloc=xloc.bar_time, style=label.style_none, color=color.new(color.aqua, 100), textcolor=color.new(color.aqua, 0), size=f_dot_size())
+                        d = label.new(time_close[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
                 else
@@ -363,7 +363,7 @@ if barstate.islast and buildLookback > reqBars + 2
 
                     if effShowDots and effShowFailed and dbgDotsEmitted < maxAnchorDots
                         clr = not candidateOk ? color.new(color.purple, 0) : not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
-                        d = label.new(time[off], p, "•", xloc=xloc.bar_time, style=label.style_none, color=color.new(clr, 100), textcolor=clr, size=f_dot_size())
+                        d = label.new(time_close[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
 

@@ -21,8 +21,10 @@ V4 is anchor-first:
 - **Yellow**: failed persistence gate
 
 If dots are hard to see:
-- increase `DIAG anchor dot size` to `normal`
+- set `DIAG anchor dot size` to `large` or `huge`
 - increase `Zone fill alpha` (more transparent zone fills)
+
+Anchor dots are plotted at the **candle-end timestamp** (`time_close`) and at the anchor price extreme (high/low), so they sit on the reaction candle endpoint.
 
 ## Suggested first DIAG run
 - Mode: `DIAG`
