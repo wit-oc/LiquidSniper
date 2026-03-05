@@ -99,7 +99,7 @@ f_cluster_fill() =>
     color.new(color.blue, a)
 
 f_dot_size() =>
-    anchorDotSize == "huge" ? size.huge : anchorDotSize == "large" ? size.large : anchorDotSize == "normal" ? size.normal : size.small
+    anchorDotSize == "huge" ? size.large : anchorDotSize == "large" ? size.normal : anchorDotSize == "normal" ? size.small : size.tiny
 
 f_cluster_border() =>
     color.new(color.blue, 0)
