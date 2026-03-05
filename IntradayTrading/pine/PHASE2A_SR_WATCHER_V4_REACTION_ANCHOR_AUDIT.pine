@@ -40,11 +40,13 @@ forceNearestVisible     = input.bool(true, "DIAG: force nearest visible")
 showZones               = input.bool(true, "Show zones")
 showZoneMidline         = input.bool(true, "Show zone midline")
 highContrastZones       = input.bool(true, "High-contrast zones")
+zoneFillAlpha           = input.int(88, "Zone fill alpha (0=solid,100=transparent)", minval=0, maxval=100)
 
 // Anchor dot diagnostics
 showAnchorDots          = input.bool(true, "DIAG: show anchor dots")
 showFailedAnchors       = input.bool(true, "DIAG: show failed anchors")
 maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
+anchorDotSize           = input.string("small", "DIAG anchor dot size", options=["tiny", "small", "normal"])
 
 showDebugTable          = input.bool(true, "Show debug table")
 
@@ -89,7 +91,11 @@ max_bars_back(atrv, 5000)
 
 // ---------- Helpers ----------
 f_cluster_fill() =>
-    highContrastZones ? color.new(color.blue, 70) : color.new(color.blue, 86)
+    a = highContrastZones ? math.min(zoneFillAlpha, 92) : zoneFillAlpha
+    color.new(color.blue, a)
+
+f_dot_size() =>
+    anchorDotSize == "tiny" ? size.tiny : anchorDotSize == "normal" ? size.normal : size.small
 
 f_cluster_border() =>
     color.new(color.blue, 0)
@@ -313,7 +319,7 @@ if barstate.islast and buildLookback > reqBars + 2
                     lastAcceptedOff := off
 
                     if effShowDots and dbgDotsEmitted < maxAnchorDots
-                        d = label.new(time[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.aqua, 0), size=size.tiny)
+                        d = label.new(time[off], p, "•", xloc=xloc.bar_time, style=label.style_none, color=color.new(color.aqua, 100), textcolor=color.new(color.aqua, 0), size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
                 else
@@ -326,7 +332,7 @@ if barstate.islast and buildLookback > reqBars + 2
 
                     if effShowDots and effShowFailed and dbgDotsEmitted < maxAnchorDots
                         clr = not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
-                        d = label.new(time[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=clr, textcolor=clr, size=size.tiny)
+                        d = label.new(time[off], p, "•", xloc=xloc.bar_time, style=label.style_none, color=color.new(clr, 100), textcolor=clr, size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
 

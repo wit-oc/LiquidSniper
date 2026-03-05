@@ -19,6 +19,10 @@ V4 is anchor-first:
 - **Orange**: failed no-revisit gate
 - **Yellow**: failed persistence gate
 
+If dots are hard to see:
+- increase `DIAG anchor dot size` to `normal`
+- increase `Zone fill alpha` (more transparent zone fills)
+
 ## Suggested first DIAG run
 - Mode: `DIAG`
 - Lookback: `3500`
