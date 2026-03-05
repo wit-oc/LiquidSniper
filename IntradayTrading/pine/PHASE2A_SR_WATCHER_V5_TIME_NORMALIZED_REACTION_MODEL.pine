@@ -1,0 +1,616 @@
+//@version=5
+indicator("Phase2A S/R Watcher V5 (Time-Normalized Reaction)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=300, max_lines_count=300, max_labels_count=500)
+
+// =====================================================
+// V5 Time-Normalized Reaction Model
+// 1) Candidate anchors (local-extrema/all-bars)
+// 2) Time-normalized reaction scoring (hours -> bars)
+// 3) Deterministic pruning (score gate + retention + side-aware gap)
+// 4) Cluster selected anchors into zones
+// =====================================================
+
+// ---------- Inputs ----------
+mode                      = input.string("CERT", "Operating mode", options=["CERT", "DIAG"])
+lookbackBars              = input.int(3500, "Historical lookback bars", minval=300, maxval=5000)
+
+// Candidate prefilter
+anchorCandidateMode       = input.string("local-extrema", "Anchor candidate mode", options=["local-extrema", "all-bars"])
+candidatePivotLen         = input.int(3, "Candidate local-extrema len", minval=1, maxval=12)
+minCandidateRangeATR      = input.float(1.00, "Min candidate bar range (ATR)", minval=0.0, step=0.05)
+
+// Time-normalized reaction windows
+moveWindowHours           = input.float(96.0, "Move window hours", minval=1.0, step=1.0)
+noRevisitHours            = input.float(96.0, "No-revisit hours", minval=1.0, step=1.0)
+persistHours              = input.float(72.0, "Persistence hours", minval=1.0, step=1.0)
+
+// Reaction thresholds
+minAnchorMoveATR          = input.float(2.75, "Min anchor move (ATR)", minval=0.25, step=0.25)
+revisitTolATR             = input.float(0.20, "Revisit tolerance (ATR)", minval=0.0, step=0.05)
+minPersistBars            = input.int(5, "Min persistence bars", minval=0, maxval=200)
+persistTolATR             = input.float(0.60, "Persistence threshold (ATR)", minval=0.0, step=0.05)
+
+// Score gate (single master strictness)
+useAnchorScoreGate        = input.bool(true, "Use anchor score gate")
+minAnchorScore            = input.float(6.00, "Min anchor score", minval=0.0, step=0.10)
+scoreMoveWeight           = input.float(1.00, "Score move weight", minval=0.0, step=0.05)
+scorePersistWeight        = input.float(0.10, "Score persistence weight", minval=0.0, step=0.05)
+scoreNoRevisitBonus       = input.float(0.50, "Score no-revisit bonus", minval=0.0, step=0.05)
+
+// Side-aware gap (time-normalized)
+useGapGate                = input.bool(true, "Use side-aware gap gate")
+minGapSameSideHours       = input.float(120.0, "Min hours between same-side anchors", minval=0.0, step=1.0)
+minGapOppositeSideHours   = input.float(24.0, "Min hours between opposite-side anchors", minval=0.0, step=1.0)
+
+// Retention / pruning
+anchorRetentionPercent    = input.float(25.0, "Anchor retention percent", minval=1.0, maxval=100.0, step=1.0)
+maxAnchorsKept            = input.int(180, "Max anchors kept", minval=20, maxval=600)
+
+// Cluster -> zone
+clusterTolPct             = input.float(0.018, "Cluster tolerance (% of price)", minval=0.001, step=0.001)
+minClusterPoints          = input.int(4, "Min points per cluster", minval=1, maxval=80)
+minClusterScore           = input.float(7.0, "Min cluster score", minval=0.0, step=0.5)
+mergeAcrossSides          = input.bool(true, "Merge across sides (level-is-level)")
+zoneWidthMult             = input.float(1.35, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
+maxClusterWidthPct        = input.float(0.07, "Max cluster width (% of price)", minval=0.01, step=0.01)
+maxClustersInternal       = input.int(180, "Max clusters internal", minval=20, maxval=400)
+maxDisplayZones           = input.int(14, "Max displayed zones", minval=1, maxval=80)
+
+// Selection diagnostics
+diagnosticTargetPrice     = input.float(72000.0, "Diagnostic target price", minval=0.0, step=100.0)
+targetAffectsSelection    = input.bool(false, "DIAG: target affects selection")
+proximityWeight           = input.float(2.0, "DIAG proximity weight", minval=0.0, step=0.25)
+forceNearestVisible       = input.bool(true, "DIAG: force nearest visible")
+
+// Visuals
+showZones                 = input.bool(true, "Show zones")
+showZoneMidline           = input.bool(true, "Show zone midline")
+zoneFillAlpha             = input.int(90, "Zone fill alpha (0=solid,100=transparent)", minval=0, maxval=100)
+
+// DIAG dots
+showAnchorDots            = input.bool(true, "DIAG: show anchor dots")
+showFailedAnchors         = input.bool(false, "DIAG: show failed anchors")
+useDiagDateWindow         = input.bool(false, "DIAG: limit dots to date window")
+diagStartTime             = input.time(1704067200000, "DIAG start time")
+diagEndTime               = input.time(1798761600000, "DIAG end time")
+maxAnchorDots             = input.int(300, "DIAG max anchor dots", minval=50, maxval=1000)
+anchorDotSize             = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
+anchorDotXPosition        = input.string("wick-center", "DIAG anchor x-position", options=["wick-center", "candle-end"])
+
+showDebugTable            = input.bool(true, "Show debug table")
+
+// ---------- Mode guards ----------
+isDiagMode                = mode == "DIAG"
+effTargetSelection        = isDiagMode and targetAffectsSelection
+effForceNearest           = isDiagMode and forceNearestVisible
+effShowDots               = isDiagMode and showAnchorDots
+effShowFailed             = isDiagMode and showFailedAnchors
+effShowDebug              = isDiagMode and showDebugTable
+
+// ---------- Constants ----------
+SIDE_RESIST               = -1
+SIDE_SUPPORT              = 1
+
+FAIL_NONE                 = 0
+FAIL_CANDIDATE            = 1
+FAIL_MOVE                 = 2
+FAIL_REVISIT              = 3
+FAIL_PERSIST              = 4
+FAIL_SCORE                = 5
+FAIL_GAP                  = 6
+
+// ---------- Storage ----------
+var cTop                  = array.new_float()
+var cBot                  = array.new_float()
+var cMid                  = array.new_float()
+var cScore                = array.new_float()
+var cCount                = array.new_int()
+var cFirstTime            = array.new_int()
+var cVisible              = array.new_bool()
+var cPass                 = array.new_bool()
+
+var cBox                  = array.new_box()
+var cLine                 = array.new_line()
+var dDots                 = array.new_label()
+
+var int lastBuildLookback = na
+
+// Debug counters
+var int dbgCand           = 0
+var int dbgPassBase       = 0
+var int dbgKept           = 0
+var int dbgFailCandidate  = 0
+var int dbgFailMove       = 0
+var int dbgFailRevisit    = 0
+var int dbgFailPersist    = 0
+var int dbgFailScore      = 0
+var int dbgFailGap        = 0
+var int dbgDotsEmitted    = 0
+
+atrv = ta.atr(14)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(open, 5000)
+max_bars_back(close, 5000)
+max_bars_back(atrv, 5000)
+
+// ---------- Helpers ----------
+f_hours_to_bars(_h) =>
+    tfSec = timeframe.in_seconds()
+    b = tfSec > 0 ? int(math.ceil(_h * 3600.0 / tfSec)) : int(math.ceil(_h))
+    math.max(1, b)
+
+f_dot_size() =>
+    anchorDotSize == "huge" ? size.large : anchorDotSize == "large" ? size.normal : anchorDotSize == "normal" ? size.small : size.tiny
+
+f_zone_fill() =>
+    color.new(color.blue, zoneFillAlpha)
+
+f_zone_border() =>
+    color.new(color.blue, 0)
+
+f_reset_all() =>
+    while array.size(cBox) > 0
+        b = array.shift(cBox)
+        if not na(b)
+            box.delete(b)
+    while array.size(cLine) > 0
+        l = array.shift(cLine)
+        if not na(l)
+            line.delete(l)
+    while array.size(dDots) > 0
+        d = array.shift(dDots)
+        if not na(d)
+            label.delete(d)
+
+    array.clear(cTop)
+    array.clear(cBot)
+    array.clear(cMid)
+    array.clear(cScore)
+    array.clear(cCount)
+    array.clear(cFirstTime)
+    array.clear(cVisible)
+    array.clear(cPass)
+
+f_add_anchor_to_cluster(_p, _score, _time, _side) =>
+    tol = math.max(syminfo.mintick * 2.0, math.abs(_p) * clusterTolPct)
+    zCount = array.size(cMid)
+    best = -1
+    bestDist = 1e10
+
+    if zCount > 0
+        for i = 0 to zCount - 1
+            d = math.abs(_p - array.get(cMid, i))
+            if d <= tol and d < bestDist
+                best := i
+                bestDist := d
+
+    if best >= 0
+        top = math.max(array.get(cTop, best), _p)
+        bot = math.min(array.get(cBot, best), _p)
+        mid = (top + bot) * 0.5
+        array.set(cTop, best, top)
+        array.set(cBot, best, bot)
+        array.set(cMid, best, mid)
+        array.set(cScore, best, array.get(cScore, best) + _score)
+        array.set(cCount, best, array.get(cCount, best) + 1)
+        array.set(cFirstTime, best, math.min(array.get(cFirstTime, best), _time))
+    else
+        if array.size(cMid) < maxClustersInternal
+            array.push(cTop, _p)
+            array.push(cBot, _p)
+            array.push(cMid, _p)
+            array.push(cScore, _score)
+            array.push(cCount, 1)
+            array.push(cFirstTime, _time)
+            array.push(cVisible, false)
+            array.push(cPass, false)
+
+f_finalize_clusters() =>
+    zCount = array.size(cMid)
+    if zCount > 0
+        for i = 0 to zCount - 1
+            top = array.get(cTop, i)
+            bot = array.get(cBot, i)
+            mid = array.get(cMid, i)
+            cnt = array.get(cCount, i)
+            sc = array.get(cScore, i)
+
+            rawW = math.max(syminfo.mintick * 2.0, (top - bot) * zoneWidthMult)
+            capW = math.max(syminfo.mintick * 4.0, math.abs(mid) * maxClusterWidthPct)
+            w = math.min(rawW, capW)
+            half = w * 0.5
+
+            top := mid + half
+            bot := mid - half
+
+            pass = cnt >= minClusterPoints and sc >= minClusterScore
+            array.set(cTop, i, top)
+            array.set(cBot, i, bot)
+            array.set(cPass, i, pass)
+            array.set(cVisible, false)
+
+f_zone_score(i) =>
+    array.get(cScore, i) + array.get(cCount, i) * 0.25
+
+f_display_score(i) =>
+    base = f_zone_score(i)
+    if effTargetSelection
+        tgt = diagnosticTargetPrice > 0.0 ? diagnosticTargetPrice : close
+        mid = array.get(cMid, i)
+        denom = math.max(math.abs(tgt), syminfo.mintick)
+        prox = 1.0 / (1.0 + math.abs(mid - tgt) / denom)
+        base + proximityWeight * prox
+    else
+        base
+
+f_select_visible() =>
+    zCount = array.size(cMid)
+    if zCount > 0
+        tgt = diagnosticTargetPrice > 0.0 ? diagnosticTargetPrice : close
+
+        for i = 0 to zCount - 1
+            array.set(cVisible, i, false)
+
+        nearestIdx = -1
+        nearestDist = 1e10
+        for i = 0 to zCount - 1
+            if array.get(cPass, i)
+                d = math.abs(array.get(cMid, i) - tgt)
+                if d < nearestDist
+                    nearestDist := d
+                    nearestIdx := i
+
+        for pick = 0 to maxDisplayZones - 1
+            best = -1
+            bestScore = -1e10
+            for i = 0 to zCount - 1
+                if array.get(cPass, i) and not array.get(cVisible, i)
+                    sc = f_display_score(i)
+                    if sc > bestScore
+                        bestScore := sc
+                        best := i
+            if best >= 0
+                array.set(cVisible, best, true)
+
+        if effForceNearest and nearestIdx >= 0
+            array.set(cVisible, nearestIdx, true)
+
+f_render_zones() =>
+    if showZones
+        zCount = array.size(cMid)
+        if zCount > 0
+            for i = 0 to zCount - 1
+                if array.get(cVisible, i)
+                    top = array.get(cTop, i)
+                    bot = array.get(cBot, i)
+                    mid = array.get(cMid, i)
+                    t0 = array.get(cFirstTime, i)
+
+                    b = box.new(t0, top, time, bot, xloc=xloc.bar_time, border_color=f_zone_border(), border_width=3, bgcolor=f_zone_fill())
+                    array.push(cBox, b)
+                    if showZoneMidline
+                        l = line.new(t0, mid, time, mid, xloc=xloc.bar_time, extend=extend.none, color=f_zone_border(), width=2)
+                        array.push(cLine, l)
+
+f_fail_color(_code) =>
+    _code == FAIL_CANDIDATE ? color.new(color.purple, 0) :
+      _code == FAIL_MOVE ? color.new(color.red, 0) :
+      _code == FAIL_REVISIT ? color.new(color.orange, 0) :
+      _code == FAIL_PERSIST ? color.new(color.yellow, 0) :
+      _code == FAIL_SCORE ? color.new(color.fuchsia, 0) : color.new(color.gray, 0)
+
+// ---------- Main build ----------
+moveBars = f_hours_to_bars(moveWindowHours)
+noRevisitBars = f_hours_to_bars(noRevisitHours)
+persistBars = f_hours_to_bars(persistHours)
+gapSameBars = f_hours_to_bars(minGapSameSideHours)
+gapOppBars = f_hours_to_bars(minGapOppositeSideHours)
+
+reqBars = math.max(moveBars, math.max(noRevisitBars, persistBars))
+maxByBars = bar_index - reqBars - 2
+buildLookback = barstate.islast ? math.max(0, math.min(lookbackBars, maxByBars)) : 0
+
+if barstate.islast
+    f_reset_all()
+    dbgCand := 0
+    dbgPassBase := 0
+    dbgKept := 0
+    dbgFailCandidate := 0
+    dbgFailMove := 0
+    dbgFailRevisit := 0
+    dbgFailPersist := 0
+    dbgFailScore := 0
+    dbgFailGap := 0
+    dbgDotsEmitted := 0
+    lastBuildLookback := buildLookback
+
+if barstate.islast and buildLookback > reqBars + 2
+    // Candidate-pass arrays (pre-retention)
+    passOff = array.new_int()
+    passTime = array.new_int()
+    passPrice = array.new_float()
+    passScore = array.new_float()
+    passSide = array.new_int()
+
+    // Failed arrays (optional dots)
+    failOff = array.new_int()
+    failPrice = array.new_float()
+    failCode = array.new_int()
+
+    lastPassOffRes = 100000000
+    lastPassOffSup = 100000000
+
+    // Old -> new scan
+    for k = 0 to buildLookback - 1
+        off = buildLookback - k
+        if off > reqBars and off <= bar_index
+            atrRef = math.max(atrv[off], syminfo.mintick)
+            inDateWindow = not useDiagDateWindow or (time_close[off] >= diagStartTime and time_close[off] <= diagEndTime)
+
+            for s = 0 to 1
+                isRes = s == 0
+                side = isRes ? SIDE_RESIST : SIDE_SUPPORT
+                p = isRes ? high[off] : low[off]
+                dotTs = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
+
+                // Candidate prefilter
+                barRangeATR = (high[off] - low[off]) / atrRef
+                passRange = barRangeATR >= minCandidateRangeATR
+
+                passLocal = true
+                if anchorCandidateMode == "local-extrema"
+                    for j = 1 to candidatePivotLen
+                        older = off + j
+                        newer = off - j
+                        if older <= bar_index
+                            if isRes and high[off] < high[older]
+                                passLocal := false
+                            if not isRes and low[off] > low[older]
+                                passLocal := false
+                        if newer >= 0
+                            if isRes and high[off] <= high[newer]
+                                passLocal := false
+                            if not isRes and low[off] >= low[newer]
+                                passLocal := false
+
+                candidateOk = passRange and passLocal
+
+                // Move-away
+                moveReq = minAnchorMoveATR * atrRef
+                bestMove = 0.0
+                for w = 1 to moveBars
+                    off2 = off - w
+                    if off2 >= 0
+                        mv = isRes ? (p - low[off2]) : (high[off2] - p)
+                        if mv > bestMove
+                            bestMove := mv
+                passMove = bestMove >= moveReq
+
+                // Revisit
+                passRevisit = true
+                revisitTol = revisitTolATR * atrRef
+                for r = 1 to noRevisitBars
+                    offr = off - r
+                    if offr >= 0
+                        revisit = isRes ? close[offr] > (p + revisitTol) : close[offr] < (p - revisitTol)
+                        if revisit
+                            passRevisit := false
+
+                // Persistence
+                persistCnt = 0
+                persistTol = persistTolATR * atrRef
+                for pr = 1 to persistBars
+                    offp = off - pr
+                    if offp >= 0
+                        pers = isRes ? close[offp] < (p - persistTol) : close[offp] > (p + persistTol)
+                        if pers
+                            persistCnt += 1
+                passPersist = persistCnt >= minPersistBars
+
+                // Side-aware gap
+                sameGap = isRes ? (math.abs(lastPassOffRes - off) <= gapSameBars) : (math.abs(lastPassOffSup - off) <= gapSameBars)
+                oppGap = isRes ? (math.abs(lastPassOffSup - off) <= gapOppBars) : (math.abs(lastPassOffRes - off) <= gapOppBars)
+                passGap = not useGapGate or not (sameGap or oppGap)
+
+                // Score gate
+                score = (bestMove / atrRef) * scoreMoveWeight + persistCnt * scorePersistWeight + (passRevisit ? scoreNoRevisitBonus : 0.0)
+                passScore = not useAnchorScoreGate or score >= minAnchorScore
+
+                corePass = candidateOk and passMove and passRevisit and passPersist and passGap
+                pass = corePass and passScore
+
+                if candidateOk
+                    dbgCand += 1
+                else
+                    dbgFailCandidate += 1
+
+                if pass
+                    array.push(passOff, off)
+                    array.push(passTime, time[off])
+                    array.push(passPrice, p)
+                    array.push(passScore, score)
+                    array.push(passSide, side)
+                    dbgPassBase += 1
+                    if isRes
+                        lastPassOffRes := off
+                    else
+                        lastPassOffSup := off
+                else
+                    if candidateOk
+                        if not passMove
+                            dbgFailMove += 1
+                        else if not passRevisit
+                            dbgFailRevisit += 1
+                        else if not passPersist
+                            dbgFailPersist += 1
+                        else if not passGap
+                            dbgFailGap += 1
+                        else if not passScore
+                            dbgFailScore += 1
+
+                    if effShowDots and effShowFailed and inDateWindow
+                        code = not candidateOk ? FAIL_CANDIDATE : not passMove ? FAIL_MOVE : not passRevisit ? FAIL_REVISIT : not passPersist ? FAIL_PERSIST : not passScore ? FAIL_SCORE : FAIL_GAP
+                        array.push(failOff, off)
+                        array.push(failPrice, p)
+                        array.push(failCode, code)
+
+    // Retention by top score
+    nPass = array.size(passScore)
+    keepTarget = nPass > 0 ? int(math.ceil(nPass * anchorRetentionPercent / 100.0)) : 0
+    keepTarget := math.min(keepTarget, maxAnchorsKept)
+
+    used = array.new_bool(nPass, false)
+
+    selOff = array.new_int()
+    selTime = array.new_int()
+    selPrice = array.new_float()
+    selScore = array.new_float()
+    selSide = array.new_int()
+
+    selResOff = array.new_int()
+    selSupOff = array.new_int()
+
+    if nPass > 0 and keepTarget > 0
+        for pick = 0 to nPass - 1
+            if array.size(selScore) < keepTarget
+                bestIdx = -1
+                bestScore = -1e10
+                for i = 0 to nPass - 1
+                    if not array.get(used, i)
+                        sc = array.get(passScore, i)
+                        if sc > bestScore
+                            bestScore := sc
+                            bestIdx := i
+
+                if bestIdx >= 0
+                    array.set(used, bestIdx, true)
+
+                    off = array.get(passOff, bestIdx)
+                    side = array.get(passSide, bestIdx)
+
+                    // selection-stage side-aware gap
+                    violate = false
+                    if useGapGate
+                        if side == SIDE_RESIST
+                            for j = 0 to array.size(selResOff) - 1
+                                if math.abs(off - array.get(selResOff, j)) <= gapSameBars
+                                    violate := true
+                            for j = 0 to array.size(selSupOff) - 1
+                                if math.abs(off - array.get(selSupOff, j)) <= gapOppBars
+                                    violate := true
+                        else
+                            for j = 0 to array.size(selSupOff) - 1
+                                if math.abs(off - array.get(selSupOff, j)) <= gapSameBars
+                                    violate := true
+                            for j = 0 to array.size(selResOff) - 1
+                                if math.abs(off - array.get(selResOff, j)) <= gapOppBars
+                                    violate := true
+
+                    if not violate
+                        array.push(selOff, off)
+                        array.push(selTime, array.get(passTime, bestIdx))
+                        array.push(selPrice, array.get(passPrice, bestIdx))
+                        array.push(selScore, array.get(passScore, bestIdx))
+                        array.push(selSide, side)
+                        if side == SIDE_RESIST
+                            array.push(selResOff, off)
+                        else
+                            array.push(selSupOff, off)
+
+    dbgKept := array.size(selScore)
+
+    // Cluster selected anchors
+    if dbgKept > 0
+        for i = 0 to dbgKept - 1
+            f_add_anchor_to_cluster(array.get(selPrice, i), array.get(selScore, i), array.get(selTime, i), array.get(selSide, i))
+
+    f_finalize_clusters()
+    f_select_visible()
+    f_render_zones()
+
+    // Draw selected anchor dots first
+    if effShowDots
+        for i = 0 to dbgKept - 1
+            if dbgDotsEmitted < maxAnchorDots
+                off = array.get(selOff, i)
+                p = array.get(selPrice, i)
+                ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
+                inDateWindow = not useDiagDateWindow or (time_close[off] >= diagStartTime and time_close[off] <= diagEndTime)
+                if inDateWindow
+                    d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
+                    array.push(dDots, d)
+                    dbgDotsEmitted += 1
+
+    // Draw failed dots (optional)
+    if effShowDots and effShowFailed
+        nFail = array.size(failOff)
+        if nFail > 0
+            for i = 0 to nFail - 1
+                if dbgDotsEmitted < maxAnchorDots
+                    off = array.get(failOff, i)
+                    p = array.get(failPrice, i)
+                    code = array.get(failCode, i)
+                    ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
+                    clr = f_fail_color(code)
+                    d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
+                    array.push(dDots, d)
+                    dbgDotsEmitted += 1
+
+// Hidden anchor to keep chart scale binding stable
+plot(close, "price_scale_anchor", display=display.none)
+
+// ---------- Debug table ----------
+var table t = table.new(position.top_right, 2, 13, border_width=1)
+if barstate.islast and effShowDebug
+    zCount = array.size(cMid)
+    passClusters = 0
+    dispClusters = 0
+    float nearMid = na
+    float nearDistPct = na
+    int nearPts = na
+
+    tgt = diagnosticTargetPrice > 0.0 ? diagnosticTargetPrice : close
+
+    if zCount > 0
+        bestDist = 1e10
+        for i = 0 to zCount - 1
+            pz = array.get(cPass, i)
+            vz = array.get(cVisible, i)
+            passClusters += pz ? 1 : 0
+            dispClusters += vz ? 1 : 0
+            if pz
+                mid = array.get(cMid, i)
+                d = math.abs(mid - tgt)
+                if d < bestDist
+                    bestDist := d
+                    nearMid := mid
+                    nearDistPct := d / math.max(tgt, syminfo.mintick) * 100.0
+                    nearPts := array.get(cCount, i)
+
+    table.cell(t, 0, 0, "Mode", text_color=color.white)
+    table.cell(t, 1, 0, mode, text_color=color.white)
+    table.cell(t, 0, 1, "Lookback / bars", text_color=color.white)
+    table.cell(t, 1, 1, (not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-") + " / " + str.tostring(reqBars), text_color=color.white)
+    table.cell(t, 0, 2, "Cand / passBase / kept", text_color=color.white)
+    table.cell(t, 1, 2, str.tostring(dbgCand) + " / " + str.tostring(dbgPassBase) + " / " + str.tostring(dbgKept), text_color=color.white)
+    table.cell(t, 0, 3, "Fail C/M/R/P/S/G", text_color=color.white)
+    table.cell(t, 1, 3, str.tostring(dbgFailCandidate) + " / " + str.tostring(dbgFailMove) + " / " + str.tostring(dbgFailRevisit) + " / " + str.tostring(dbgFailPersist) + " / " + str.tostring(dbgFailScore) + " / " + str.tostring(dbgFailGap), text_color=color.white)
+    table.cell(t, 0, 4, "Clusters pass/disp", text_color=color.white)
+    table.cell(t, 1, 4, str.tostring(passClusters) + " / " + str.tostring(dispClusters), text_color=color.white)
+    table.cell(t, 0, 5, "Nearest target", text_color=color.white)
+    table.cell(t, 1, 5, not na(nearMid) ? str.tostring(nearMid, format.mintick) : "-", text_color=color.white)
+    table.cell(t, 0, 6, "Target dist %", text_color=color.white)
+    table.cell(t, 1, 6, not na(nearDistPct) ? str.tostring(nearDistPct, "#.##") + "%" : "-", text_color=color.white)
+    table.cell(t, 0, 7, "Nearest points", text_color=color.white)
+    table.cell(t, 1, 7, not na(nearPts) ? str.tostring(nearPts) : "-", text_color=color.white)
+    table.cell(t, 0, 8, "Hours M/NR/P gS/gO", text_color=color.white)
+    table.cell(t, 1, 8, str.tostring(moveWindowHours, "#.##") + "/" + str.tostring(noRevisitHours, "#.##") + "/" + str.tostring(persistHours, "#.##") + "  " + str.tostring(minGapSameSideHours, "#.##") + "/" + str.tostring(minGapOppositeSideHours, "#.##"), text_color=color.white)
+    table.cell(t, 0, 9, "MoveATR/Persist/Smin", text_color=color.white)
+    smin = useAnchorScoreGate ? str.tostring(minAnchorScore, "#.##") : "off"
+    table.cell(t, 1, 9, str.tostring(minAnchorMoveATR, "#.##") + " / " + str.tostring(minPersistBars) + "@" + str.tostring(persistTolATR, "#.##") + " / " + smin, text_color=color.white)
+    table.cell(t, 0, 10, "Retention% / maxKept", text_color=color.white)
+    table.cell(t, 1, 10, str.tostring(anchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept), text_color=color.white)
+    table.cell(t, 0, 11, "Cluster tol/pts/score", text_color=color.white)
+    table.cell(t, 1, 11, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
+    table.cell(t, 0, 12, "Dots emitted/max", text_color=color.white)
+    table.cell(t, 1, 12, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
