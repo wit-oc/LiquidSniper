@@ -529,7 +529,7 @@ if barstate.islast and buildLookback > reqBars + 2
     f_render_zones()
 
     // Draw selected anchor dots first
-    if effShowDots
+    if effShowDots and dbgKept > 0
         for i = 0 to dbgKept - 1
             if dbgDotsEmitted < maxAnchorDots
                 off = array.get(selOff, i)
