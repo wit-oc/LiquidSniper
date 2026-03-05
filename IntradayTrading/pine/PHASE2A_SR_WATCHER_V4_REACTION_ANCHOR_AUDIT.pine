@@ -49,8 +49,8 @@ zoneFillAlpha           = input.int(88, "Zone fill alpha (0=solid,100=transparen
 showAnchorDots          = input.bool(true, "DIAG: show anchor dots")
 showFailedAnchors       = input.bool(false, "DIAG: show failed anchors")
 useDiagDateWindow       = input.bool(false, "DIAG: limit dots to date window")
-diagStartTime           = input.time(timestamp(2024, 1, 1, 0, 0), "DIAG start time")
-diagEndTime             = input.time(timestamp(2027, 1, 1, 0, 0), "DIAG end time")
+diagStartTime           = input.time(1704067200000, "DIAG start time")
+diagEndTime             = input.time(1798761600000, "DIAG end time")
 maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
 anchorDotSize           = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
 
