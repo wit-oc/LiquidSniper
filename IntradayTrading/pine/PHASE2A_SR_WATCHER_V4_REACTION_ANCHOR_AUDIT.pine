@@ -14,6 +14,9 @@ mode                    = input.string("CERT", "Operating mode", options=["CERT"
 lookbackBars            = input.int(3500, "Historical lookback bars", minval=300, maxval=5000)
 
 // Anchor gate (deterministic)
+anchorCandidateMode     = input.string("local-extrema", "Anchor candidate mode", options=["local-extrema", "all-bars"])
+candidatePivotLen       = input.int(2, "Candidate local-extrema len", minval=1, maxval=10)
+minCandidateRangeATR    = input.float(0.80, "Min candidate bar range (ATR)", minval=0.0, step=0.05)
 minAnchorMoveATR        = input.float(1.75, "Min anchor move (ATR)", minval=0.25, step=0.25)
 moveWindowBars          = input.int(36, "Move window bars", minval=2, maxval=300)
 noRevisitBars           = input.int(10, "No-revisit bars", minval=1, maxval=300)
@@ -44,7 +47,7 @@ zoneFillAlpha           = input.int(88, "Zone fill alpha (0=solid,100=transparen
 
 // Anchor dot diagnostics
 showAnchorDots          = input.bool(true, "DIAG: show anchor dots")
-showFailedAnchors       = input.bool(true, "DIAG: show failed anchors")
+showFailedAnchors       = input.bool(false, "DIAG: show failed anchors")
 maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
 anchorDotSize           = input.string("small", "DIAG anchor dot size", options=["tiny", "small", "normal"])
 
@@ -77,6 +80,7 @@ var int lastBuildLookback = na
 // Debug counters
 var int dbgCand         = 0
 var int dbgPass         = 0
+var int dbgFailCandidate= 0
 var int dbgFailMove     = 0
 var int dbgFailRevisit  = 0
 var int dbgFailPersist  = 0
@@ -254,6 +258,7 @@ if barstate.islast
     f_reset_all()
     dbgCand := 0
     dbgPass := 0
+    dbgFailCandidate := 0
     dbgFailMove := 0
     dbgFailRevisit := 0
     dbgFailPersist := 0
@@ -273,6 +278,28 @@ if barstate.islast and buildLookback > reqBars + 2
             for s = 0 to 1
                 isRes = s == 0
                 p = isRes ? high[off] : low[off]
+
+                // Candidate prefilter (reduces near-every-bar anchor spam)
+                barRangeATR = (high[off] - low[off]) / atrRef
+                passRange = barRangeATR >= minCandidateRangeATR
+
+                passLocalExtrema = true
+                if anchorCandidateMode == "local-extrema"
+                    for j = 1 to candidatePivotLen
+                        older = off + j
+                        newer = off - j
+                        if older <= bar_index
+                            if isRes and high[off] < high[older]
+                                passLocalExtrema := false
+                            if not isRes and low[off] > low[older]
+                                passLocalExtrema := false
+                        if newer >= 0
+                            if isRes and high[off] <= high[newer]
+                                passLocalExtrema := false
+                            if not isRes and low[off] >= low[newer]
+                                passLocalExtrema := false
+
+                candidateOk = passRange and passLocalExtrema
 
                 // prevent near-duplicate accepted anchors in short bar distance
                 tooSoon = math.abs(lastAcceptedOff - off) <= anchorMinGapBars
@@ -309,8 +336,11 @@ if barstate.islast and buildLookback > reqBars + 2
                             persistCnt += 1
                 passPersist = persistCnt >= minPersistBars
 
-                pass = passMove and passRevisit and passPersist and not tooSoon
-                dbgCand += 1
+                pass = candidateOk and passMove and passRevisit and passPersist and not tooSoon
+                if candidateOk
+                    dbgCand += 1
+                else
+                    dbgFailCandidate += 1
 
                 if pass
                     score = (bestMove / atrRef) + (passRevisit ? 1.0 : 0.0) + persistCnt * 0.15
@@ -323,15 +353,16 @@ if barstate.islast and buildLookback > reqBars + 2
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
                 else
-                    if not passMove
-                        dbgFailMove += 1
-                    else if not passRevisit
-                        dbgFailRevisit += 1
-                    else if not passPersist
-                        dbgFailPersist += 1
+                    if candidateOk
+                        if not passMove
+                            dbgFailMove += 1
+                        else if not passRevisit
+                            dbgFailRevisit += 1
+                        else if not passPersist
+                            dbgFailPersist += 1
 
                     if effShowDots and effShowFailed and dbgDotsEmitted < maxAnchorDots
-                        clr = not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
+                        clr = not candidateOk ? color.new(color.purple, 0) : not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
                         d = label.new(time[off], p, "•", xloc=xloc.bar_time, style=label.style_none, color=color.new(clr, 100), textcolor=clr, size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
@@ -379,8 +410,8 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 1, not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-", text_color=color.white)
     table.cell(t, 0, 2, "Anchors cand/pass", text_color=color.white)
     table.cell(t, 1, 2, str.tostring(dbgCand) + " / " + str.tostring(dbgPass), text_color=color.white)
-    table.cell(t, 0, 3, "Fail M/R/P", text_color=color.white)
-    table.cell(t, 1, 3, str.tostring(dbgFailMove) + " / " + str.tostring(dbgFailRevisit) + " / " + str.tostring(dbgFailPersist), text_color=color.white)
+    table.cell(t, 0, 3, "Fail C/M/R/P", text_color=color.white)
+    table.cell(t, 1, 3, str.tostring(dbgFailCandidate) + " / " + str.tostring(dbgFailMove) + " / " + str.tostring(dbgFailRevisit) + " / " + str.tostring(dbgFailPersist), text_color=color.white)
     table.cell(t, 0, 4, "Clusters pass/disp", text_color=color.white)
     table.cell(t, 1, 4, str.tostring(passCount) + " / " + str.tostring(dispCount), text_color=color.white)
     table.cell(t, 0, 5, "Nearest target", text_color=color.white)
