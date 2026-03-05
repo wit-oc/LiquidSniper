@@ -43,6 +43,8 @@ To avoid hitting dot cap too early:
 - Move window bars: `36`
 - No-revisit bars: `10`
 - Min persistence bars: `3`
+- Min bars between same-side anchors: `3`
+- Min bars between opposite-side anchors: `1`
 - Cluster tolerance %: `1.5`
 - Min cluster points: `3`
 - Min cluster score: `5.0`
@@ -55,7 +57,8 @@ To avoid hitting dot cap too early:
 - No-revisit bars: `20`
 - Min persistence bars: `8`
 - Persistence threshold (ATR): `0.70`
-- Min bars between accepted anchors: `5`
+- Min bars between same-side anchors: `5`
+- Min bars between opposite-side anchors: `1`
 - Show failed anchors: `OFF`
 
 ## Notes

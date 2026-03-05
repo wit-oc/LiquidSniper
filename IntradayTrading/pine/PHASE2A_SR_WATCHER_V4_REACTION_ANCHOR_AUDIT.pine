@@ -23,7 +23,8 @@ noRevisitBars           = input.int(10, "No-revisit bars", minval=1, maxval=300)
 revisitTolATR           = input.float(0.20, "Revisit tolerance (ATR)", minval=0.0, step=0.05)
 minPersistBars          = input.int(3, "Min persistence bars", minval=0, maxval=100)
 persistTolATR           = input.float(0.35, "Persistence threshold (ATR)", minval=0.0, step=0.05)
-anchorMinGapBars        = input.int(2, "Min bars between accepted anchors", minval=0, maxval=30)
+minGapSameSideBars      = input.int(3, "Min bars between same-side anchors", minval=0, maxval=30)
+minGapOppositeSideBars  = input.int(1, "Min bars between opposite-side anchors", minval=0, maxval=30)
 
 // Cluster gate (zone formation)
 clusterTolPct           = input.float(0.015, "Cluster tolerance (% of price)", minval=0.001, step=0.001)
@@ -270,7 +271,8 @@ if barstate.islast
     lastBuildLookback := buildLookback
 
 if barstate.islast and buildLookback > reqBars + 2
-    lastAcceptedOff = 100000000
+    lastAcceptedOffRes = 100000000
+    lastAcceptedOffSup = 100000000
 
     // Old -> new scan
     for k = 0 to buildLookback - 1
@@ -308,8 +310,10 @@ if barstate.islast and buildLookback > reqBars + 2
 
                 candidateOk = passRange and passLocalExtrema
 
-                // prevent near-duplicate accepted anchors in short bar distance
-                tooSoon = math.abs(lastAcceptedOff - off) <= anchorMinGapBars
+                // Side-aware anti-spam gap logic
+                sameGap = isRes ? (math.abs(lastAcceptedOffRes - off) <= minGapSameSideBars) : (math.abs(lastAcceptedOffSup - off) <= minGapSameSideBars)
+                oppGap = isRes ? (math.abs(lastAcceptedOffSup - off) <= minGapOppositeSideBars) : (math.abs(lastAcceptedOffRes - off) <= minGapOppositeSideBars)
+                tooSoon = sameGap or oppGap
 
                 // move-away check
                 moveReq = minAnchorMoveATR * atrRef
@@ -353,7 +357,10 @@ if barstate.islast and buildLookback > reqBars + 2
                     score = (bestMove / atrRef) + (passRevisit ? 1.0 : 0.0) + persistCnt * 0.15
                     f_add_anchor_to_cluster(p, score, time[off])
                     dbgPass += 1
-                    lastAcceptedOff := off
+                    if isRes
+                        lastAcceptedOffRes := off
+                    else
+                        lastAcceptedOffSup := off
 
                     if effShowDots and dotInWindow and dbgDotsEmitted < maxAnchorDots
                         d = label.new(dotTs, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
@@ -429,8 +436,8 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 6, distTxt, text_color=color.white)
     table.cell(t, 0, 7, "Nearest points", text_color=color.white)
     table.cell(t, 1, 7, not na(nearPts) ? str.tostring(nearPts) : "-", text_color=color.white)
-    table.cell(t, 0, 8, "Move/window/nrv", text_color=color.white)
-    table.cell(t, 1, 8, str.tostring(minAnchorMoveATR, "#.##") + " / " + str.tostring(moveWindowBars) + " / " + str.tostring(noRevisitBars), text_color=color.white)
+    table.cell(t, 0, 8, "Move/win/nrv/gS/gO", text_color=color.white)
+    table.cell(t, 1, 8, str.tostring(minAnchorMoveATR, "#.##") + " / " + str.tostring(moveWindowBars) + " / " + str.tostring(noRevisitBars) + " / " + str.tostring(minGapSameSideBars) + " / " + str.tostring(minGapOppositeSideBars), text_color=color.white)
     table.cell(t, 0, 9, "Cluster tol/pts/score", text_color=color.white)
     table.cell(t, 1, 9, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
     table.cell(t, 0, 10, "Width mult / maxW%", text_color=color.white)
