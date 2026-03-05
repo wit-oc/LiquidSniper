@@ -19,6 +19,7 @@ V4 is anchor-first:
 - **Red**: failed move-away gate
 - **Orange**: failed no-revisit gate
 - **Yellow**: failed persistence gate
+- **Fuchsia**: failed score gate (`Min anchor score`)
 
 If dots are hard to see:
 - set `DIAG anchor dot size` to `large` or `huge`
@@ -43,6 +44,8 @@ To avoid hitting dot cap too early:
 - Move window bars: `36`
 - No-revisit bars: `10`
 - Min persistence bars: `3`
+- Use anchor score gate: `ON`
+- Min anchor score: `3.60`
 - Min bars between same-side anchors: `3`
 - Min bars between opposite-side anchors: `1`
 - Cluster tolerance %: `1.5`
@@ -59,6 +62,7 @@ To avoid hitting dot cap too early:
 - Persistence threshold (ATR): `0.70`
 - Min bars between same-side anchors: `5`
 - Min bars between opposite-side anchors: `1`
+- Min anchor score: `4.50`
 - Show failed anchors: `OFF`
 
 ## Notes

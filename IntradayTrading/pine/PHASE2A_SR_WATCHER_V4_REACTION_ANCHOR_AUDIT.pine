@@ -23,6 +23,13 @@ noRevisitBars           = input.int(10, "No-revisit bars", minval=1, maxval=300)
 revisitTolATR           = input.float(0.20, "Revisit tolerance (ATR)", minval=0.0, step=0.05)
 minPersistBars          = input.int(3, "Min persistence bars", minval=0, maxval=100)
 persistTolATR           = input.float(0.35, "Persistence threshold (ATR)", minval=0.0, step=0.05)
+
+useAnchorScoreGate      = input.bool(true, "Use anchor score gate")
+minAnchorScore          = input.float(3.60, "Min anchor score", minval=0.0, step=0.10)
+scoreMoveWeight         = input.float(1.00, "Score move weight", minval=0.0, step=0.05)
+scorePersistWeight      = input.float(0.20, "Score persistence weight", minval=0.0, step=0.05)
+scoreNoRevisitBonus     = input.float(1.00, "Score no-revisit bonus", minval=0.0, step=0.05)
+
 minGapSameSideBars      = input.int(3, "Min bars between same-side anchors", minval=0, maxval=30)
 minGapOppositeSideBars  = input.int(1, "Min bars between opposite-side anchors", minval=0, maxval=30)
 
@@ -89,6 +96,7 @@ var int dbgFailCandidate= 0
 var int dbgFailMove     = 0
 var int dbgFailRevisit  = 0
 var int dbgFailPersist  = 0
+var int dbgFailScore    = 0
 var int dbgDotsEmitted  = 0
 
 atrv = ta.atr(14)
@@ -267,6 +275,7 @@ if barstate.islast
     dbgFailMove := 0
     dbgFailRevisit := 0
     dbgFailPersist := 0
+    dbgFailScore := 0
     dbgDotsEmitted := 0
     lastBuildLookback := buildLookback
 
@@ -347,14 +356,18 @@ if barstate.islast and buildLookback > reqBars + 2
                             persistCnt += 1
                 passPersist = persistCnt >= minPersistBars
 
-                pass = candidateOk and passMove and passRevisit and passPersist and not tooSoon
+                baseScore = (bestMove / atrRef) * scoreMoveWeight + persistCnt * scorePersistWeight + (passRevisit ? scoreNoRevisitBonus : 0.0)
+                passScore = not useAnchorScoreGate or baseScore >= minAnchorScore
+
+                corePass = candidateOk and passMove and passRevisit and passPersist and not tooSoon
+                pass = corePass and passScore
                 if candidateOk
                     dbgCand += 1
                 else
                     dbgFailCandidate += 1
 
                 if pass
-                    score = (bestMove / atrRef) + (passRevisit ? 1.0 : 0.0) + persistCnt * 0.15
+                    score = baseScore
                     f_add_anchor_to_cluster(p, score, time[off])
                     dbgPass += 1
                     if isRes
@@ -374,9 +387,11 @@ if barstate.islast and buildLookback > reqBars + 2
                             dbgFailRevisit += 1
                         else if not passPersist
                             dbgFailPersist += 1
+                        else if not passScore
+                            dbgFailScore += 1
 
                     if effShowDots and effShowFailed and dotInWindow and dbgDotsEmitted < maxAnchorDots
-                        clr = not candidateOk ? color.new(color.purple, 0) : not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
+                        clr = not candidateOk ? color.new(color.purple, 0) : not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : not passPersist ? color.new(color.yellow, 0) : color.new(color.fuchsia, 0)
                         d = label.new(dotTs, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
@@ -424,8 +439,8 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 1, not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-", text_color=color.white)
     table.cell(t, 0, 2, "Anchors cand/pass", text_color=color.white)
     table.cell(t, 1, 2, str.tostring(dbgCand) + " / " + str.tostring(dbgPass), text_color=color.white)
-    table.cell(t, 0, 3, "Fail C/M/R/P", text_color=color.white)
-    table.cell(t, 1, 3, str.tostring(dbgFailCandidate) + " / " + str.tostring(dbgFailMove) + " / " + str.tostring(dbgFailRevisit) + " / " + str.tostring(dbgFailPersist), text_color=color.white)
+    table.cell(t, 0, 3, "Fail C/M/R/P/S", text_color=color.white)
+    table.cell(t, 1, 3, str.tostring(dbgFailCandidate) + " / " + str.tostring(dbgFailMove) + " / " + str.tostring(dbgFailRevisit) + " / " + str.tostring(dbgFailPersist) + " / " + str.tostring(dbgFailScore), text_color=color.white)
     table.cell(t, 0, 4, "Clusters pass/disp", text_color=color.white)
     table.cell(t, 1, 4, str.tostring(passCount) + " / " + str.tostring(dispCount), text_color=color.white)
     table.cell(t, 0, 5, "Nearest target", text_color=color.white)
@@ -440,8 +455,9 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 8, str.tostring(minAnchorMoveATR, "#.##") + " / " + str.tostring(moveWindowBars) + " / " + str.tostring(noRevisitBars) + " / " + str.tostring(minGapSameSideBars) + " / " + str.tostring(minGapOppositeSideBars), text_color=color.white)
     table.cell(t, 0, 9, "Cluster tol/pts/score", text_color=color.white)
     table.cell(t, 1, 9, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
-    table.cell(t, 0, 10, "Width mult / maxW%", text_color=color.white)
-    table.cell(t, 1, 10, str.tostring(zoneWidthMult, "#.##") + " / " + str.tostring(maxClusterWidthPct * 100, "#.##") + "%", text_color=color.white)
+    table.cell(t, 0, 10, "Width / maxW% / Smin", text_color=color.white)
+    sminTxt = useAnchorScoreGate ? str.tostring(minAnchorScore, "#.##") : "off"
+    table.cell(t, 1, 10, str.tostring(zoneWidthMult, "#.##") + " / " + str.tostring(maxClusterWidthPct * 100, "#.##") + "% / " + sminTxt, text_color=color.white)
     table.cell(t, 0, 11, "Anchor dots e/max/date", text_color=color.white)
     dateModeTxt = useDiagDateWindow ? "window" : "all"
     table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots) + " / " + dateModeTxt, text_color=color.white)
