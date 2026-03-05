@@ -1,0 +1,395 @@
+//@version=5
+indicator("Phase2A S/R Watcher V4 (Reaction Anchor Audit)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=280, max_lines_count=280, max_labels_count=700)
+
+// =====================================================
+// V4 Reaction-Anchor-First Model
+// 1) Build raw reaction anchors (old -> new)
+// 2) Filter anchors deterministically (move/revisit/persistence)
+// 3) Cluster passed anchors into level-zones
+// 4) Render zones + optional diagnostic anchor dots
+// =====================================================
+
+// ---------- Inputs ----------
+mode                    = input.string("CERT", "Operating mode", options=["CERT", "DIAG"])
+lookbackBars            = input.int(3500, "Historical lookback bars", minval=300, maxval=5000)
+
+// Anchor gate (deterministic)
+minAnchorMoveATR        = input.float(1.75, "Min anchor move (ATR)", minval=0.25, step=0.25)
+moveWindowBars          = input.int(36, "Move window bars", minval=2, maxval=300)
+noRevisitBars           = input.int(10, "No-revisit bars", minval=1, maxval=300)
+revisitTolATR           = input.float(0.20, "Revisit tolerance (ATR)", minval=0.0, step=0.05)
+minPersistBars          = input.int(3, "Min persistence bars", minval=0, maxval=100)
+persistTolATR           = input.float(0.35, "Persistence threshold (ATR)", minval=0.0, step=0.05)
+anchorMinGapBars        = input.int(2, "Min bars between accepted anchors", minval=0, maxval=30)
+
+// Cluster gate (zone formation)
+clusterTolPct           = input.float(0.015, "Cluster tolerance (% of price)", minval=0.001, step=0.001)
+minClusterPoints        = input.int(3, "Min points per cluster", minval=1, maxval=50)
+minClusterScore         = input.float(5.0, "Min cluster score", minval=0.0, step=0.5)
+maxClusterWidthPct      = input.float(0.08, "Max cluster width (% of price)", minval=0.01, step=0.01)
+zoneWidthMult           = input.float(1.20, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
+maxClustersInternal     = input.int(140, "Max clusters internal", minval=20, maxval=280)
+maxDisplayZones         = input.int(14, "Max displayed zones", minval=1, maxval=80)
+
+// Selection / diagnostics
+diagnosticTargetPrice   = input.float(72000.0, "Diagnostic target price", minval=0.0, step=100.0)
+targetAffectsSelection  = input.bool(false, "DIAG: target affects selection")
+proximityWeight         = input.float(2.0, "DIAG proximity weight", minval=0.0, step=0.25)
+forceNearestVisible     = input.bool(true, "DIAG: force nearest visible")
+
+showZones               = input.bool(true, "Show zones")
+showZoneMidline         = input.bool(true, "Show zone midline")
+highContrastZones       = input.bool(true, "High-contrast zones")
+
+// Anchor dot diagnostics
+showAnchorDots          = input.bool(true, "DIAG: show anchor dots")
+showFailedAnchors       = input.bool(true, "DIAG: show failed anchors")
+maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
+
+showDebugTable          = input.bool(true, "Show debug table")
+
+// ---------- Mode guards ----------
+isDiagMode              = mode == "DIAG"
+effTargetSelection      = isDiagMode and targetAffectsSelection
+effForceNearest         = isDiagMode and forceNearestVisible
+effShowDots             = isDiagMode and showAnchorDots
+effShowFailed           = isDiagMode and showFailedAnchors
+effShowDebug            = isDiagMode and showDebugTable
+
+// ---------- Storage ----------
+var cTop                = array.new_float()
+var cBot                = array.new_float()
+var cMid                = array.new_float()
+var cCount              = array.new_int()
+var cScore              = array.new_float()
+var cFirstTime          = array.new_int()
+var cVisible            = array.new_bool()
+var cPass               = array.new_bool()
+
+var cBox                = array.new_box()
+var cLine               = array.new_line()
+var dDots               = array.new_label()
+
+var int lastBuildLookback = na
+
+// Debug counters
+var int dbgCand         = 0
+var int dbgPass         = 0
+var int dbgFailMove     = 0
+var int dbgFailRevisit  = 0
+var int dbgFailPersist  = 0
+var int dbgDotsEmitted  = 0
+
+atrv = ta.atr(14)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(open, 5000)
+max_bars_back(close, 5000)
+max_bars_back(atrv, 5000)
+
+// ---------- Helpers ----------
+f_cluster_fill() =>
+    highContrastZones ? color.new(color.blue, 70) : color.new(color.blue, 86)
+
+f_cluster_border() =>
+    color.new(color.blue, 0)
+
+f_zone_score(i) =>
+    array.get(cScore, i) + array.get(cCount, i) * 0.3
+
+f_display_score(i) =>
+    base = f_zone_score(i)
+    if effTargetSelection
+        tgt = diagnosticTargetPrice > 0.0 ? diagnosticTargetPrice : close
+        mid = array.get(cMid, i)
+        denom = math.max(math.abs(tgt), syminfo.mintick)
+        prox = 1.0 / (1.0 + math.abs(mid - tgt) / denom)
+        base + proximityWeight * prox
+    else
+        base
+
+f_reset_all() =>
+    while array.size(cBox) > 0
+        b = array.shift(cBox)
+        if not na(b)
+            box.delete(b)
+    while array.size(cLine) > 0
+        l = array.shift(cLine)
+        if not na(l)
+            line.delete(l)
+    while array.size(dDots) > 0
+        d = array.shift(dDots)
+        if not na(d)
+            label.delete(d)
+
+    array.clear(cTop)
+    array.clear(cBot)
+    array.clear(cMid)
+    array.clear(cCount)
+    array.clear(cScore)
+    array.clear(cFirstTime)
+    array.clear(cVisible)
+    array.clear(cPass)
+
+f_add_anchor_to_cluster(_p, _score, _t) =>
+    tol = math.max(syminfo.mintick * 2.0, math.abs(_p) * clusterTolPct)
+    zCount = array.size(cMid)
+    best = -1
+    bestDist = 1e10
+
+    if zCount > 0
+        for i = 0 to zCount - 1
+            d = math.abs(_p - array.get(cMid, i))
+            if d <= tol and d < bestDist
+                best := i
+                bestDist := d
+
+    if best >= 0
+        top = math.max(array.get(cTop, best), _p)
+        bot = math.min(array.get(cBot, best), _p)
+        mid = (top + bot) * 0.5
+        array.set(cTop, best, top)
+        array.set(cBot, best, bot)
+        array.set(cMid, best, mid)
+        array.set(cCount, best, array.get(cCount, best) + 1)
+        array.set(cScore, best, array.get(cScore, best) + _score)
+        array.set(cFirstTime, best, math.min(array.get(cFirstTime, best), _t))
+    else
+        if array.size(cMid) < maxClustersInternal
+            array.push(cTop, _p)
+            array.push(cBot, _p)
+            array.push(cMid, _p)
+            array.push(cCount, 1)
+            array.push(cScore, _score)
+            array.push(cFirstTime, _t)
+            array.push(cVisible, false)
+            array.push(cPass, false)
+
+f_finalize_clusters() =>
+    zCount = array.size(cMid)
+    if zCount > 0
+        for i = 0 to zCount - 1
+            top = array.get(cTop, i)
+            bot = array.get(cBot, i)
+            mid = array.get(cMid, i)
+            cnt = array.get(cCount, i)
+            sc = array.get(cScore, i)
+
+            width = math.max(syminfo.mintick * 2.0, (top - bot) * zoneWidthMult)
+            capW = math.max(syminfo.mintick * 4.0, math.abs(mid) * maxClusterWidthPct)
+            width := math.min(width, capW)
+            half = width * 0.5
+            top := mid + half
+            bot := mid - half
+
+            pass = cnt >= minClusterPoints and sc >= minClusterScore
+
+            array.set(cTop, i, top)
+            array.set(cBot, i, bot)
+            array.set(cPass, i, pass)
+            array.set(cVisible, i, false)
+
+f_select_visible() =>
+    zCount = array.size(cMid)
+    if zCount > 0
+        tgt = diagnosticTargetPrice > 0.0 ? diagnosticTargetPrice : close
+
+        for i = 0 to zCount - 1
+            array.set(cVisible, i, false)
+
+        nearestIdx = -1
+        nearestDist = 1e10
+        for i = 0 to zCount - 1
+            if array.get(cPass, i)
+                d = math.abs(array.get(cMid, i) - tgt)
+                if d < nearestDist
+                    nearestDist := d
+                    nearestIdx := i
+
+        for pick = 0 to maxDisplayZones - 1
+            best = -1
+            bestScore = -1e10
+            for i = 0 to zCount - 1
+                if array.get(cPass, i) and not array.get(cVisible, i)
+                    sc = f_display_score(i)
+                    if sc > bestScore
+                        bestScore := sc
+                        best := i
+            if best >= 0
+                array.set(cVisible, best, true)
+
+        if effForceNearest and nearestIdx >= 0
+            array.set(cVisible, nearestIdx, true)
+
+f_render() =>
+    if showZones
+        zCount = array.size(cMid)
+        if zCount > 0
+            for i = 0 to zCount - 1
+                if array.get(cVisible, i)
+                    top = array.get(cTop, i)
+                    bot = array.get(cBot, i)
+                    mid = array.get(cMid, i)
+                    t0 = array.get(cFirstTime, i)
+
+                    b = box.new(t0, top, time, bot, xloc=xloc.bar_time, border_color=f_cluster_border(), border_width=3, bgcolor=f_cluster_fill())
+                    array.push(cBox, b)
+
+                    if showZoneMidline
+                        l = line.new(t0, mid, time, mid, xloc=xloc.bar_time, extend=extend.none, color=f_cluster_border(), width=2)
+                        array.push(cLine, l)
+
+// ---------- Main execution ----------
+reqBars = math.max(moveWindowBars, noRevisitBars)
+maxByBars = bar_index - reqBars - 2
+buildLookback = barstate.islast ? math.max(0, math.min(lookbackBars, maxByBars)) : 0
+
+if barstate.islast
+    f_reset_all()
+    dbgCand := 0
+    dbgPass := 0
+    dbgFailMove := 0
+    dbgFailRevisit := 0
+    dbgFailPersist := 0
+    dbgDotsEmitted := 0
+    lastBuildLookback := buildLookback
+
+if barstate.islast and buildLookback > reqBars + 2
+    lastAcceptedOff = 100000000
+
+    // Old -> new scan
+    for k = 0 to buildLookback - 1
+        off = buildLookback - k
+        if off > reqBars and off <= bar_index
+            atrRef = math.max(atrv[off], syminfo.mintick)
+
+            // Evaluate both sides (high and low anchors)
+            for s = 0 to 1
+                isRes = s == 0
+                p = isRes ? high[off] : low[off]
+
+                // prevent near-duplicate accepted anchors in short bar distance
+                tooSoon = math.abs(lastAcceptedOff - off) <= anchorMinGapBars
+
+                // move-away check
+                moveReq = minAnchorMoveATR * atrRef
+                bestMove = 0.0
+                for w = 1 to moveWindowBars
+                    off2 = off - w
+                    if off2 >= 0
+                        mv = isRes ? (p - low[off2]) : (high[off2] - p)
+                        if mv > bestMove
+                            bestMove := mv
+                passMove = bestMove >= moveReq
+
+                // revisit check
+                passRevisit = true
+                revisitTol = revisitTolATR * atrRef
+                for r = 1 to noRevisitBars
+                    offr = off - r
+                    if offr >= 0
+                        revisit = isRes ? close[offr] > (p + revisitTol) : close[offr] < (p - revisitTol)
+                        if revisit
+                            passRevisit := false
+
+                // persistence check
+                persistCnt = 0
+                persistTol = persistTolATR * atrRef
+                for pr = 1 to moveWindowBars
+                    offp = off - pr
+                    if offp >= 0
+                        pers = isRes ? close[offp] < (p - persistTol) : close[offp] > (p + persistTol)
+                        if pers
+                            persistCnt += 1
+                passPersist = persistCnt >= minPersistBars
+
+                pass = passMove and passRevisit and passPersist and not tooSoon
+                dbgCand += 1
+
+                if pass
+                    score = (bestMove / atrRef) + (passRevisit ? 1.0 : 0.0) + persistCnt * 0.15
+                    f_add_anchor_to_cluster(p, score, time[off])
+                    dbgPass += 1
+                    lastAcceptedOff := off
+
+                    if effShowDots and dbgDotsEmitted < maxAnchorDots
+                        d = label.new(time[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.aqua, 0), size=size.tiny)
+                        array.push(dDots, d)
+                        dbgDotsEmitted += 1
+                else
+                    if not passMove
+                        dbgFailMove += 1
+                    else if not passRevisit
+                        dbgFailRevisit += 1
+                    else if not passPersist
+                        dbgFailPersist += 1
+
+                    if effShowDots and effShowFailed and dbgDotsEmitted < maxAnchorDots
+                        clr = not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
+                        d = label.new(time[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=clr, textcolor=clr, size=size.tiny)
+                        array.push(dDots, d)
+                        dbgDotsEmitted += 1
+
+    f_finalize_clusters()
+    f_select_visible()
+    f_render()
+
+// Hidden anchor to keep chart scale binding stable
+plot(close, "price_scale_anchor", display=display.none)
+
+// ---------- Debug table ----------
+var table t = table.new(position.top_right, 2, 12, border_width=1)
+if barstate.islast and effShowDebug
+    zCount = array.size(cMid)
+    passCount = 0
+    dispCount = 0
+    float nearMid = na
+    float nearDistPct = na
+    string nearState = "-"
+    int nearPts = na
+
+    tgt = diagnosticTargetPrice > 0.0 ? diagnosticTargetPrice : close
+
+    if zCount > 0
+        bestDist = 1e10
+        for i = 0 to zCount - 1
+            pz = array.get(cPass, i)
+            vz = array.get(cVisible, i)
+            mid = array.get(cMid, i)
+            passCount += pz ? 1 : 0
+            dispCount += vz ? 1 : 0
+            if pz
+                d = math.abs(mid - tgt)
+                if d < bestDist
+                    bestDist := d
+                    nearMid := mid
+                    nearDistPct := d / math.max(tgt, syminfo.mintick) * 100.0
+                    nearState := "PASS"
+                    nearPts := array.get(cCount, i)
+
+    table.cell(t, 0, 0, "Mode", text_color=color.white)
+    table.cell(t, 1, 0, mode, text_color=color.white)
+    table.cell(t, 0, 1, "Lookback", text_color=color.white)
+    table.cell(t, 1, 1, not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-", text_color=color.white)
+    table.cell(t, 0, 2, "Anchors cand/pass", text_color=color.white)
+    table.cell(t, 1, 2, str.tostring(dbgCand) + " / " + str.tostring(dbgPass), text_color=color.white)
+    table.cell(t, 0, 3, "Fail M/R/P", text_color=color.white)
+    table.cell(t, 1, 3, str.tostring(dbgFailMove) + " / " + str.tostring(dbgFailRevisit) + " / " + str.tostring(dbgFailPersist), text_color=color.white)
+    table.cell(t, 0, 4, "Clusters pass/disp", text_color=color.white)
+    table.cell(t, 1, 4, str.tostring(passCount) + " / " + str.tostring(dispCount), text_color=color.white)
+    table.cell(t, 0, 5, "Nearest target", text_color=color.white)
+    nearTxt = not na(nearMid) ? str.tostring(nearMid, format.mintick) : "-"
+    table.cell(t, 1, 5, nearTxt, text_color=color.white)
+    table.cell(t, 0, 6, "Target dist %", text_color=color.white)
+    distTxt = not na(nearDistPct) ? str.tostring(nearDistPct, "#.##") + "%" : "-"
+    table.cell(t, 1, 6, distTxt, text_color=color.white)
+    table.cell(t, 0, 7, "Nearest points", text_color=color.white)
+    table.cell(t, 1, 7, not na(nearPts) ? str.tostring(nearPts) : "-", text_color=color.white)
+    table.cell(t, 0, 8, "Move/window/nrv", text_color=color.white)
+    table.cell(t, 1, 8, str.tostring(minAnchorMoveATR, "#.##") + " / " + str.tostring(moveWindowBars) + " / " + str.tostring(noRevisitBars), text_color=color.white)
+    table.cell(t, 0, 9, "Cluster tol/pts/score", text_color=color.white)
+    table.cell(t, 1, 9, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
+    table.cell(t, 0, 10, "Width mult / maxW%", text_color=color.white)
+    table.cell(t, 1, 10, str.tostring(zoneWidthMult, "#.##") + " / " + str.tostring(maxClusterWidthPct * 100, "#.##") + "%", text_color=color.white)
+    table.cell(t, 0, 11, "Anchor dots", text_color=color.white)
+    table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
