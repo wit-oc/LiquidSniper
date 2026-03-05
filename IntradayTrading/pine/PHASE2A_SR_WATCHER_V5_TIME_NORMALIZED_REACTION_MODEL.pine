@@ -493,19 +493,27 @@ if barstate.islast and buildLookback > reqBars + 2
                     violate = false
                     if useGapGate
                         if side == SIDE_RESIST
-                            for j = 0 to array.size(selResOff) - 1
-                                if math.abs(off - array.get(selResOff, j)) <= gapSameBars
-                                    violate := true
-                            for j = 0 to array.size(selSupOff) - 1
-                                if math.abs(off - array.get(selSupOff, j)) <= gapOppBars
-                                    violate := true
+                            nRes = array.size(selResOff)
+                            if nRes > 0
+                                for j = 0 to nRes - 1
+                                    if math.abs(off - array.get(selResOff, j)) <= gapSameBars
+                                        violate := true
+                            nSup = array.size(selSupOff)
+                            if nSup > 0
+                                for j = 0 to nSup - 1
+                                    if math.abs(off - array.get(selSupOff, j)) <= gapOppBars
+                                        violate := true
                         else
-                            for j = 0 to array.size(selSupOff) - 1
-                                if math.abs(off - array.get(selSupOff, j)) <= gapSameBars
-                                    violate := true
-                            for j = 0 to array.size(selResOff) - 1
-                                if math.abs(off - array.get(selResOff, j)) <= gapOppBars
-                                    violate := true
+                            nSup = array.size(selSupOff)
+                            if nSup > 0
+                                for j = 0 to nSup - 1
+                                    if math.abs(off - array.get(selSupOff, j)) <= gapSameBars
+                                        violate := true
+                            nRes = array.size(selResOff)
+                            if nRes > 0
+                                for j = 0 to nRes - 1
+                                    if math.abs(off - array.get(selResOff, j)) <= gapOppBars
+                                        violate := true
 
                     if not violate
                         array.push(selOff, off)
