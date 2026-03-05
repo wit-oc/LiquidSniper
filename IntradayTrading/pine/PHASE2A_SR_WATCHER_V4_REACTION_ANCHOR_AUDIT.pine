@@ -48,6 +48,7 @@ zoneFillAlpha           = input.int(88, "Zone fill alpha (0=solid,100=transparen
 // Anchor dot diagnostics
 showAnchorDots          = input.bool(true, "DIAG: show anchor dots")
 showFailedAnchors       = input.bool(false, "DIAG: show failed anchors")
+diagDotLookbackBars     = input.int(500, "DIAG anchor dot lookback bars", minval=50, maxval=5000)
 maxAnchorDots           = input.int(400, "DIAG max anchor dots", minval=50, maxval=1000)
 anchorDotSize           = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
 
@@ -273,6 +274,7 @@ if barstate.islast and buildLookback > reqBars + 2
         off = buildLookback - k
         if off > reqBars and off <= bar_index
             atrRef = math.max(atrv[off], syminfo.mintick)
+            dotInWindow = off <= math.min(buildLookback, diagDotLookbackBars)
 
             // Evaluate both sides (high and low anchors)
             for s = 0 to 1
@@ -348,7 +350,7 @@ if barstate.islast and buildLookback > reqBars + 2
                     dbgPass += 1
                     lastAcceptedOff := off
 
-                    if effShowDots and dbgDotsEmitted < maxAnchorDots
+                    if effShowDots and dotInWindow and dbgDotsEmitted < maxAnchorDots
                         d = label.new(time_close[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(color.aqua, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                         array.push(dDots, d)
                         dbgDotsEmitted += 1
@@ -361,7 +363,7 @@ if barstate.islast and buildLookback > reqBars + 2
                         else if not passPersist
                             dbgFailPersist += 1
 
-                    if effShowDots and effShowFailed and dbgDotsEmitted < maxAnchorDots
+                    if effShowDots and effShowFailed and dotInWindow and dbgDotsEmitted < maxAnchorDots
                         clr = not candidateOk ? color.new(color.purple, 0) : not passMove ? color.new(color.red, 0) : not passRevisit ? color.new(color.orange, 0) : color.new(color.yellow, 0)
                         d = label.new(time_close[off], p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(clr, 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                         array.push(dDots, d)
@@ -428,5 +430,5 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 9, str.tostring(clusterTolPct * 100, "#.##") + "% / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
     table.cell(t, 0, 10, "Width mult / maxW%", text_color=color.white)
     table.cell(t, 1, 10, str.tostring(zoneWidthMult, "#.##") + " / " + str.tostring(maxClusterWidthPct * 100, "#.##") + "%", text_color=color.white)
-    table.cell(t, 0, 11, "Anchor dots", text_color=color.white)
-    table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
+    table.cell(t, 0, 11, "Anchor dots e/max/lb", text_color=color.white)
+    table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(maxAnchorDots) + " / " + str.tostring(diagDotLookbackBars), text_color=color.white)
