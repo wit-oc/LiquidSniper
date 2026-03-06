@@ -1,0 +1,900 @@
+//@version=5
+indicator("Phase2A S/R Watcher V6 (Foxian Excursion/Reversal Model)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=350, max_lines_count=350, max_labels_count=700)
+
+// =====================================================
+// V6 Foxian-aligned excursion/reversal model
+// 1) Time-normalized windows (hours -> bars)
+// 2) Soft candidate flags (strict veto optional)
+// 3) Anchor quality from E/tE/R/rho + persistence + revisit + outlier + Q
+// 4) Deterministic retention + side-aware gap suppression
+// 5) Deterministic greedy clustering + baseline zone state
+// =====================================================
+
+// ---------- Inputs ----------
+mode                      = input.string("CERT", "Operating mode", options=["CERT", "DIAG"])
+lookbackBars              = input.int(3500, "Historical lookback bars", minval=300, maxval=5000)
+
+// Candidate stream (soft by default)
+anchorCandidateMode       = input.string("local-extrema", "Candidate mode", options=["local-extrema", "all-bars"])
+candidatePivotLen         = input.int(3, "Candidate local-extrema len", minval=1, maxval=12)
+minCandidateRangeATR      = input.float(1.00, "Min candidate bar range (ATR)", minval=0.0, step=0.05)
+strictCandidateVeto       = input.bool(false, "Strict candidate veto (hard block when C_soft=false)")
+
+// Time-normalized windows
+W_move_h                  = input.float(96.0, "W_move hours", minval=1.0, step=1.0)
+W_reversal_h              = input.float(96.0, "W_reversal hours", minval=1.0, step=1.0)
+W_persist_h               = input.float(72.0, "W_persist hours", minval=1.0, step=1.0)
+W_revisit_h               = input.float(96.0, "W_revisit hours", minval=1.0, step=1.0)
+W_gap_same_h              = input.float(120.0, "W_gap_same hours", minval=0.0, step=1.0)
+W_gap_opp_h               = input.float(24.0, "W_gap_opp hours", minval=0.0, step=1.0)
+
+// Core thresholds
+E_min                     = input.float(2.50, "E_min (ATR)", minval=0.10, step=0.05)
+rho_min                   = input.float(0.25, "rho_min", minval=0.01, step=0.01)
+persist_min               = input.int(4, "persist_min bars", minval=0, maxval=400)
+revisitMaxCount           = input.int(0, "revisit max count", minval=0, maxval=200)
+revisitTolATR             = input.float(0.20, "revisit tolerance (ATR)", minval=0.0, step=0.05)
+persistTolATR             = input.float(0.60, "persistence tolerance (ATR)", minval=0.0, step=0.05)
+deviationInvalidATR       = input.float(2.50, "Outlier deviation invalid (ATR)", minval=0.25, step=0.25)
+
+// Quality score Q in [0, 100]
+Q_min                     = input.float(58.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
+wE                        = input.float(0.30, "wE", minval=0.0, maxval=1.0, step=0.05)
+wR                        = input.float(0.30, "wR", minval=0.0, maxval=1.0, step=0.05)
+wS                        = input.float(0.15, "wS", minval=0.0, maxval=1.0, step=0.05)
+wP                        = input.float(0.15, "wP", minval=0.0, maxval=1.0, step=0.05)
+wN                        = input.float(0.10, "wN", minval=0.0, maxval=1.0, step=0.05)
+qE_ref                    = input.float(5.0, "qE saturation ATR", minval=0.5, step=0.5)
+qR_ref                    = input.float(1.0, "qR saturation rho", minval=0.05, step=0.05)
+
+useRetestDecay            = input.bool(false, "Apply retest-decay hook in Q")
+retestDecayLambda         = input.float(0.35, "Retest-decay lambda", minval=0.0, step=0.05)
+retestDecayTolATR         = input.float(0.50, "Retest-decay matching tol (ATR)", minval=0.05, step=0.05)
+
+// Retention / suppression
+useGapGate                = input.bool(true, "Use side-aware gap suppression")
+anchorRetentionPercent    = input.float(25.0, "Anchor retention percent", minval=1.0, maxval=100.0, step=1.0)
+maxAnchorsKept            = input.int(180, "Max anchors kept", minval=20, maxval=600)
+
+// Clustering / zones
+clusterTolPct             = input.float(0.018, "Cluster tolerance (% of price)", minval=0.001, step=0.001)
+clusterTolATR             = input.float(0.80, "Cluster tolerance ATR", minval=0.05, step=0.05)
+minClusterPoints          = input.int(3, "Min points per cluster", minval=1, maxval=80)
+minClusterScore           = input.float(7.0, "Min cluster score", minval=0.0, step=0.5)
+mergeAcrossSides          = input.bool(true, "Merge across sides")
+zoneWidthMult             = input.float(1.25, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
+maxClusterWidthPct        = input.float(0.07, "Max cluster width (% of price)", minval=0.01, maxval=0.50, step=0.01)
+maxClustersInternal       = input.int(200, "Max clusters internal", minval=20, maxval=400)
+maxDisplayZones           = input.int(12, "Max displayed zones", minval=1, maxval=80)
+ageWeightDecayPer1000Bars = input.float(0.10, "Cluster age decay per 1000 bars", minval=0.0, maxval=2.0, step=0.05)
+
+// Zone state baseline
+zoneBreakTolATR           = input.float(0.20, "Zone break close tolerance (ATR)", minval=0.0, step=0.05)
+zoneWeakRetests           = input.int(3, "Zone weakening retests", minval=1, maxval=50)
+
+// Diagnostics
+inspectCandleEnabled      = input.bool(false, "DIAG: inspect one candle")
+inspectCandleTime         = input.time(1710028800000, "DIAG inspect candle time")
+inspectCandleSide         = input.string("both", "DIAG inspect side", options=["both", "resistance", "support"])
+
+// Visuals
+showZones                 = input.bool(true, "Show zones")
+showZoneMidline           = input.bool(true, "Show zone midline")
+zoneFillAlpha             = input.int(90, "Zone fill alpha (0=solid,100=transparent)", minval=0, maxval=100)
+showAnchorDots            = input.bool(true, "DIAG: show accepted anchor dots")
+showFailedAnchors         = input.bool(false, "DIAG: show failed anchor dots")
+maxFailedAnchorDots       = input.int(250, "DIAG max failed-anchor dots", minval=0, maxval=2000)
+maxAnchorDots             = input.int(350, "DIAG max total dots", minval=50, maxval=2000)
+anchorDotSize             = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
+anchorDotXPosition        = input.string("wick-center", "DIAG anchor x-position", options=["wick-center", "candle-end"])
+showDebugTable            = input.bool(true, "Show debug table")
+
+// ---------- Mode guards ----------
+isDiagMode                = mode == "DIAG"
+effShowDots               = isDiagMode and showAnchorDots
+effShowFailed             = isDiagMode and showFailedAnchors
+effShowDebug              = isDiagMode and showDebugTable
+
+// ---------- Constants ----------
+SIDE_RESIST               = -1
+SIDE_SUPPORT              = 1
+
+ZONE_STATE_CANDIDATE      = 0
+ZONE_STATE_ACTIVE         = 1
+ZONE_STATE_WEAKENING      = 2
+ZONE_STATE_BROKEN         = 3
+
+FAIL_NONE                 = 0
+FAIL_E_MIN                = 1
+FAIL_R_RATIO              = 2
+FAIL_PERSIST              = 3
+FAIL_REVISIT              = 4
+FAIL_DEV_OUTLIER          = 5
+FAIL_SCORE_Q              = 6
+FAIL_GAP_SUPPRESS         = 7
+FAIL_RETAIN_DROP          = 8
+
+// ---------- Storage ----------
+var cTop                  = array.new_float()
+var cBot                  = array.new_float()
+var cMid                  = array.new_float()
+var cScore                = array.new_float()
+var cCount                = array.new_int()
+var cFirstTime            = array.new_int()
+var cVisible              = array.new_bool()
+var cPass                 = array.new_bool()
+var cSideBalance          = array.new_float()
+var cTouch                = array.new_int()
+var cState                = array.new_int()
+
+var cBox                  = array.new_box()
+var cLine                 = array.new_line()
+var dDots                 = array.new_label()
+
+var int lastBuildLookback = na
+
+// Debug counters
+var int dbgCand           = 0
+var int dbgAccepted       = 0
+var int dbgKept           = 0
+var int dbgFailE          = 0
+var int dbgFailR          = 0
+var int dbgFailPersist    = 0
+var int dbgFailRevisit    = 0
+var int dbgFailDev        = 0
+var int dbgFailQ          = 0
+var int dbgFailGap        = 0
+var int dbgFailRetain     = 0
+var int dbgDotsEmitted    = 0
+var int dbgFailDotsEmitted= 0
+
+// Inspect outputs
+var bool dbgInspectResSeen = false
+var bool dbgInspectSupSeen = false
+var bool dbgInspectResCSoft = false
+var bool dbgInspectSupCSoft = false
+var bool dbgInspectResEPass = false
+var bool dbgInspectSupEPass = false
+var bool dbgInspectResRPass = false
+var bool dbgInspectSupRPass = false
+var bool dbgInspectResPPass = false
+var bool dbgInspectSupPPass = false
+var bool dbgInspectResNPass = false
+var bool dbgInspectSupNPass = false
+var bool dbgInspectResDPass = false
+var bool dbgInspectSupDPass = false
+var bool dbgInspectResQPass = false
+var bool dbgInspectSupQPass = false
+var bool dbgInspectResGPass = false
+var bool dbgInspectSupGPass = false
+var float dbgInspectResE = na
+var float dbgInspectSupE = na
+var float dbgInspectResR = na
+var float dbgInspectSupR = na
+var float dbgInspectResRho = na
+var float dbgInspectSupRho = na
+var int dbgInspectRestE = na
+var int dbgInspectSuptE = na
+var int dbgInspectResPersist = na
+var int dbgInspectSupPersist = na
+var int dbgInspectResRevisit = na
+var int dbgInspectSupRevisit = na
+var float dbgInspectResDev = na
+var float dbgInspectSupDev = na
+var float dbgInspectResQ = na
+var float dbgInspectSupQ = na
+var string dbgInspectResReason = "-"
+var string dbgInspectSupReason = "-"
+
+atrv = ta.atr(14)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(open, 5000)
+max_bars_back(close, 5000)
+max_bars_back(atrv, 5000)
+
+// ---------- Helpers ----------
+f_hours_to_bars(_h) =>
+    tfSec = timeframe.in_seconds()
+    b = tfSec > 0 ? int(math.ceil(_h * 3600.0 / tfSec)) : int(math.ceil(_h))
+    math.max(1, b)
+
+f_dot_size() =>
+    anchorDotSize == "huge" ? size.large : anchorDotSize == "large" ? size.normal : anchorDotSize == "normal" ? size.small : size.tiny
+
+f_clamp01(_v) =>
+    math.max(0.0, math.min(1.0, _v))
+
+f_reason_name(_code) =>
+    _code == FAIL_NONE ? "PASS" :
+      _code == FAIL_E_MIN ? "FAIL_E_MIN" :
+      _code == FAIL_R_RATIO ? "FAIL_R_RATIO" :
+      _code == FAIL_PERSIST ? "FAIL_PERSIST" :
+      _code == FAIL_REVISIT ? "FAIL_REVISIT" :
+      _code == FAIL_DEV_OUTLIER ? "FAIL_DEV_OUTLIER" :
+      _code == FAIL_SCORE_Q ? "FAIL_SCORE_Q" :
+      _code == FAIL_GAP_SUPPRESS ? "FAIL_GAP_SUPPRESS" : "FAIL_RETAIN_DROP"
+
+f_fail_color(_code) =>
+    _code == FAIL_E_MIN ? color.new(color.red, 0) :
+      _code == FAIL_R_RATIO ? color.new(color.orange, 0) :
+      _code == FAIL_PERSIST ? color.new(color.yellow, 0) :
+      _code == FAIL_REVISIT ? color.new(color.teal, 0) :
+      _code == FAIL_DEV_OUTLIER ? color.new(color.blue, 0) :
+      _code == FAIL_SCORE_Q ? color.new(color.fuchsia, 0) :
+      _code == FAIL_GAP_SUPPRESS ? color.new(color.gray, 0) : color.new(color.purple, 0)
+
+f_zone_color(_state) =>
+    _state == ZONE_STATE_ACTIVE ? color.new(color.lime, zoneFillAlpha) :
+      _state == ZONE_STATE_WEAKENING ? color.new(color.orange, zoneFillAlpha) :
+      _state == ZONE_STATE_BROKEN ? color.new(color.red, zoneFillAlpha) : color.new(color.blue, zoneFillAlpha)
+
+f_zone_border(_state) =>
+    _state == ZONE_STATE_ACTIVE ? color.new(color.green, 0) :
+      _state == ZONE_STATE_WEAKENING ? color.new(color.orange, 0) :
+      _state == ZONE_STATE_BROKEN ? color.new(color.red, 0) : color.new(color.blue, 0)
+
+f_zone_state_name(_s) =>
+    _s == ZONE_STATE_CANDIDATE ? "candidate" : _s == ZONE_STATE_ACTIVE ? "active" : _s == ZONE_STATE_WEAKENING ? "weakening" : "broken"
+
+f_reset_all() =>
+    while array.size(cBox) > 0
+        b = array.shift(cBox)
+        if not na(b)
+            box.delete(b)
+    while array.size(cLine) > 0
+        l = array.shift(cLine)
+        if not na(l)
+            line.delete(l)
+    while array.size(dDots) > 0
+        d = array.shift(dDots)
+        if not na(d)
+            label.delete(d)
+
+    array.clear(cTop)
+    array.clear(cBot)
+    array.clear(cMid)
+    array.clear(cScore)
+    array.clear(cCount)
+    array.clear(cFirstTime)
+    array.clear(cVisible)
+    array.clear(cPass)
+    array.clear(cSideBalance)
+    array.clear(cTouch)
+    array.clear(cState)
+
+f_add_anchor_to_cluster(_p, _score, _time, _side, _atrRef, _ageBars) =>
+    tolPct = math.abs(_p) * clusterTolPct
+    tolAtr = clusterTolATR * math.max(_atrRef, syminfo.mintick)
+    tol = math.max(syminfo.mintick * 2.0, math.max(tolPct, tolAtr))
+    zCount = array.size(cMid)
+    best = -1
+    bestDist = 1e10
+
+    if zCount > 0
+        for i = 0 to zCount - 1
+            sideOk = mergeAcrossSides or _side * array.get(cSideBalance, i) >= 0
+            if sideOk
+                d = math.abs(_p - array.get(cMid, i))
+                if d <= tol and d < bestDist
+                    best := i
+                    bestDist := d
+
+    ageW = 1.0 / (1.0 + (_ageBars / 1000.0) * ageWeightDecayPer1000Bars)
+    wScore = _score * ageW
+
+    if best >= 0
+        top = math.max(array.get(cTop, best), _p)
+        bot = math.min(array.get(cBot, best), _p)
+        mid = (top + bot) * 0.5
+        array.set(cTop, best, top)
+        array.set(cBot, best, bot)
+        array.set(cMid, best, mid)
+        array.set(cScore, best, array.get(cScore, best) + wScore)
+        array.set(cCount, best, array.get(cCount, best) + 1)
+        array.set(cTouch, best, array.get(cTouch, best) + 1)
+        array.set(cFirstTime, best, math.min(array.get(cFirstTime, best), _time))
+        array.set(cSideBalance, best, array.get(cSideBalance, best) + _side)
+    else
+        if array.size(cMid) < maxClustersInternal
+            array.push(cTop, _p)
+            array.push(cBot, _p)
+            array.push(cMid, _p)
+            array.push(cScore, wScore)
+            array.push(cCount, 1)
+            array.push(cFirstTime, _time)
+            array.push(cVisible, false)
+            array.push(cPass, false)
+            array.push(cSideBalance, _side)
+            array.push(cTouch, 1)
+            array.push(cState, ZONE_STATE_CANDIDATE)
+
+f_finalize_clusters() =>
+    zCount = array.size(cMid)
+    if zCount > 0
+        for i = 0 to zCount - 1
+            top = array.get(cTop, i)
+            bot = array.get(cBot, i)
+            mid = array.get(cMid, i)
+            cnt = array.get(cCount, i)
+            sc = array.get(cScore, i)
+
+            rawW = math.max(syminfo.mintick * 2.0, (top - bot) * zoneWidthMult)
+            capW = math.max(syminfo.mintick * 4.0, math.abs(mid) * maxClusterWidthPct)
+            w = math.min(rawW, capW)
+            half = w * 0.5
+
+            top := mid + half
+            bot := mid - half
+
+            passPts = cnt >= minClusterPoints
+            passScore = sc >= minClusterScore
+            passWidth = w <= capW + syminfo.mintick
+            pass = passPts and passScore and passWidth
+
+            dominantSide = array.get(cSideBalance, i) <= 0 ? SIDE_RESIST : SIDE_SUPPORT
+            breakBuf = zoneBreakTolATR * math.max(atrv, syminfo.mintick)
+            broken = dominantSide == SIDE_RESIST ? close > top + breakBuf : close < bot - breakBuf
+            retests = math.max(0, array.get(cTouch, i) - 1)
+            st = not pass ? ZONE_STATE_CANDIDATE : broken ? ZONE_STATE_BROKEN : retests >= zoneWeakRetests ? ZONE_STATE_WEAKENING : ZONE_STATE_ACTIVE
+
+            array.set(cTop, i, top)
+            array.set(cBot, i, bot)
+            array.set(cPass, i, pass)
+            array.set(cVisible, i, false)
+            array.set(cState, i, st)
+
+f_zone_display_score(i) =>
+    array.get(cScore, i) + array.get(cCount, i) * 0.25
+
+f_select_visible() =>
+    zCount = array.size(cMid)
+    if zCount > 0
+        for i = 0 to zCount - 1
+            array.set(cVisible, i, false)
+
+        for pick = 0 to maxDisplayZones - 1
+            best = -1
+            bestScore = -1e10
+            for i = 0 to zCount - 1
+                if array.get(cPass, i) and not array.get(cVisible, i)
+                    sc = f_zone_display_score(i)
+                    if sc > bestScore
+                        bestScore := sc
+                        best := i
+            if best >= 0
+                array.set(cVisible, best, true)
+
+f_render_zones() =>
+    if showZones
+        zCount = array.size(cMid)
+        if zCount > 0
+            for i = 0 to zCount - 1
+                if array.get(cVisible, i)
+                    top = array.get(cTop, i)
+                    bot = array.get(cBot, i)
+                    mid = array.get(cMid, i)
+                    t0 = array.get(cFirstTime, i)
+                    st = array.get(cState, i)
+
+                    b = box.new(t0, top, time, bot, xloc=xloc.bar_time, border_color=f_zone_border(st), border_width=3, bgcolor=f_zone_color(st))
+                    array.push(cBox, b)
+                    if showZoneMidline
+                        l = line.new(t0, mid, time, mid, xloc=xloc.bar_time, extend=extend.none, color=f_zone_border(st), width=2)
+                        array.push(cLine, l)
+
+// ---------- Main build ----------
+moveBars = f_hours_to_bars(W_move_h)
+reversalBars = f_hours_to_bars(W_reversal_h)
+persistBars = f_hours_to_bars(W_persist_h)
+revisitBars = f_hours_to_bars(W_revisit_h)
+gapSameBars = f_hours_to_bars(W_gap_same_h)
+gapOppBars = f_hours_to_bars(W_gap_opp_h)
+
+reqBars = math.max(moveBars, math.max(reversalBars, math.max(persistBars, revisitBars)))
+maxByBars = bar_index - reqBars - 2
+buildLookback = barstate.islast ? math.max(0, math.min(lookbackBars, maxByBars - 5)) : 0
+
+if barstate.islast
+    f_reset_all()
+    dbgCand := 0
+    dbgAccepted := 0
+    dbgKept := 0
+    dbgFailE := 0
+    dbgFailR := 0
+    dbgFailPersist := 0
+    dbgFailRevisit := 0
+    dbgFailDev := 0
+    dbgFailQ := 0
+    dbgFailGap := 0
+    dbgFailRetain := 0
+    dbgDotsEmitted := 0
+    dbgFailDotsEmitted := 0
+
+    dbgInspectResSeen := false
+    dbgInspectSupSeen := false
+    dbgInspectResCSoft := false
+    dbgInspectSupCSoft := false
+    dbgInspectResEPass := false
+    dbgInspectSupEPass := false
+    dbgInspectResRPass := false
+    dbgInspectSupRPass := false
+    dbgInspectResPPass := false
+    dbgInspectSupPPass := false
+    dbgInspectResNPass := false
+    dbgInspectSupNPass := false
+    dbgInspectResDPass := false
+    dbgInspectSupDPass := false
+    dbgInspectResQPass := false
+    dbgInspectSupQPass := false
+    dbgInspectResGPass := false
+    dbgInspectSupGPass := false
+    dbgInspectResE := na
+    dbgInspectSupE := na
+    dbgInspectResR := na
+    dbgInspectSupR := na
+    dbgInspectResRho := na
+    dbgInspectSupRho := na
+    dbgInspectRestE := na
+    dbgInspectSuptE := na
+    dbgInspectResPersist := na
+    dbgInspectSupPersist := na
+    dbgInspectResRevisit := na
+    dbgInspectSupRevisit := na
+    dbgInspectResDev := na
+    dbgInspectSupDev := na
+    dbgInspectResQ := na
+    dbgInspectSupQ := na
+    dbgInspectResReason := "-"
+    dbgInspectSupReason := "-"
+    lastBuildLookback := buildLookback
+
+if barstate.islast and buildLookback > reqBars + 2
+    safeLookback = math.max(0, math.min(buildLookback, bar_index - candidatePivotLen - reqBars - 3))
+
+    // Accepted at base-gates stage
+    accOff = array.new_int()
+    accTime = array.new_int()
+    accPrice = array.new_float()
+    accQ = array.new_float()
+    accSide = array.new_int()
+    accAtr = array.new_float()
+    accFinalReason = array.new_int()
+
+    // Failed anchors for diagnostics (all stages)
+    failOff = array.new_int()
+    failPrice = array.new_float()
+    failCode = array.new_int()
+
+    for k = 0 to safeLookback - 1
+        off = safeLookback - k
+        if off > reqBars and off <= bar_index
+            atrRef = math.max(atrv[off], syminfo.mintick)
+
+            for s = 0 to 1
+                isRes = s == 0
+                side = isRes ? SIDE_RESIST : SIDE_SUPPORT
+                p = isRes ? high[off] : low[off]
+
+                // Soft candidate flags
+                barRangeATR = (high[off] - low[off]) / atrRef
+                flagRange = barRangeATR >= minCandidateRangeATR
+
+                flagLocal = true
+                if anchorCandidateMode == "local-extrema"
+                    for j = 1 to candidatePivotLen
+                        older = off + j
+                        newer = off - j
+                        if older <= bar_index
+                            if isRes and high[off] < high[older]
+                                flagLocal := false
+                            if (not isRes) and low[off] > low[older]
+                                flagLocal := false
+                        if newer >= 0
+                            if isRes and high[off] <= high[newer]
+                                flagLocal := false
+                            if (not isRes) and low[off] >= low[newer]
+                                flagLocal := false
+
+                C_soft = flagRange and flagLocal
+
+                // Excursion E and tE
+                E = 0.0
+                tE = 0
+                for w = 1 to moveBars
+                    off2 = off - w
+                    if off2 >= 0
+                        away = isRes ? (p - low[off2]) / atrRef : (high[off2] - p) / atrRef
+                        if away > E
+                            E := away
+                            tE := w
+
+                // Reversal R after excursion turning point
+                R = 0.0
+                if tE > 0
+                    pivotIdx = off - tE
+                    pivotPx = isRes ? low[pivotIdx] : high[pivotIdx]
+                    for rw = 1 to reversalBars
+                        if rw > tE
+                            off3 = off - rw
+                            if off3 >= 0
+                                rev = isRes ? (high[off3] - pivotPx) / atrRef : (pivotPx - low[off3]) / atrRef
+                                if rev > R
+                                    R := rev
+
+                eps = 1e-6
+                rho = R / math.max(E, eps)
+
+                // Persistence and revisit
+                persistCnt = 0
+                revisitCnt = 0
+                persistTol = persistTolATR * atrRef
+                revisitTol = revisitTolATR * atrRef
+
+                for pr = 1 to persistBars
+                    offp = off - pr
+                    if offp >= 0
+                        pers = isRes ? close[offp] < (p - persistTol) : close[offp] > (p + persistTol)
+                        if pers
+                            persistCnt += 1
+
+                for rv = 1 to revisitBars
+                    offr = off - rv
+                    if offr >= 0
+                        revis = isRes ? close[offr] > (p + revisitTol) : close[offr] < (p - revisitTol)
+                        if revis
+                            revisitCnt += 1
+
+                // Outlier deviation guard (overshoot against expected reaction side)
+                devAgainst = 0.0
+                for dv = 1 to moveBars
+                    offd = off - dv
+                    if offd >= 0
+                        against = isRes ? (high[offd] - p) / atrRef : (p - low[offd]) / atrRef
+                        if against > devAgainst
+                            devAgainst := against
+
+                // Retest-decay hook proxy from nearby prior base-accepted anchors
+                priorRetests = 0
+                if useRetestDecay
+                    nAccPrev = array.size(accOff)
+                    if nAccPrev > 0
+                        tolDecay = retestDecayTolATR * atrRef
+                        for prt = 0 to nAccPrev - 1
+                            if array.get(accSide, prt) == side
+                                if math.abs(array.get(accPrice, prt) - p) <= tolDecay
+                                    priorRetests += 1
+
+                qE = f_clamp01(E / math.max(qE_ref, eps))
+                qR = f_clamp01(rho / math.max(qR_ref, eps))
+                qS = moveBars > 0 ? f_clamp01(1.0 - (tE / moveBars)) : 0.0
+                qP = persistBars > 0 ? f_clamp01(persistCnt / persistBars) : 0.0
+                qN = revisitBars > 0 ? f_clamp01(1.0 - (revisitCnt / revisitBars)) : 1.0
+                qD = useRetestDecay ? math.exp(-retestDecayLambda * priorRetests) : 1.0
+
+                wSum = math.max(wE + wR + wS + wP + wN, eps)
+                Q = 100.0 * ((wE * qE + wR * qR + wS * qS + wP * qP + wN * qN) / wSum) * qD
+                Q := math.max(0.0, math.min(100.0, Q))
+
+                passE = E >= E_min
+                passR = rho >= rho_min
+                passP = persistCnt >= persist_min
+                passN = revisitCnt <= revisitMaxCount
+                passD = devAgainst <= deviationInvalidATR
+                passQ = Q >= Q_min
+
+                if strictCandidateVeto and not C_soft
+                    passQ := false
+
+                failCode = FAIL_NONE
+                if not passE
+                    failCode := FAIL_E_MIN
+                else if not passR
+                    failCode := FAIL_R_RATIO
+                else if not passP
+                    failCode := FAIL_PERSIST
+                else if not passN
+                    failCode := FAIL_REVISIT
+                else if not passD
+                    failCode := FAIL_DEV_OUTLIER
+                else if not passQ
+                    failCode := FAIL_SCORE_Q
+
+                passBase = failCode == FAIL_NONE
+
+                dbgCand += 1
+                if passBase
+                    dbgAccepted += 1
+                    array.push(accOff, off)
+                    array.push(accTime, time[off])
+                    array.push(accPrice, p)
+                    array.push(accQ, Q)
+                    array.push(accSide, side)
+                    array.push(accAtr, atrRef)
+                    array.push(accFinalReason, FAIL_NONE)
+                else
+                    if failCode == FAIL_E_MIN
+                        dbgFailE += 1
+                    else if failCode == FAIL_R_RATIO
+                        dbgFailR += 1
+                    else if failCode == FAIL_PERSIST
+                        dbgFailPersist += 1
+                    else if failCode == FAIL_REVISIT
+                        dbgFailRevisit += 1
+                    else if failCode == FAIL_DEV_OUTLIER
+                        dbgFailDev += 1
+                    else if failCode == FAIL_SCORE_Q
+                        dbgFailQ += 1
+
+                    array.push(failOff, off)
+                    array.push(failPrice, p)
+                    array.push(failCode, failCode)
+
+                // Inspect diagnostics
+                inspectHit = inspectCandleEnabled and (time[off] <= inspectCandleTime and time_close[off] >= inspectCandleTime)
+                if inspectHit
+                    if isRes and (inspectCandleSide == "both" or inspectCandleSide == "resistance")
+                        dbgInspectResSeen := true
+                        dbgInspectResCSoft := C_soft
+                        dbgInspectResEPass := passE
+                        dbgInspectResRPass := passR
+                        dbgInspectResPPass := passP
+                        dbgInspectResNPass := passN
+                        dbgInspectResDPass := passD
+                        dbgInspectResQPass := passQ
+                        dbgInspectResGPass := na
+                        dbgInspectResE := E
+                        dbgInspectResR := R
+                        dbgInspectResRho := rho
+                        dbgInspectRestE := tE
+                        dbgInspectResPersist := persistCnt
+                        dbgInspectResRevisit := revisitCnt
+                        dbgInspectResDev := devAgainst
+                        dbgInspectResQ := Q
+                        dbgInspectResReason := f_reason_name(failCode)
+                    if (not isRes) and (inspectCandleSide == "both" or inspectCandleSide == "support")
+                        dbgInspectSupSeen := true
+                        dbgInspectSupCSoft := C_soft
+                        dbgInspectSupEPass := passE
+                        dbgInspectSupRPass := passR
+                        dbgInspectSupPPass := passP
+                        dbgInspectSupNPass := passN
+                        dbgInspectSupDPass := passD
+                        dbgInspectSupQPass := passQ
+                        dbgInspectSupGPass := na
+                        dbgInspectSupE := E
+                        dbgInspectSupR := R
+                        dbgInspectSupRho := rho
+                        dbgInspectSuptE := tE
+                        dbgInspectSupPersist := persistCnt
+                        dbgInspectSupRevisit := revisitCnt
+                        dbgInspectSupDev := devAgainst
+                        dbgInspectSupQ := Q
+                        dbgInspectSupReason := f_reason_name(failCode)
+
+    // Deterministic retention by top Q with stable tie-break (older first)
+    nAcc = array.size(accQ)
+    keepTarget = nAcc > 0 ? int(math.ceil(nAcc * anchorRetentionPercent / 100.0)) : 0
+    keepTarget := math.min(keepTarget, maxAnchorsKept)
+
+    used = array.new_bool(nAcc, false)
+
+    selOff = array.new_int()
+    selTime = array.new_int()
+    selPrice = array.new_float()
+    selQ = array.new_float()
+    selSide = array.new_int()
+    selAtr = array.new_float()
+
+    selResOff = array.new_int()
+    selSupOff = array.new_int()
+
+    if nAcc > 0 and keepTarget > 0
+        for pick = 0 to nAcc - 1
+            bestIdx = -1
+            bestQ = -1e10
+            for i = 0 to nAcc - 1
+                if not array.get(used, i)
+                    qv = array.get(accQ, i)
+                    if qv > bestQ
+                        bestQ := qv
+                        bestIdx := i
+
+            if bestIdx >= 0
+                array.set(used, bestIdx, true)
+                off = array.get(accOff, bestIdx)
+                side = array.get(accSide, bestIdx)
+
+                violate = false
+                if useGapGate
+                    if side == SIDE_RESIST
+                        nRes = array.size(selResOff)
+                        if nRes > 0
+                            for j = 0 to nRes - 1
+                                if math.abs(off - array.get(selResOff, j)) <= gapSameBars
+                                    violate := true
+                        nSup = array.size(selSupOff)
+                        if nSup > 0
+                            for j = 0 to nSup - 1
+                                if math.abs(off - array.get(selSupOff, j)) <= gapOppBars
+                                    violate := true
+                    else
+                        nSup = array.size(selSupOff)
+                        if nSup > 0
+                            for j = 0 to nSup - 1
+                                if math.abs(off - array.get(selSupOff, j)) <= gapSameBars
+                                    violate := true
+                        nRes = array.size(selResOff)
+                        if nRes > 0
+                            for j = 0 to nRes - 1
+                                if math.abs(off - array.get(selResOff, j)) <= gapOppBars
+                                    violate := true
+
+                if violate
+                    dbgFailGap += 1
+                    idxCode = array.get(accFinalReason, bestIdx)
+                    idxCode := FAIL_GAP_SUPPRESS
+                    array.set(accFinalReason, bestIdx, idxCode)
+                    array.push(failOff, off)
+                    array.push(failPrice, array.get(accPrice, bestIdx))
+                    array.push(failCode, idxCode)
+                else
+                    if array.size(selQ) < keepTarget
+                        array.push(selOff, off)
+                        array.push(selTime, array.get(accTime, bestIdx))
+                        array.push(selPrice, array.get(accPrice, bestIdx))
+                        array.push(selQ, array.get(accQ, bestIdx))
+                        array.push(selSide, side)
+                        array.push(selAtr, array.get(accAtr, bestIdx))
+                        array.set(accFinalReason, bestIdx, FAIL_NONE)
+                        if side == SIDE_RESIST
+                            array.push(selResOff, off)
+                        else
+                            array.push(selSupOff, off)
+                    else
+                        dbgFailRetain += 1
+                        idxCode = array.get(accFinalReason, bestIdx)
+                        idxCode := FAIL_RETAIN_DROP
+                        array.set(accFinalReason, bestIdx, idxCode)
+                        array.push(failOff, off)
+                        array.push(failPrice, array.get(accPrice, bestIdx))
+                        array.push(failCode, idxCode)
+
+    dbgKept := array.size(selQ)
+
+    // Update inspect gap result/reason with final taxonomy
+    if inspectCandleEnabled
+        nAcc2 = array.size(accOff)
+        if nAcc2 > 0
+            for i = 0 to nAcc2 - 1
+                off = array.get(accOff, i)
+                isInspectBar = time[off] <= inspectCandleTime and time_close[off] >= inspectCandleTime
+                if isInspectBar
+                    side = array.get(accSide, i)
+                    rr = array.get(accFinalReason, i)
+                    if side == SIDE_RESIST and (inspectCandleSide == "both" or inspectCandleSide == "resistance")
+                        dbgInspectResGPass := rr != FAIL_GAP_SUPPRESS
+                        dbgInspectResReason := f_reason_name(rr)
+                    if side == SIDE_SUPPORT and (inspectCandleSide == "both" or inspectCandleSide == "support")
+                        dbgInspectSupGPass := rr != FAIL_GAP_SUPPRESS
+                        dbgInspectSupReason := f_reason_name(rr)
+
+    // Cluster selected anchors
+    if dbgKept > 0
+        for i = 0 to dbgKept - 1
+            ageBars = array.get(selOff, i)
+            f_add_anchor_to_cluster(array.get(selPrice, i), array.get(selQ, i), array.get(selTime, i), array.get(selSide, i), array.get(selAtr, i), ageBars)
+
+    f_finalize_clusters()
+    f_select_visible()
+    f_render_zones()
+
+    // Failed dots first
+    if effShowDots and effShowFailed
+        nFail = array.size(failOff)
+        failBudget = math.min(maxFailedAnchorDots, maxAnchorDots)
+        if nFail > 0 and failBudget > 0
+            for i = 0 to nFail - 1
+                if dbgDotsEmitted < maxAnchorDots and dbgFailDotsEmitted < failBudget
+                    off = array.get(failOff, i)
+                    p = array.get(failPrice, i)
+                    code = array.get(failCode, i)
+                    ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
+                    d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(f_fail_color(code), 0), textcolor=color.new(color.white, 100), size=f_dot_size())
+                    array.push(dDots, d)
+                    dbgFailDotsEmitted += 1
+                    dbgDotsEmitted += 1
+
+    // Accepted/kept dots
+    if effShowDots and dbgKept > 0
+        for i = 0 to dbgKept - 1
+            if dbgDotsEmitted < maxAnchorDots
+                off = array.get(selOff, i)
+                p = array.get(selPrice, i)
+                q = array.get(selQ, i)
+                ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
+                qShade = int(math.floor(math.max(0.0, math.min(70.0, 70.0 - q * 0.7))))
+                clr = color.new(color.aqua, qShade)
+                d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=clr, textcolor=color.new(color.white, 100), size=f_dot_size())
+                array.push(dDots, d)
+                dbgDotsEmitted += 1
+
+// Hidden anchor to keep chart scale binding stable
+plot(close, "price_scale_anchor", display=display.none)
+
+// ---------- Debug table ----------
+var table t = table.new(position.top_right, 2, 18, border_width=1)
+if barstate.islast and effShowDebug
+    zCount = array.size(cMid)
+    passClusters = 0
+    dispClusters = 0
+    float nearMid = na
+    float nearDistPct = na
+    string nearState = "-"
+
+    tgt = close
+
+    if zCount > 0
+        bestDist = 1e10
+        for i = 0 to zCount - 1
+            pz = array.get(cPass, i)
+            vz = array.get(cVisible, i)
+            passClusters += pz ? 1 : 0
+            dispClusters += vz ? 1 : 0
+            if pz
+                mid = array.get(cMid, i)
+                d = math.abs(mid - tgt)
+                if d < bestDist
+                    bestDist := d
+                    nearMid := mid
+                    nearDistPct := d / math.max(math.abs(tgt), syminfo.mintick) * 100.0
+                    nearState := f_zone_state_name(array.get(cState, i))
+
+    table.cell(t, 0, 0, "Mode", text_color=color.white)
+    table.cell(t, 1, 0, mode, text_color=color.white)
+    table.cell(t, 0, 1, "Lookback / reqBars", text_color=color.white)
+    table.cell(t, 1, 1, (not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-") + " / " + str.tostring(reqBars), text_color=color.white)
+    table.cell(t, 0, 2, "Candidate/Accepted/Kept", text_color=color.white)
+    table.cell(t, 1, 2, str.tostring(dbgCand) + " / " + str.tostring(dbgAccepted) + " / " + str.tostring(dbgKept), text_color=color.white)
+    table.cell(t, 0, 3, "Fail E/R/P/N/D/Q/G/Rt", text_color=color.white)
+    table.cell(t, 1, 3, str.tostring(dbgFailE) + " / " + str.tostring(dbgFailR) + " / " + str.tostring(dbgFailPersist) + " / " + str.tostring(dbgFailRevisit) + " / " + str.tostring(dbgFailDev) + " / " + str.tostring(dbgFailQ) + " / " + str.tostring(dbgFailGap) + " / " + str.tostring(dbgFailRetain), text_color=color.white)
+    table.cell(t, 0, 4, "Nearest zone", text_color=color.white)
+    table.cell(t, 1, 4, not na(nearMid) ? str.tostring(nearMid, format.mintick) + " (" + nearState + ")" : "-", text_color=color.white)
+    table.cell(t, 0, 5, "Nearest dist %", text_color=color.white)
+    table.cell(t, 1, 5, not na(nearDistPct) ? str.tostring(nearDistPct, "#.##") + "%" : "-", text_color=color.white)
+    table.cell(t, 0, 6, "Clusters pass/disp", text_color=color.white)
+    table.cell(t, 1, 6, str.tostring(passClusters) + " / " + str.tostring(dispClusters), text_color=color.white)
+    table.cell(t, 0, 7, "W h M/R/P/N gS/gO", text_color=color.white)
+    table.cell(t, 1, 7, str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " " + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##"), text_color=color.white)
+    table.cell(t, 0, 8, "E/rho/P/Q", text_color=color.white)
+    table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + " / " + str.tostring(persist_min) + " / " + str.tostring(Q_min, "#.##"), text_color=color.white)
+    table.cell(t, 0, 9, "Retention% / max", text_color=color.white)
+    table.cell(t, 1, 9, str.tostring(anchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept), text_color=color.white)
+    table.cell(t, 0, 10, "Cluster tol%|atr / pts / score", text_color=color.white)
+    table.cell(t, 1, 10, str.tostring(clusterTolPct * 100, "#.##") + "%|" + str.tostring(clusterTolATR, "#.##") + " / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
+    table.cell(t, 0, 11, "Dots all/fail/max", text_color=color.white)
+    table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(dbgFailDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
+
+    rVec = dbgInspectResSeen ?
+      "C=" + str.tostring(dbgInspectResCSoft) + " E=" + str.tostring(dbgInspectResEPass) + " R=" + str.tostring(dbgInspectResRPass) + " P=" + str.tostring(dbgInspectResPPass) + " N=" + str.tostring(dbgInspectResNPass) + " D=" + str.tostring(dbgInspectResDPass) + " Q=" + str.tostring(dbgInspectResQPass) + " G=" + str.tostring(dbgInspectResGPass) : "-"
+    sVec = dbgInspectSupSeen ?
+      "C=" + str.tostring(dbgInspectSupCSoft) + " E=" + str.tostring(dbgInspectSupEPass) + " R=" + str.tostring(dbgInspectSupRPass) + " P=" + str.tostring(dbgInspectSupPPass) + " N=" + str.tostring(dbgInspectSupNPass) + " D=" + str.tostring(dbgInspectSupDPass) + " Q=" + str.tostring(dbgInspectSupQPass) + " G=" + str.tostring(dbgInspectSupGPass) : "-"
+
+    table.cell(t, 0, 12, "Inspect R gates", text_color=color.white)
+    table.cell(t, 1, 12, inspectCandleEnabled ? rVec : "OFF", text_color=color.white)
+    table.cell(t, 0, 13, "Inspect S gates", text_color=color.white)
+    table.cell(t, 1, 13, inspectCandleEnabled ? sVec : "OFF", text_color=color.white)
+
+    rVals = dbgInspectResSeen ?
+      "E=" + str.tostring(dbgInspectResE, "#.##") + " tE=" + str.tostring(dbgInspectRestE) + " R=" + str.tostring(dbgInspectResR, "#.##") + " rho=" + str.tostring(dbgInspectResRho, "#.##") + " p=" + str.tostring(dbgInspectResPersist) + " n=" + str.tostring(dbgInspectResRevisit) + " dev=" + str.tostring(dbgInspectResDev, "#.##") + " Q=" + str.tostring(dbgInspectResQ, "#.##") + " " + dbgInspectResReason : "-"
+    sVals = dbgInspectSupSeen ?
+      "E=" + str.tostring(dbgInspectSupE, "#.##") + " tE=" + str.tostring(dbgInspectSuptE) + " R=" + str.tostring(dbgInspectSupR, "#.##") + " rho=" + str.tostring(dbgInspectSupRho, "#.##") + " p=" + str.tostring(dbgInspectSupPersist) + " n=" + str.tostring(dbgInspectSupRevisit) + " dev=" + str.tostring(dbgInspectSupDev, "#.##") + " Q=" + str.tostring(dbgInspectSupQ, "#.##") + " " + dbgInspectSupReason : "-"
+
+    table.cell(t, 0, 14, "Inspect R values", text_color=color.white)
+    table.cell(t, 1, 14, inspectCandleEnabled ? rVals : "OFF", text_color=color.white)
+    table.cell(t, 0, 15, "Inspect S values", text_color=color.white)
+    table.cell(t, 1, 15, inspectCandleEnabled ? sVals : "OFF", text_color=color.white)
+    table.cell(t, 0, 16, "Strict candidate veto", text_color=color.white)
+    table.cell(t, 1, 16, strictCandidateVeto ? "ON" : "OFF", text_color=color.white)
+    table.cell(t, 0, 17, "Retest decay", text_color=color.white)
+    table.cell(t, 1, 17, useRetestDecay ? ("ON lambda=" + str.tostring(retestDecayLambda, "#.##")) : "OFF", text_color=color.white)
