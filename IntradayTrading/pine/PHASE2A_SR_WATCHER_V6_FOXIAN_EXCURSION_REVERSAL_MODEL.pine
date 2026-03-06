@@ -387,6 +387,7 @@ f_render_zones() =>
 moveBars = f_hours_to_bars(W_move_h)
 reversalBars = f_hours_to_bars(W_reversal_h)
 persistBars = f_hours_to_bars(W_persist_h)
+effPersistMin = math.min(persist_min, persistBars)
 revisitBars = f_hours_to_bars(W_revisit_h)
 gapSameBars = f_hours_to_bars(W_gap_same_h)
 gapOppBars = f_hours_to_bars(W_gap_opp_h)
@@ -578,7 +579,7 @@ if barstate.islast and buildLookback > reqBars + 2
 
                 passE = E >= E_min
                 passR = rho >= rho_min
-                passP = persistCnt >= persist_min
+                passP = persistCnt >= effPersistMin
                 passN = revisitCnt <= revisitMaxCount
                 passD = devAgainst <= deviationInvalidATR
                 passQ = Q >= Q_min
@@ -866,8 +867,8 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 6, str.tostring(passClusters) + " / " + str.tostring(dispClusters), text_color=color.white)
     table.cell(t, 0, 7, "W h M/R/P/N gS/gO", text_color=color.white)
     table.cell(t, 1, 7, str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " " + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##"), text_color=color.white)
-    table.cell(t, 0, 8, "E/rho/P/Q", text_color=color.white)
-    table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + " / " + str.tostring(persist_min) + " / " + str.tostring(Q_min, "#.##"), text_color=color.white)
+    table.cell(t, 0, 8, "E/rho/P(in->eff)/Q", text_color=color.white)
+    table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + " / " + str.tostring(persist_min) + "->" + str.tostring(effPersistMin) + " / " + str.tostring(Q_min, "#.##"), text_color=color.white)
     table.cell(t, 0, 9, "Retention% / max", text_color=color.white)
     table.cell(t, 1, 9, str.tostring(anchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept), text_color=color.white)
     table.cell(t, 0, 10, "Cluster tol%|atr / pts / score", text_color=color.white)
