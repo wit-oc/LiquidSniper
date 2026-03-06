@@ -464,7 +464,7 @@ if barstate.islast and buildLookback > reqBars + 2
     // Failed anchors for diagnostics (all stages)
     failOff = array.new_int()
     failPrice = array.new_float()
-    failCode = array.new_int()
+    failCodeArr = array.new_int()
 
     for k = 0 to safeLookback - 1
         off = safeLookback - k
@@ -628,7 +628,7 @@ if barstate.islast and buildLookback > reqBars + 2
 
                     array.push(failOff, off)
                     array.push(failPrice, p)
-                    array.push(failCode, failCode)
+                    array.push(failCodeArr, failCode)
 
                 // Inspect diagnostics
                 inspectHit = inspectCandleEnabled and (time[off] <= inspectCandleTime and time_close[off] >= inspectCandleTime)
@@ -737,7 +737,7 @@ if barstate.islast and buildLookback > reqBars + 2
                     array.set(accFinalReason, bestIdx, idxCode)
                     array.push(failOff, off)
                     array.push(failPrice, array.get(accPrice, bestIdx))
-                    array.push(failCode, idxCode)
+                    array.push(failCodeArr, idxCode)
                 else
                     if array.size(selQ) < keepTarget
                         array.push(selOff, off)
@@ -758,7 +758,7 @@ if barstate.islast and buildLookback > reqBars + 2
                         array.set(accFinalReason, bestIdx, idxCode)
                         array.push(failOff, off)
                         array.push(failPrice, array.get(accPrice, bestIdx))
-                        array.push(failCode, idxCode)
+                        array.push(failCodeArr, idxCode)
 
     dbgKept := array.size(selQ)
 
@@ -798,7 +798,7 @@ if barstate.islast and buildLookback > reqBars + 2
                 if dbgDotsEmitted < maxAnchorDots and dbgFailDotsEmitted < failBudget
                     off = array.get(failOff, i)
                     p = array.get(failPrice, i)
-                    code = array.get(failCode, i)
+                    code = array.get(failCodeArr, i)
                     ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
                     d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(f_fail_color(code), 0), textcolor=color.new(color.white, 100), size=f_dot_size())
                     array.push(dDots, d)
