@@ -64,6 +64,8 @@ Debug row `Lookback raw/safe/req` shows the effective scan size.
 
 Kept anchors are plotted in aqua with score-dependent shading.
 
+Note: accepted (aqua) and failed-dot budgets are decoupled, so changing failed-dot scope should not reduce aqua-dot count anymore.
+
 ## Inspect one candle (DIAG)
 Use:
 - `DIAG: inspect one candle`
