@@ -97,7 +97,8 @@ Use:
 
 Debug table shows for each side:
 - gate booleans: `C`, `E`, `R`, `P`, `N`, `D`, `Q`, `G`
-- key metrics: `E`, `tE`, `R`, `rho`, `persist`, `revisit`, `dev`, `Q_local`, `Q_launch`, `rankScore`, `E_hold`, `breakBeyondATR`, `edgeFrac`
+- launch eligibility breakdown in gates row: `LE`, `LR`, and `lc/ed/br/ho` (C_soft / edge / breakout / hold checks)
+- key metrics: `E`, `tE`, `R`, `rho`, `persist`, `revisit`, `dev`, `Q_local`, `Q_launch`, `rankScore`, `E_hold`, `breakBeyondATR`, `edgeFrac`, and launch thresholds (`thBr`, `thEd`)
 - final reason code after retention stage.
 
 For sharing tuned manual configs back for preset baking, use the bottom rows:

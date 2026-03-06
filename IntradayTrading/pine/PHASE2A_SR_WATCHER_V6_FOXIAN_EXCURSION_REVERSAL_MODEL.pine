@@ -367,6 +367,14 @@ var bool dbgInspectResLaunchEligible = false
 var bool dbgInspectSupLaunchEligible = false
 var bool dbgInspectResLaunchRescue = false
 var bool dbgInspectSupLaunchRescue = false
+var bool dbgInspectResLEC = false
+var bool dbgInspectSupLEC = false
+var bool dbgInspectResLEEdge = false
+var bool dbgInspectSupLEEdge = false
+var bool dbgInspectResLEBreak = false
+var bool dbgInspectSupLEBreak = false
+var bool dbgInspectResLEHold = false
+var bool dbgInspectSupLEHold = false
 var string dbgInspectResReason = "-"
 var string dbgInspectSupReason = "-"
 
@@ -678,6 +686,14 @@ if barstate.islast
     dbgInspectSupLaunchEligible := false
     dbgInspectResLaunchRescue := false
     dbgInspectSupLaunchRescue := false
+    dbgInspectResLEC := false
+    dbgInspectSupLEC := false
+    dbgInspectResLEEdge := false
+    dbgInspectSupLEEdge := false
+    dbgInspectResLEBreak := false
+    dbgInspectSupLEBreak := false
+    dbgInspectResLEHold := false
+    dbgInspectSupLEHold := false
     dbgInspectResReason := "-"
     dbgInspectSupReason := "-"
     lastBuildLookback := buildLookback
@@ -849,7 +865,11 @@ if barstate.islast and buildLookback > reqBars + 2
                 qB = f_clamp01(breakBeyondATR / math.max(effLaunchBreakRefATR, eps))
                 qA = f_clamp01(1.0 - (edgeFrac / math.max(effLaunchEdgeFracMax, eps)))
                 Q_launch = 100.0 * (0.60 * qH + 0.25 * qB + 0.15 * qA)
-                launchEligible = effUseLaunchRanking and C_soft and edgeFrac <= effLaunchEdgeFracMax and breakBeyondATR >= effLaunchPromoteMinBreakATR and E_hold > E
+                leC = C_soft
+                leEdge = edgeFrac <= effLaunchEdgeFracMax
+                leBreak = breakBeyondATR >= effLaunchPromoteMinBreakATR
+                leHold = E_hold > E
+                launchEligible = effUseLaunchRanking and leC and leEdge and leBreak and leHold
                 if launchEligible
                     dbgLaunchEligible += 1
 
@@ -955,6 +975,10 @@ if barstate.islast and buildLookback > reqBars + 2
                         dbgInspectResEdgeFrac := edgeFrac
                         dbgInspectResLaunchEligible := launchEligible
                         dbgInspectResLaunchRescue := majorRescue
+                        dbgInspectResLEC := leC
+                        dbgInspectResLEEdge := leEdge
+                        dbgInspectResLEBreak := leBreak
+                        dbgInspectResLEHold := leHold
                         dbgInspectResReason := f_reason_name(failCode)
                     if (not isRes) and (inspectCandleSide == "both" or inspectCandleSide == "support")
                         dbgInspectSupSeen := true
@@ -981,6 +1005,10 @@ if barstate.islast and buildLookback > reqBars + 2
                         dbgInspectSupEdgeFrac := edgeFrac
                         dbgInspectSupLaunchEligible := launchEligible
                         dbgInspectSupLaunchRescue := majorRescue
+                        dbgInspectSupLEC := leC
+                        dbgInspectSupLEEdge := leEdge
+                        dbgInspectSupLEBreak := leBreak
+                        dbgInspectSupLEHold := leHold
                         dbgInspectSupReason := f_reason_name(failCode)
 
     // Deterministic retention by top rankScore with stable tie-break (older first)
@@ -1212,9 +1240,9 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 11, str.tostring(dbgSelDotsEmitted) + "/" + str.tostring(dbgFailDotsEmitted) + " cap " + str.tostring(selBudgetDbg) + "/" + str.tostring(failBudgetDbg) + " tot " + str.tostring(dbgDotsEmitted), text_color=color.white)
 
     rVec = dbgInspectResSeen ?
-      "C=" + str.tostring(dbgInspectResCSoft) + " E=" + str.tostring(dbgInspectResEPass) + " R=" + str.tostring(dbgInspectResRPass) + " P=" + str.tostring(dbgInspectResPPass) + " N=" + str.tostring(dbgInspectResNPass) + " D=" + str.tostring(dbgInspectResDPass) + " Q=" + str.tostring(dbgInspectResQPass) + " G=" + str.tostring(dbgInspectResGPass) + " LE=" + str.tostring(dbgInspectResLaunchEligible) + " LR=" + str.tostring(dbgInspectResLaunchRescue) : "-"
+      "C=" + str.tostring(dbgInspectResCSoft) + " E=" + str.tostring(dbgInspectResEPass) + " R=" + str.tostring(dbgInspectResRPass) + " P=" + str.tostring(dbgInspectResPPass) + " N=" + str.tostring(dbgInspectResNPass) + " D=" + str.tostring(dbgInspectResDPass) + " Q=" + str.tostring(dbgInspectResQPass) + " G=" + str.tostring(dbgInspectResGPass) + " LE=" + str.tostring(dbgInspectResLaunchEligible) + " LR=" + str.tostring(dbgInspectResLaunchRescue) + " lc/ed/br/ho=" + str.tostring(dbgInspectResLEC) + "/" + str.tostring(dbgInspectResLEEdge) + "/" + str.tostring(dbgInspectResLEBreak) + "/" + str.tostring(dbgInspectResLEHold) : "-"
     sVec = dbgInspectSupSeen ?
-      "C=" + str.tostring(dbgInspectSupCSoft) + " E=" + str.tostring(dbgInspectSupEPass) + " R=" + str.tostring(dbgInspectSupRPass) + " P=" + str.tostring(dbgInspectSupPPass) + " N=" + str.tostring(dbgInspectSupNPass) + " D=" + str.tostring(dbgInspectSupDPass) + " Q=" + str.tostring(dbgInspectSupQPass) + " G=" + str.tostring(dbgInspectSupGPass) + " LE=" + str.tostring(dbgInspectSupLaunchEligible) + " LR=" + str.tostring(dbgInspectSupLaunchRescue) : "-"
+      "C=" + str.tostring(dbgInspectSupCSoft) + " E=" + str.tostring(dbgInspectSupEPass) + " R=" + str.tostring(dbgInspectSupRPass) + " P=" + str.tostring(dbgInspectSupPPass) + " N=" + str.tostring(dbgInspectSupNPass) + " D=" + str.tostring(dbgInspectSupDPass) + " Q=" + str.tostring(dbgInspectSupQPass) + " G=" + str.tostring(dbgInspectSupGPass) + " LE=" + str.tostring(dbgInspectSupLaunchEligible) + " LR=" + str.tostring(dbgInspectSupLaunchRescue) + " lc/ed/br/ho=" + str.tostring(dbgInspectSupLEC) + "/" + str.tostring(dbgInspectSupLEEdge) + "/" + str.tostring(dbgInspectSupLEBreak) + "/" + str.tostring(dbgInspectSupLEHold) : "-"
 
     table.cell(t, 0, 12, "Inspect R gates", text_color=color.white)
     table.cell(t, 1, 12, inspectCandleEnabled ? rVec : "OFF", text_color=color.white)
@@ -1222,9 +1250,9 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 13, inspectCandleEnabled ? sVec : "OFF", text_color=color.white)
 
     rVals = dbgInspectResSeen ?
-      "E=" + str.tostring(dbgInspectResE, "#.##") + " tE=" + str.tostring(dbgInspectRestE) + " R=" + str.tostring(dbgInspectResR, "#.##") + " rho=" + str.tostring(dbgInspectResRho, "#.##") + " p=" + str.tostring(dbgInspectResPersist) + " n=" + str.tostring(dbgInspectResRevisit) + " dev=" + str.tostring(dbgInspectResDev, "#.##") + " QL=" + str.tostring(dbgInspectResQ, "#.##") + " QLa=" + str.tostring(dbgInspectResQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectResRank, "#.##") + " Eh=" + str.tostring(dbgInspectResEHold, "#.##") + " Br=" + str.tostring(dbgInspectResBreak, "#.##") + " edge=" + str.tostring(dbgInspectResEdgeFrac, "#.###") + " " + dbgInspectResReason : "-"
+      "E=" + str.tostring(dbgInspectResE, "#.##") + " tE=" + str.tostring(dbgInspectRestE) + " R=" + str.tostring(dbgInspectResR, "#.##") + " rho=" + str.tostring(dbgInspectResRho, "#.##") + " p=" + str.tostring(dbgInspectResPersist) + " n=" + str.tostring(dbgInspectResRevisit) + " dev=" + str.tostring(dbgInspectResDev, "#.##") + " QL=" + str.tostring(dbgInspectResQ, "#.##") + " QLa=" + str.tostring(dbgInspectResQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectResRank, "#.##") + " Eh=" + str.tostring(dbgInspectResEHold, "#.##") + " Br=" + str.tostring(dbgInspectResBreak, "#.##") + " edge=" + str.tostring(dbgInspectResEdgeFrac, "#.###") + " thBr=" + str.tostring(effLaunchPromoteMinBreakATR, "#.##") + " thEd=" + str.tostring(effLaunchEdgeFracMax, "#.##") + " " + dbgInspectResReason : "-"
     sVals = dbgInspectSupSeen ?
-      "E=" + str.tostring(dbgInspectSupE, "#.##") + " tE=" + str.tostring(dbgInspectSuptE) + " R=" + str.tostring(dbgInspectSupR, "#.##") + " rho=" + str.tostring(dbgInspectSupRho, "#.##") + " p=" + str.tostring(dbgInspectSupPersist) + " n=" + str.tostring(dbgInspectSupRevisit) + " dev=" + str.tostring(dbgInspectSupDev, "#.##") + " QL=" + str.tostring(dbgInspectSupQ, "#.##") + " QLa=" + str.tostring(dbgInspectSupQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectSupRank, "#.##") + " Eh=" + str.tostring(dbgInspectSupEHold, "#.##") + " Br=" + str.tostring(dbgInspectSupBreak, "#.##") + " edge=" + str.tostring(dbgInspectSupEdgeFrac, "#.###") + " " + dbgInspectSupReason : "-"
+      "E=" + str.tostring(dbgInspectSupE, "#.##") + " tE=" + str.tostring(dbgInspectSuptE) + " R=" + str.tostring(dbgInspectSupR, "#.##") + " rho=" + str.tostring(dbgInspectSupRho, "#.##") + " p=" + str.tostring(dbgInspectSupPersist) + " n=" + str.tostring(dbgInspectSupRevisit) + " dev=" + str.tostring(dbgInspectSupDev, "#.##") + " QL=" + str.tostring(dbgInspectSupQ, "#.##") + " QLa=" + str.tostring(dbgInspectSupQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectSupRank, "#.##") + " Eh=" + str.tostring(dbgInspectSupEHold, "#.##") + " Br=" + str.tostring(dbgInspectSupBreak, "#.##") + " edge=" + str.tostring(dbgInspectSupEdgeFrac, "#.###") + " thBr=" + str.tostring(effLaunchPromoteMinBreakATR, "#.##") + " thEd=" + str.tostring(effLaunchEdgeFracMax, "#.##") + " " + dbgInspectSupReason : "-"
 
     table.cell(t, 0, 14, "Inspect R values", text_color=color.white)
     table.cell(t, 1, 14, inspectCandleEnabled ? rVals : "OFF", text_color=color.white)
