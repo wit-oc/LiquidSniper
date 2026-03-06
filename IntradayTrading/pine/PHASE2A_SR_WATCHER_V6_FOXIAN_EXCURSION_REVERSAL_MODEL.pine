@@ -29,7 +29,7 @@ W_gap_same_h              = input.float(120.0, "W_gap_same hours", minval=0.0, s
 W_gap_opp_h               = input.float(24.0, "W_gap_opp hours", minval=0.0, step=1.0)
 
 // Presets (optional)
-presetProfile             = input.string("manual", "Preset profile", options=["manual", "auto", "1D swing", "4H intraday", "1W macro"])
+presetProfile             = input.string("auto", "Preset profile", options=["manual", "auto", "1D swing", "1D recall", "4H intraday", "1W macro"])
 
 // Core thresholds (manual values)
 E_min                     = input.float(2.50, "E_min (ATR)", minval=0.10, step=0.05)
@@ -112,6 +112,9 @@ effClusterTolPct = clusterTolPct
 effClusterTolATR = clusterTolATR
 effZoneWidthMult = zoneWidthMult
 
+effAnchorRetentionPercent = anchorRetentionPercent
+effMaxAnchorsKept = maxAnchorsKept
+
 if activeProfile == "1D swing"
     effWMoveH := 168.0
     effWReversalH := 168.0
@@ -125,6 +128,21 @@ if activeProfile == "1D swing"
     effClusterTolPct := 0.022
     effClusterTolATR := 1.10
     effZoneWidthMult := 1.45
+else if activeProfile == "1D recall"
+    effWMoveH := 240.0
+    effWReversalH := 240.0
+    effWPersistH := 144.0
+    effWRevisitH := 192.0
+    effWGapSameH := 48.0
+    effWGapOppH := 24.0
+    effRhoMin := 0.16
+    effQMin := 48.0
+    effDeviationInvalidATR := 4.00
+    effClusterTolPct := 0.024
+    effClusterTolATR := 1.25
+    effZoneWidthMult := 1.55
+    effAnchorRetentionPercent := 40.0
+    effMaxAnchorsKept := 280
 else if activeProfile == "4H intraday"
     effWMoveH := 72.0
     effWReversalH := 72.0
@@ -737,8 +755,8 @@ if barstate.islast and buildLookback > reqBars + 2
 
     // Deterministic retention by top Q with stable tie-break (older first)
     nAcc = array.size(accQ)
-    keepTarget = nAcc > 0 ? int(math.ceil(nAcc * anchorRetentionPercent / 100.0)) : 0
-    keepTarget := math.min(keepTarget, maxAnchorsKept)
+    keepTarget = nAcc > 0 ? int(math.ceil(nAcc * effAnchorRetentionPercent / 100.0)) : 0
+    keepTarget := math.min(keepTarget, effMaxAnchorsKept)
 
     used = array.new_bool(nAcc, false)
 
@@ -932,7 +950,7 @@ if barstate.islast and effShowDebug
     table.cell(t, 0, 8, "E/rho/P(in->eff)/Q/dev", text_color=color.white)
     table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + "->" + str.tostring(effRhoMin, "#.##") + " / " + str.tostring(persist_min) + "->" + str.tostring(effPersistMin) + " / " + str.tostring(Q_min, "#.##") + "->" + str.tostring(effQMin, "#.##") + " / " + str.tostring(deviationInvalidATR, "#.##") + "->" + str.tostring(effDeviationInvalidATR, "#.##"), text_color=color.white)
     table.cell(t, 0, 9, "Retention% / max", text_color=color.white)
-    table.cell(t, 1, 9, str.tostring(anchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept), text_color=color.white)
+    table.cell(t, 1, 9, str.tostring(anchorRetentionPercent, "#.##") + "->" + str.tostring(effAnchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept) + "->" + str.tostring(effMaxAnchorsKept), text_color=color.white)
     table.cell(t, 0, 10, "Cluster tol%|atr / pts / score", text_color=color.white)
     table.cell(t, 1, 10, str.tostring(clusterTolPct * 100, "#.##") + "->" + str.tostring(effClusterTolPct * 100, "#.##") + "%|" + str.tostring(clusterTolATR, "#.##") + "->" + str.tostring(effClusterTolATR, "#.##") + " / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
     table.cell(t, 0, 11, "Dots all/fail/max", text_color=color.white)

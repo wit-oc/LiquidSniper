@@ -25,17 +25,20 @@ All windows are set in hours and converted to bars on the active timeframe:
 This keeps behavior portable across 1D/1W/lower TF replay.
 
 ## Preset profiles (new)
-Use `Preset profile` to switch between bundled tuning sets without manually editing every knob:
+Use `Preset profile` to switch between bundled tuning sets without manually editing every knob.
+Default is `auto`.
+
 - `manual` → use all raw inputs exactly as entered.
 - `auto` → auto-selects by current chart timeframe:
   - `>= ~1W` -> `1W macro`
   - `>= ~1D` -> `1D swing`
   - lower -> `4H intraday`
-- `1D swing` -> wider swing windows (recommended starting point on BTC 1D).
+- `1D swing` -> balanced wider swing windows (recommended starting point on BTC 1D).
+- `1D recall` -> more permissive 1D profile to recover missed swing anchors (wider windows + looser rho/Q + tighter same-side gap + higher retention).
 - `4H intraday` -> tighter intraday windows.
 - `1W macro` -> broad regime windows.
 
-Debug table row `Mode / profile` shows the active profile. Rows `W ...`, `E/rho/P/Q/dev`, and `Cluster ...` show manual -> effective values where applicable.
+Debug table row `Mode / profile` shows the active profile. Rows `W ...`, `E/rho/P/Q/dev`, `Retention...`, and `Cluster ...` show manual -> effective values where applicable.
 
 ## Fail reasons and dot colors
 Enable `DIAG: show failed anchor dots` to plot failed anchors by reason.
