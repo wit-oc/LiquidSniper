@@ -22,28 +22,28 @@ candidatePivotLen         = input.int(3, "Candidate local-extrema len", minval=1
 minCandidateRangeATR      = input.float(1.00, "Min candidate bar range (ATR)", minval=0.0, step=0.05)
 strictCandidateVeto       = input.bool(false, "Strict candidate veto (hard block when C_soft=false)")
 
-// Time-normalized windows (manual values)
-W_move_h                  = input.float(96.0, "W_move hours", minval=1.0, step=1.0)
-W_reversal_h              = input.float(96.0, "W_reversal hours", minval=1.0, step=1.0)
-W_persist_h               = input.float(72.0, "W_persist hours", minval=1.0, step=1.0)
-W_revisit_h               = input.float(96.0, "W_revisit hours", minval=1.0, step=1.0)
-W_gap_same_h              = input.float(120.0, "W_gap_same hours", minval=0.0, step=1.0)
+// Time-normalized windows (manual values; defaults align with 1D cert)
+W_move_h                  = input.float(240.0, "W_move hours", minval=1.0, step=1.0)
+W_reversal_h              = input.float(240.0, "W_reversal hours", minval=1.0, step=1.0)
+W_persist_h               = input.float(144.0, "W_persist hours", minval=1.0, step=1.0)
+W_revisit_h               = input.float(240.0, "W_revisit hours", minval=1.0, step=1.0)
+W_gap_same_h              = input.float(168.0, "W_gap_same hours", minval=0.0, step=1.0)
 W_gap_opp_h               = input.float(24.0, "W_gap_opp hours", minval=0.0, step=1.0)
 
 // Presets (optional)
-presetProfile             = input.string("auto", "Preset profile", options=["manual", "auto", "1D cert", "1D recall", "4H intraday", "1W macro"])
+presetProfile             = input.string("manual", "Preset profile", options=["manual", "auto", "1D cert", "1D recall", "4H intraday", "1W macro"])
 
-// Core thresholds (manual values)
-E_min                     = input.float(2.50, "E_min (ATR)", minval=0.10, step=0.05)
-rho_min                   = input.float(0.25, "rho_min", minval=0.01, step=0.01)
-persist_min               = input.int(4, "persist_min bars", minval=0, maxval=400)
-revisitMaxCount           = input.int(0, "revisit max count", minval=0, maxval=200)
+// Core thresholds (manual values; defaults align with 1D cert)
+E_min                     = input.float(3.00, "E_min (ATR)", minval=0.10, step=0.05)
+rho_min                   = input.float(0.24, "rho_min", minval=0.01, step=0.01)
+persist_min               = input.int(3, "persist_min bars", minval=0, maxval=400)
+revisitMaxCount           = input.int(1, "revisit max count", minval=0, maxval=200)
 revisitTolATR             = input.float(0.20, "revisit tolerance (ATR)", minval=0.0, step=0.05)
 persistTolATR             = input.float(0.60, "persistence tolerance (ATR)", minval=0.0, step=0.05)
-deviationInvalidATR       = input.float(2.50, "deviationInvalidATR (outlier invalid, ATR)", minval=0.25, step=0.25)
+deviationInvalidATR       = input.float(3.50, "deviationInvalidATR (outlier invalid, ATR)", minval=0.25, step=0.25)
 
 // Quality score Q in [0, 100]
-Q_min                     = input.float(58.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
+Q_min                     = input.float(60.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
 wE                        = input.float(0.30, "wE", minval=0.0, maxval=1.0, step=0.05)
 wR                        = input.float(0.30, "wR", minval=0.0, maxval=1.0, step=0.05)
 wS                        = input.float(0.15, "wS", minval=0.0, maxval=1.0, step=0.05)
@@ -58,22 +58,22 @@ retestDecayTolATR         = input.float(0.50, "Retest-decay matching tol (ATR)",
 
 // Retention / suppression
 useGapGate                = input.bool(true, "Use side-aware gap suppression")
-anchorRetentionPercent    = input.float(25.0, "Anchor retention percent", minval=1.0, maxval=100.0, step=1.0)
+anchorRetentionPercent    = input.float(12.0, "Anchor retention percent", minval=1.0, maxval=100.0, step=1.0)
 maxAnchorsKept            = input.int(180, "Max anchors kept", minval=20, maxval=600)
 
 // Clustering / zones
-clusterTolPct             = input.float(0.018, "Cluster tolerance (% of price)", minval=0.001, step=0.001)
-clusterTolATR             = input.float(0.80, "Cluster tolerance ATR", minval=0.05, step=0.05)
+clusterTolPct             = input.float(0.020, "Cluster tolerance (% of price)", minval=0.001, step=0.001)
+clusterTolATR             = input.float(1.00, "Cluster tolerance ATR", minval=0.05, step=0.05)
 minClusterPoints          = input.int(3, "Min points per cluster", minval=1, maxval=80)
 minClusterScore           = input.float(7.0, "Min cluster score", minval=0.0, step=0.5)
-minClusterAvgQ            = input.float(0.0, "Min cluster average Q (0=off)", minval=0.0, maxval=100.0, step=0.5)
+minClusterAvgQ            = input.float(55.0, "Min cluster average Q (0=off)", minval=0.0, maxval=100.0, step=0.5)
 mergeAcrossSides          = input.bool(true, "Merge across sides")
-zoneWidthMult             = input.float(1.25, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
+zoneWidthMult             = input.float(1.35, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
 maxClusterWidthPct        = input.float(0.07, "Max cluster width (% of price)", minval=0.01, maxval=0.50, step=0.01)
 maxClustersInternal       = input.int(200, "Max clusters internal", minval=20, maxval=400)
-maxDisplayZones           = input.int(12, "Max displayed zones", minval=1, maxval=80)
-visibleMinGapPct          = input.float(0.0, "Visible-zone min gap (% price, 0=off)", minval=0.0, maxval=0.20, step=0.001)
-visibleMinGapATR          = input.float(0.0, "Visible-zone min gap ATR (0=off)", minval=0.0, step=0.05)
+maxDisplayZones           = input.int(8, "Max displayed zones", minval=1, maxval=80)
+visibleMinGapPct          = input.float(0.015, "Visible-zone min gap (% price, 0=off)", minval=0.0, maxval=0.20, step=0.001)
+visibleMinGapATR          = input.float(1.00, "Visible-zone min gap ATR (0=off)", minval=0.0, step=0.05)
 ageWeightDecayPer1000Bars = input.float(0.10, "Cluster age decay per 1000 bars", minval=0.0, maxval=2.0, step=0.05)
 
 // Zone state baseline
@@ -994,7 +994,7 @@ if barstate.islast and buildLookback > reqBars + 2
 plot(close, "price_scale_anchor", display=display.none)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 18, border_width=1)
+var table t = table.new(position.top_right, 2, 21, border_width=1)
 if barstate.islast and effShowDebug
     zCount = array.size(cMid)
     passClusters = 0
@@ -1071,3 +1071,12 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 16, (strictCandidateVeto ? "ON" : "OFF") + " / " + (useRetestDecay ? ("ON " + str.tostring(retestDecayLambda, "#.##")) : "OFF"), text_color=color.white)
     table.cell(t, 0, 17, "Age acc R/M/O | kept", text_color=color.white)
     table.cell(t, 1, 17, str.tostring(dbgAccRecent) + "/" + str.tostring(dbgAccMid) + "/" + str.tostring(dbgAccOld) + " | " + str.tostring(dbgKeptRecent) + "/" + str.tostring(dbgKeptMid) + "/" + str.tostring(dbgKeptOld), text_color=color.white)
+    cfgA = "CFG|W=" + str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " G=" + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##")
+    cfgB = "CFG|E=" + str.tostring(E_min, "#.##") + " rho=" + str.tostring(rho_min, "#.##") + " Q=" + str.tostring(Q_min, "#.##") + " P=" + str.tostring(persist_min) + " N=" + str.tostring(revisitMaxCount) + " dev=" + str.tostring(deviationInvalidATR, "#.##")
+    cfgC = "CFG|ret=" + str.tostring(anchorRetentionPercent, "#.##") + " keep=" + str.tostring(maxAnchorsKept) + " cTol=" + str.tostring(clusterTolPct * 100, "#.###") + "%/" + str.tostring(clusterTolATR, "#.##") + " avgQ=" + str.tostring(minClusterAvgQ, "#.##") + " disp=" + str.tostring(maxDisplayZones) + " gap=" + str.tostring(visibleMinGapPct * 100, "#.###") + "%/" + str.tostring(visibleMinGapATR, "#.##")
+    table.cell(t, 0, 18, "Export cfg A", text_color=color.white)
+    table.cell(t, 1, 18, cfgA, text_color=color.white)
+    table.cell(t, 0, 19, "Export cfg B", text_color=color.white)
+    table.cell(t, 1, 19, cfgB, text_color=color.white)
+    table.cell(t, 0, 20, "Export cfg C", text_color=color.white)
+    table.cell(t, 1, 20, cfgC, text_color=color.white)

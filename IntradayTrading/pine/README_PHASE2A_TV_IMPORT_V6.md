@@ -26,7 +26,7 @@ This keeps behavior portable across 1D/1W/lower TF replay.
 
 ## Preset profiles (new)
 Use `Preset profile` to switch between bundled tuning sets without manually editing every knob.
-Default is `auto`.
+Default is `manual`, and manual defaults are mapped to the current `1D cert` baseline so you can tweak directly without profile override confusion.
 
 - `manual` → use all raw inputs exactly as entered.
 - `auto` → auto-selects by current chart timeframe:
@@ -78,26 +78,39 @@ Debug table shows for each side:
 - key metrics: `E`, `tE`, `R`, `rho`, `persist`, `revisit`, `dev`, `Q`
 - final reason code after retention stage.
 
-## Suggested baseline settings (spec start point)
-- `W_move_h = 96`
-- `W_reversal_h = 96`
-- `W_persist_h = 72`
-- `W_revisit_h = 96`
-- `E_min = 2.5`
-- `rho_min = 0.25`
-- `persist_min = 4`
+For sharing tuned manual configs back for preset baking, use the bottom rows:
+- `Export cfg A`
+- `Export cfg B`
+- `Export cfg C`
+
+Send those three row values (or a screenshot including them).
+
+## Manual defaults (mapped to 1D cert baseline)
+- `W_move_h = 240`
+- `W_reversal_h = 240`
+- `W_persist_h = 144`
+- `W_revisit_h = 240`
+- `W_gap_same_h = 168`
+- `W_gap_opp_h = 24`
+- `E_min = 3.0`
+- `rho_min = 0.24`
+- `persist_min = 3`
+- `revisitMaxCount = 1`
 - `revisitTolATR = 0.20`
 - `persistTolATR = 0.60`
-- `Q_min = 58`
-- `deviationInvalidATR = 2.5`
-- `W_gap_same_h = 120`
-- `W_gap_opp_h = 24`
-- `anchorRetentionPercent = 25%`
+- `Q_min = 60`
+- `deviationInvalidATR = 3.5`
+- `anchorRetentionPercent = 12%`
 - `maxAnchorsKept = 180`
+- `clusterTolPct = 0.020`
+- `clusterTolATR = 1.00`
+- `zoneWidthMult = 1.35`
 - `minClusterPoints = 3`
 - `minClusterScore = 7.0`
-- `clusterTolPct = 0.018`
-- `maxDisplayZones = 12`
+- `minClusterAvgQ = 55`
+- `maxDisplayZones = 8`
+- `visibleMinGapPct = 0.015`
+- `visibleMinGapATR = 1.00`
 
 ## Notes
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.
