@@ -20,7 +20,7 @@ candidatePivotLen         = input.int(3, "Candidate local-extrema len", minval=1
 minCandidateRangeATR      = input.float(1.00, "Min candidate bar range (ATR)", minval=0.0, step=0.05)
 strictCandidateVeto       = input.bool(false, "Strict candidate veto (hard block when C_soft=false)")
 
-// Time-normalized windows
+// Time-normalized windows (manual values)
 W_move_h                  = input.float(96.0, "W_move hours", minval=1.0, step=1.0)
 W_reversal_h              = input.float(96.0, "W_reversal hours", minval=1.0, step=1.0)
 W_persist_h               = input.float(72.0, "W_persist hours", minval=1.0, step=1.0)
@@ -28,14 +28,17 @@ W_revisit_h               = input.float(96.0, "W_revisit hours", minval=1.0, ste
 W_gap_same_h              = input.float(120.0, "W_gap_same hours", minval=0.0, step=1.0)
 W_gap_opp_h               = input.float(24.0, "W_gap_opp hours", minval=0.0, step=1.0)
 
-// Core thresholds
+// Presets (optional)
+presetProfile             = input.string("manual", "Preset profile", options=["manual", "auto", "1D swing", "4H intraday", "1W macro"])
+
+// Core thresholds (manual values)
 E_min                     = input.float(2.50, "E_min (ATR)", minval=0.10, step=0.05)
 rho_min                   = input.float(0.25, "rho_min", minval=0.01, step=0.01)
 persist_min               = input.int(4, "persist_min bars", minval=0, maxval=400)
 revisitMaxCount           = input.int(0, "revisit max count", minval=0, maxval=200)
 revisitTolATR             = input.float(0.20, "revisit tolerance (ATR)", minval=0.0, step=0.05)
 persistTolATR             = input.float(0.60, "persistence tolerance (ATR)", minval=0.0, step=0.05)
-deviationInvalidATR       = input.float(2.50, "Outlier deviation invalid (ATR)", minval=0.25, step=0.25)
+deviationInvalidATR       = input.float(2.50, "deviationInvalidATR (outlier invalid, ATR)", minval=0.25, step=0.25)
 
 // Quality score Q in [0, 100]
 Q_min                     = input.float(58.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
@@ -88,6 +91,66 @@ maxAnchorDots             = input.int(350, "DIAG max total dots", minval=50, max
 anchorDotSize             = input.string("large", "DIAG anchor dot size", options=["small", "normal", "large", "huge"])
 anchorDotXPosition        = input.string("wick-center", "DIAG anchor x-position", options=["wick-center", "candle-end"])
 showDebugTable            = input.bool(true, "Show debug table")
+
+// ---------- Effective profile (manual/auto presets) ----------
+tfSecNow = timeframe.in_seconds()
+autoProfile = tfSecNow >= 5 * 24 * 3600 ? "1W macro" : tfSecNow >= 20 * 3600 ? "1D swing" : tfSecNow >= 3 * 3600 ? "4H intraday" : "4H intraday"
+activeProfile = presetProfile == "auto" ? autoProfile : presetProfile
+
+effWMoveH = W_move_h
+effWReversalH = W_reversal_h
+effWPersistH = W_persist_h
+effWRevisitH = W_revisit_h
+effWGapSameH = W_gap_same_h
+effWGapOppH = W_gap_opp_h
+
+effRhoMin = rho_min
+effQMin = Q_min
+effDeviationInvalidATR = deviationInvalidATR
+
+effClusterTolPct = clusterTolPct
+effClusterTolATR = clusterTolATR
+effZoneWidthMult = zoneWidthMult
+
+if activeProfile == "1D swing"
+    effWMoveH := 168.0
+    effWReversalH := 168.0
+    effWPersistH := 120.0
+    effWRevisitH := 168.0
+    effWGapSameH := 72.0
+    effWGapOppH := 24.0
+    effRhoMin := 0.20
+    effQMin := 52.0
+    effDeviationInvalidATR := 3.50
+    effClusterTolPct := 0.022
+    effClusterTolATR := 1.10
+    effZoneWidthMult := 1.45
+else if activeProfile == "4H intraday"
+    effWMoveH := 72.0
+    effWReversalH := 72.0
+    effWPersistH := 48.0
+    effWRevisitH := 72.0
+    effWGapSameH := 24.0
+    effWGapOppH := 8.0
+    effRhoMin := 0.22
+    effQMin := 55.0
+    effDeviationInvalidATR := 3.00
+    effClusterTolPct := 0.012
+    effClusterTolATR := 0.70
+    effZoneWidthMult := 1.25
+else if activeProfile == "1W macro"
+    effWMoveH := 336.0
+    effWReversalH := 336.0
+    effWPersistH := 240.0
+    effWRevisitH := 336.0
+    effWGapSameH := 168.0
+    effWGapOppH := 72.0
+    effRhoMin := 0.18
+    effQMin := 50.0
+    effDeviationInvalidATR := 4.50
+    effClusterTolPct := 0.028
+    effClusterTolATR := 1.40
+    effZoneWidthMult := 1.60
 
 // ---------- Mode guards ----------
 isDiagMode                = mode == "DIAG"
@@ -264,8 +327,8 @@ f_reset_all() =>
     array.clear(cState)
 
 f_add_anchor_to_cluster(_p, _score, _time, _side, _atrRef, _ageBars) =>
-    tolPct = math.abs(_p) * clusterTolPct
-    tolAtr = clusterTolATR * math.max(_atrRef, syminfo.mintick)
+    tolPct = math.abs(_p) * effClusterTolPct
+    tolAtr = effClusterTolATR * math.max(_atrRef, syminfo.mintick)
     tol = math.max(syminfo.mintick * 2.0, math.max(tolPct, tolAtr))
     zCount = array.size(cMid)
     best = -1
@@ -319,7 +382,7 @@ f_finalize_clusters() =>
             cnt = array.get(cCount, i)
             sc = array.get(cScore, i)
 
-            rawW = math.max(syminfo.mintick * 2.0, (top - bot) * zoneWidthMult)
+            rawW = math.max(syminfo.mintick * 2.0, (top - bot) * effZoneWidthMult)
             capW = math.max(syminfo.mintick * 4.0, math.abs(mid) * maxClusterWidthPct)
             w = math.min(rawW, capW)
             half = w * 0.5
@@ -384,15 +447,15 @@ f_render_zones() =>
                         array.push(cLine, l)
 
 // ---------- Main build ----------
-moveBars = f_hours_to_bars(W_move_h)
-reversalBars = f_hours_to_bars(W_reversal_h)
-persistBars = f_hours_to_bars(W_persist_h)
+moveBars = f_hours_to_bars(effWMoveH)
+reversalBars = f_hours_to_bars(effWReversalH)
+persistBars = f_hours_to_bars(effWPersistH)
 effPersistMin = math.min(persist_min, persistBars)
-revisitBars = f_hours_to_bars(W_revisit_h)
-gapSameBars = f_hours_to_bars(W_gap_same_h)
-gapOppBars = f_hours_to_bars(W_gap_opp_h)
+revisitBars = f_hours_to_bars(effWRevisitH)
+gapSameBars = f_hours_to_bars(effWGapSameH)
+gapOppBars = f_hours_to_bars(effWGapOppH)
 
-reqBars = math.max(moveBars, math.max(reversalBars, math.max(persistBars, revisitBars)))
+reqBars = math.max(moveBars + reversalBars, math.max(persistBars, revisitBars))
 maxByBars = bar_index - reqBars - 2
 buildLookback = barstate.islast ? math.max(0, math.min(lookbackBars, maxByBars - 5)) : 0
 
@@ -510,18 +573,17 @@ if barstate.islast and buildLookback > reqBars + 2
                             E := away
                             tE := w
 
-                // Reversal R after excursion turning point
+                // Reversal R after excursion turning point (window starts AFTER tE)
                 R = 0.0
                 if tE > 0
                     pivotIdx = off - tE
                     pivotPx = isRes ? low[pivotIdx] : high[pivotIdx]
                     for rw = 1 to reversalBars
-                        if rw > tE
-                            off3 = off - rw
-                            if off3 >= 0
-                                rev = isRes ? (high[off3] - pivotPx) / atrRef : (pivotPx - low[off3]) / atrRef
-                                if rev > R
-                                    R := rev
+                        off3 = off - (tE + rw)
+                        if off3 >= 0
+                            rev = isRes ? (high[off3] - pivotPx) / atrRef : (pivotPx - low[off3]) / atrRef
+                            if rev > R
+                                R := rev
 
                 eps = 1e-6
                 rho = R / math.max(E, eps)
@@ -578,11 +640,11 @@ if barstate.islast and buildLookback > reqBars + 2
                 Q := math.max(0.0, math.min(100.0, Q))
 
                 passE = E >= E_min
-                passR = rho >= rho_min
+                passR = rho >= effRhoMin
                 passP = persistCnt >= effPersistMin
                 passN = revisitCnt <= revisitMaxCount
-                passD = devAgainst <= deviationInvalidATR
-                passQ = Q >= Q_min
+                passD = devAgainst <= effDeviationInvalidATR
+                passQ = Q >= effQMin
 
                 if strictCandidateVeto and not C_soft
                     passQ := false
@@ -851,8 +913,8 @@ if barstate.islast and effShowDebug
                     nearDistPct := d / math.max(math.abs(tgt), syminfo.mintick) * 100.0
                     nearState := f_zone_state_name(array.get(cState, i))
 
-    table.cell(t, 0, 0, "Mode", text_color=color.white)
-    table.cell(t, 1, 0, mode, text_color=color.white)
+    table.cell(t, 0, 0, "Mode / profile", text_color=color.white)
+    table.cell(t, 1, 0, mode + " / " + activeProfile, text_color=color.white)
     table.cell(t, 0, 1, "Lookback / reqBars", text_color=color.white)
     table.cell(t, 1, 1, (not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-") + " / " + str.tostring(reqBars), text_color=color.white)
     table.cell(t, 0, 2, "Candidate/Accepted/Kept", text_color=color.white)
@@ -866,13 +928,13 @@ if barstate.islast and effShowDebug
     table.cell(t, 0, 6, "Clusters pass/disp", text_color=color.white)
     table.cell(t, 1, 6, str.tostring(passClusters) + " / " + str.tostring(dispClusters), text_color=color.white)
     table.cell(t, 0, 7, "W h M/R/P/N gS/gO", text_color=color.white)
-    table.cell(t, 1, 7, str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " " + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##"), text_color=color.white)
-    table.cell(t, 0, 8, "E/rho/P(in->eff)/Q", text_color=color.white)
-    table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + " / " + str.tostring(persist_min) + "->" + str.tostring(effPersistMin) + " / " + str.tostring(Q_min, "#.##"), text_color=color.white)
+    table.cell(t, 1, 7, str.tostring(effWMoveH, "#.##") + "/" + str.tostring(effWReversalH, "#.##") + "/" + str.tostring(effWPersistH, "#.##") + "/" + str.tostring(effWRevisitH, "#.##") + " " + str.tostring(effWGapSameH, "#.##") + "/" + str.tostring(effWGapOppH, "#.##"), text_color=color.white)
+    table.cell(t, 0, 8, "E/rho/P(in->eff)/Q/dev", text_color=color.white)
+    table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + "->" + str.tostring(effRhoMin, "#.##") + " / " + str.tostring(persist_min) + "->" + str.tostring(effPersistMin) + " / " + str.tostring(Q_min, "#.##") + "->" + str.tostring(effQMin, "#.##") + " / " + str.tostring(deviationInvalidATR, "#.##") + "->" + str.tostring(effDeviationInvalidATR, "#.##"), text_color=color.white)
     table.cell(t, 0, 9, "Retention% / max", text_color=color.white)
     table.cell(t, 1, 9, str.tostring(anchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept), text_color=color.white)
     table.cell(t, 0, 10, "Cluster tol%|atr / pts / score", text_color=color.white)
-    table.cell(t, 1, 10, str.tostring(clusterTolPct * 100, "#.##") + "%|" + str.tostring(clusterTolATR, "#.##") + " / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
+    table.cell(t, 1, 10, str.tostring(clusterTolPct * 100, "#.##") + "->" + str.tostring(effClusterTolPct * 100, "#.##") + "%|" + str.tostring(clusterTolATR, "#.##") + "->" + str.tostring(effClusterTolATR, "#.##") + " / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##"), text_color=color.white)
     table.cell(t, 0, 11, "Dots all/fail/max", text_color=color.white)
     table.cell(t, 1, 11, str.tostring(dbgDotsEmitted) + " / " + str.tostring(dbgFailDotsEmitted) + " / " + str.tostring(maxAnchorDots), text_color=color.white)
 

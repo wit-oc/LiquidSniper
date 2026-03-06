@@ -24,6 +24,19 @@ All windows are set in hours and converted to bars on the active timeframe:
 
 This keeps behavior portable across 1D/1W/lower TF replay.
 
+## Preset profiles (new)
+Use `Preset profile` to switch between bundled tuning sets without manually editing every knob:
+- `manual` → use all raw inputs exactly as entered.
+- `auto` → auto-selects by current chart timeframe:
+  - `>= ~1W` -> `1W macro`
+  - `>= ~1D` -> `1D swing`
+  - lower -> `4H intraday`
+- `1D swing` -> wider swing windows (recommended starting point on BTC 1D).
+- `4H intraday` -> tighter intraday windows.
+- `1W macro` -> broad regime windows.
+
+Debug table row `Mode / profile` shows the active profile. Rows `W ...`, `E/rho/P/Q/dev`, and `Cluster ...` show manual -> effective values where applicable.
+
 ## Fail reasons and dot colors
 Enable `DIAG: show failed anchor dots` to plot failed anchors by reason.
 
@@ -60,6 +73,7 @@ Debug table shows for each side:
 - `revisitTolATR = 0.20`
 - `persistTolATR = 0.60`
 - `Q_min = 58`
+- `deviationInvalidATR = 2.5`
 - `W_gap_same_h = 120`
 - `W_gap_opp_h = 24`
 - `anchorRetentionPercent = 25%`
@@ -71,5 +85,7 @@ Debug table shows for each side:
 
 ## Notes
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.
+- Reversal is measured in a forward window **after** excursion timing (`tE`) to reduce false misses on slower swing reversals.
 - `Retest decay` is optional and off by default to keep certification runs easy to compare.
+- If you are looking for deviation threshold in UI, the field label is: `deviationInvalidATR (outlier invalid, ATR)`.
 - For noisy charts, tune `Q_min`, `anchorRetentionPercent`, and `minClusterScore` before tightening candidate veto.
