@@ -154,6 +154,7 @@ Send those row values (or a screenshot including them).
 ## Notes
 - 2026-03-06 v6.1 pass-1 tuning: 1D cert defaults updated to (`CFG|W=240/240/144/240 G=216/24`, `CFG|E=2.2 rho=0.24 Q=55 P=3 N=1 dev=3.5`) and launch eligibility tightened.
 - 2026-03-06 v6.1 pass-1 logic: added same-side price dedupe in retention (`anchorPriceGapPct/ATR`), cluster scoring biased to `maxRank+avgRank`, and major-anchor min-point bypass (`majorClusterMinLaunch/Rank`).
+- 2026-03-06 v6.1 pass-3 logic: added optional launch velocity term (`tBreak`-based) into `Q_launch`, and widened major-rescue to permit `FAIL_R_RATIO` (still constrained by launch eligibility + `rescueMajorBreakMin`).
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.
 - Reversal is measured in a forward window **after** excursion timing (`tE`) to reduce false misses on slower swing reversals.
 - `Retest decay` is optional and off by default to keep certification runs easy to compare.

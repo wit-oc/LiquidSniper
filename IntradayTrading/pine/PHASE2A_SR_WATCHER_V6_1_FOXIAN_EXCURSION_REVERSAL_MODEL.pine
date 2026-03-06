@@ -63,6 +63,8 @@ launchPromoteMinBreakATR  = input.float(0.50, "launchPromoteMinBreakATR", minval
 launchBlend               = input.float(0.65, "launchBlend", minval=0.0, maxval=1.0, step=0.05)
 launchRescueGraceQ        = input.float(3.5, "launchRescueGraceQ", minval=0.0, maxval=50.0, step=0.5)
 launchRescueMinQ          = input.float(80.0, "launchRescueMinQ", minval=0.0, maxval=100.0, step=0.5)
+rescueMajorBreakMin       = input.float(0.50, "rescueMajorBreakMin (ATR)", minval=0.0, step=0.05)
+useLaunchVelocity         = input.bool(true, "Use launch velocity term")
 
 useRetestDecay            = input.bool(false, "Apply retest-decay hook in Q")
 retestDecayLambda         = input.float(0.35, "Retest-decay lambda", minval=0.0, step=0.05)
@@ -149,6 +151,8 @@ effLaunchPromoteMinBreakATR = launchPromoteMinBreakATR
 effLaunchBlend = launchBlend
 effLaunchRescueGraceQ = launchRescueGraceQ
 effLaunchRescueMinQ = launchRescueMinQ
+effRescueMajorBreakMin = rescueMajorBreakMin
+effUseLaunchVelocity = useLaunchVelocity
 
 effAnchorRetentionPercent = anchorRetentionPercent
 effMaxAnchorsKept = maxAnchorsKept
@@ -882,10 +886,18 @@ if barstate.islast and buildLookback > reqBars + 2
                 edgeFrac = math.max(0.0, edgeFracRaw)
                 breakBeyondATR = isRes ? math.max(0.0, (preLow - postLowHold) / atrRef) : math.max(0.0, (postHighHold - preHigh) / atrRef)
 
+                tBreak = launchHoldBars + 1
+                for bw = 1 to launchHoldBars
+                    offb = off - bw
+                    if offb >= 0
+                        broke = isRes ? (low[offb] < preLow) : (high[offb] > preHigh)
+                        if broke
+                            tBreak := math.min(tBreak, bw)
                 qH = f_clamp01(E_hold / math.max(effLaunchERefATR, eps))
                 qB = f_clamp01(breakBeyondATR / math.max(effLaunchBreakRefATR, eps))
                 qA = f_clamp01(1.0 - (edgeFrac / math.max(effLaunchEdgeFracMax, eps)))
-                Q_launch = 100.0 * (0.60 * qH + 0.25 * qB + 0.15 * qA)
+                qV = effUseLaunchVelocity ? f_clamp01(1.0 - (tBreak / math.max(launchHoldBars, 1))) : 0.0
+                Q_launch = effUseLaunchVelocity ? 100.0 * (0.50 * qH + 0.20 * qB + 0.15 * qA + 0.15 * qV) : 100.0 * (0.60 * qH + 0.25 * qB + 0.15 * qA)
                 leC = C_soft
                 leEdge = edgeFrac <= effLaunchEdgeFracMax
                 leBreak = breakBeyondATR >= effLaunchPromoteMinBreakATR
@@ -923,7 +935,8 @@ if barstate.islast and buildLookback > reqBars + 2
                     failCode := FAIL_SCORE_Q
 
                 relaxedRhoFloor = math.max(0.14, effRhoMin - 0.06)
-                majorRescue = failCode == FAIL_SCORE_Q and C_soft and passE and passP and passN and passD and rho >= relaxedRhoFloor and Q_local >= (effQMin - effLaunchRescueGraceQ) and Q_launch >= effLaunchRescueMinQ and launchEligible
+                rescueFailAllowed = failCode == FAIL_SCORE_Q or failCode == FAIL_R_RATIO
+                majorRescue = rescueFailAllowed and C_soft and passE and passP and passN and passD and rho >= relaxedRhoFloor and Q_local >= (effQMin - effLaunchRescueGraceQ) and Q_launch >= effLaunchRescueMinQ and breakBeyondATR >= effRescueMajorBreakMin and launchEligible
                 if majorRescue
                     failCode := FAIL_NONE
                     passQ := true
@@ -1306,7 +1319,7 @@ if barstate.islast and effShowDebug
     cfgA = "CFG|W=" + str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " G=" + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##")
     cfgB = "CFG|E=" + str.tostring(E_min, "#.##") + " rho=" + str.tostring(rho_min, "#.##") + " Q=" + str.tostring(Q_min, "#.##") + " P=" + str.tostring(persist_min) + " N=" + str.tostring(revisitMaxCount) + " dev=" + str.tostring(deviationInvalidATR, "#.##")
     cfgC = "CFG|ret=" + str.tostring(anchorRetentionPercent, "#.##") + " keep=" + str.tostring(maxAnchorsKept) + " cTol=" + str.tostring(clusterTolPct * 100, "#.###") + "%/" + str.tostring(clusterTolATR, "#.##") + " avgQ=" + str.tostring(minClusterAvgQ, "#.##") + " disp=" + str.tostring(maxDisplayZones) + " gap=" + str.tostring(visibleMinGapPct * 100, "#.###") + "%/" + str.tostring(visibleMinGapATR, "#.##")
-    cfgD = "CFG|launch=" + str.tostring(useLaunchRanking) + " holdM=" + str.tostring(launchHoldMult, "#.##") + " preM=" + str.tostring(launchPreRangeMult, "#.##") + " eRef=" + str.tostring(launchERefATR, "#.##") + " bRef=" + str.tostring(launchBreakRefATR, "#.##") + " edgeMax=" + str.tostring(launchEdgeFracMax, "#.##") + " minBr=" + str.tostring(launchPromoteMinBreakATR, "#.##") + " blend=" + str.tostring(launchBlend, "#.##") + " rGrace=" + str.tostring(launchRescueGraceQ, "#.##") + " rQ=" + str.tostring(launchRescueMinQ, "#.##")
+    cfgD = "CFG|launch=" + str.tostring(useLaunchRanking) + " holdM=" + str.tostring(launchHoldMult, "#.##") + " preM=" + str.tostring(launchPreRangeMult, "#.##") + " eRef=" + str.tostring(launchERefATR, "#.##") + " bRef=" + str.tostring(launchBreakRefATR, "#.##") + " edgeMax=" + str.tostring(launchEdgeFracMax, "#.##") + " minBr=" + str.tostring(launchPromoteMinBreakATR, "#.##") + " blend=" + str.tostring(launchBlend, "#.##") + " rGrace=" + str.tostring(launchRescueGraceQ, "#.##") + " rQ=" + str.tostring(launchRescueMinQ, "#.##") + " rBr=" + str.tostring(rescueMajorBreakMin, "#.##") + " vel=" + str.tostring(useLaunchVelocity)
     table.cell(t, 0, 19, "Export cfg A", text_color=color.white)
     table.cell(t, 1, 19, cfgA, text_color=color.white)
     table.cell(t, 0, 20, "Export cfg B", text_color=color.white)
