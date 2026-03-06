@@ -79,6 +79,10 @@ zoneWeakRetests           = input.int(3, "Zone weakening retests", minval=1, max
 inspectCandleEnabled      = input.bool(false, "DIAG: inspect one candle")
 inspectCandleTime         = input.time(1710028800000, "DIAG inspect candle time")
 inspectCandleSide         = input.string("both", "DIAG inspect side", options=["both", "resistance", "support"])
+useDiagDateWindow         = input.bool(false, "DIAG: use date window for failed dots")
+diagStartTime             = input.time(1704067200000, "DIAG window start")
+diagEndTime               = input.time(1735689600000, "DIAG window end")
+failedDotScope            = input.string("all-history", "DIAG failed-dot scope", options=["all-history", "date-window", "inspect-only"])
 
 // Visuals
 showZones                 = input.bool(true, "Show zones")
@@ -114,6 +118,8 @@ effZoneWidthMult = zoneWidthMult
 
 effAnchorRetentionPercent = anchorRetentionPercent
 effMaxAnchorsKept = maxAnchorsKept
+effPersistMinInput = persist_min
+effRevisitMaxCount = revisitMaxCount
 
 if activeProfile == "1D swing"
     effWMoveH := 168.0
@@ -128,6 +134,8 @@ if activeProfile == "1D swing"
     effClusterTolPct := 0.022
     effClusterTolATR := 1.10
     effZoneWidthMult := 1.45
+    effPersistMinInput := 2
+    effRevisitMaxCount := 1
 else if activeProfile == "1D recall"
     effWMoveH := 240.0
     effWReversalH := 240.0
@@ -143,6 +151,8 @@ else if activeProfile == "1D recall"
     effZoneWidthMult := 1.55
     effAnchorRetentionPercent := 40.0
     effMaxAnchorsKept := 280
+    effPersistMinInput := 1
+    effRevisitMaxCount := 2
 else if activeProfile == "4H intraday"
     effWMoveH := 72.0
     effWReversalH := 72.0
@@ -156,6 +166,8 @@ else if activeProfile == "4H intraday"
     effClusterTolPct := 0.012
     effClusterTolATR := 0.70
     effZoneWidthMult := 1.25
+    effPersistMinInput := 3
+    effRevisitMaxCount := 1
 else if activeProfile == "1W macro"
     effWMoveH := 336.0
     effWReversalH := 336.0
@@ -169,6 +181,8 @@ else if activeProfile == "1W macro"
     effClusterTolPct := 0.028
     effClusterTolATR := 1.40
     effZoneWidthMult := 1.60
+    effPersistMinInput := 1
+    effRevisitMaxCount := 2
 
 // ---------- Mode guards ----------
 isDiagMode                = mode == "DIAG"
@@ -468,7 +482,7 @@ f_render_zones() =>
 moveBars = f_hours_to_bars(effWMoveH)
 reversalBars = f_hours_to_bars(effWReversalH)
 persistBars = f_hours_to_bars(effWPersistH)
-effPersistMin = math.min(persist_min, persistBars)
+effPersistMin = math.min(effPersistMinInput, persistBars)
 revisitBars = f_hours_to_bars(effWRevisitH)
 gapSameBars = f_hours_to_bars(effWGapSameH)
 gapOppBars = f_hours_to_bars(effWGapOppH)
@@ -660,7 +674,7 @@ if barstate.islast and buildLookback > reqBars + 2
                 passE = E >= E_min
                 passR = rho >= effRhoMin
                 passP = persistCnt >= effPersistMin
-                passN = revisitCnt <= revisitMaxCount
+                passN = revisitCnt <= effRevisitMaxCount
                 passD = devAgainst <= effDeviationInvalidATR
                 passQ = Q >= effQMin
 
@@ -723,7 +737,7 @@ if barstate.islast and buildLookback > reqBars + 2
                         dbgInspectResNPass := passN
                         dbgInspectResDPass := passD
                         dbgInspectResQPass := passQ
-                        dbgInspectResGPass := na
+                        dbgInspectResGPass := true
                         dbgInspectResE := E
                         dbgInspectResR := R
                         dbgInspectResRho := rho
@@ -742,7 +756,7 @@ if barstate.islast and buildLookback > reqBars + 2
                         dbgInspectSupNPass := passN
                         dbgInspectSupDPass := passD
                         dbgInspectSupQPass := passQ
-                        dbgInspectSupGPass := na
+                        dbgInspectSupGPass := true
                         dbgInspectSupE := E
                         dbgInspectSupR := R
                         dbgInspectSupRho := rho
@@ -881,10 +895,14 @@ if barstate.islast and buildLookback > reqBars + 2
                     p = array.get(failPrice, i)
                     code = array.get(failCodeArr, i)
                     ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
-                    d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(f_fail_color(code), 0), textcolor=color.new(color.white, 100), size=f_dot_size())
-                    array.push(dDots, d)
-                    dbgFailDotsEmitted += 1
-                    dbgDotsEmitted += 1
+                    inDateWindow = not useDiagDateWindow or (time_close[off] >= diagStartTime and time_close[off] <= diagEndTime)
+                    isInspectBar = inspectCandleEnabled and (time[off] <= inspectCandleTime and time_close[off] >= inspectCandleTime)
+                    drawFailed = failedDotScope == "all-history" ? true : failedDotScope == "date-window" ? inDateWindow : isInspectBar
+                    if drawFailed
+                        d = label.new(ts, p, "", xloc=xloc.bar_time, style=label.style_circle, color=color.new(f_fail_color(code), 0), textcolor=color.new(color.white, 100), size=f_dot_size())
+                        array.push(dDots, d)
+                        dbgFailDotsEmitted += 1
+                        dbgDotsEmitted += 1
 
     // Accepted/kept dots
     if effShowDots and dbgKept > 0
@@ -947,8 +965,8 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 6, str.tostring(passClusters) + " / " + str.tostring(dispClusters), text_color=color.white)
     table.cell(t, 0, 7, "W h M/R/P/N gS/gO", text_color=color.white)
     table.cell(t, 1, 7, str.tostring(effWMoveH, "#.##") + "/" + str.tostring(effWReversalH, "#.##") + "/" + str.tostring(effWPersistH, "#.##") + "/" + str.tostring(effWRevisitH, "#.##") + " " + str.tostring(effWGapSameH, "#.##") + "/" + str.tostring(effWGapOppH, "#.##"), text_color=color.white)
-    table.cell(t, 0, 8, "E/rho/P(in->eff)/Q/dev", text_color=color.white)
-    table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + "->" + str.tostring(effRhoMin, "#.##") + " / " + str.tostring(persist_min) + "->" + str.tostring(effPersistMin) + " / " + str.tostring(Q_min, "#.##") + "->" + str.tostring(effQMin, "#.##") + " / " + str.tostring(deviationInvalidATR, "#.##") + "->" + str.tostring(effDeviationInvalidATR, "#.##"), text_color=color.white)
+    table.cell(t, 0, 8, "E/rho/P(in->eff)/Nmax/Q/dev", text_color=color.white)
+    table.cell(t, 1, 8, str.tostring(E_min, "#.##") + " / " + str.tostring(rho_min, "#.##") + "->" + str.tostring(effRhoMin, "#.##") + " / " + str.tostring(persist_min) + "->" + str.tostring(effPersistMin) + " / " + str.tostring(revisitMaxCount) + "->" + str.tostring(effRevisitMaxCount) + " / " + str.tostring(Q_min, "#.##") + "->" + str.tostring(effQMin, "#.##") + " / " + str.tostring(deviationInvalidATR, "#.##") + "->" + str.tostring(effDeviationInvalidATR, "#.##"), text_color=color.white)
     table.cell(t, 0, 9, "Retention% / max", text_color=color.white)
     table.cell(t, 1, 9, str.tostring(anchorRetentionPercent, "#.##") + "->" + str.tostring(effAnchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept) + "->" + str.tostring(effMaxAnchorsKept), text_color=color.white)
     table.cell(t, 0, 10, "Cluster tol%|atr / pts / score", text_color=color.white)

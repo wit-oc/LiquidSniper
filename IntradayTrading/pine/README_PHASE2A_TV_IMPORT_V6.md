@@ -33,8 +33,8 @@ Default is `auto`.
   - `>= ~1W` -> `1W macro`
   - `>= ~1D` -> `1D swing`
   - lower -> `4H intraday`
-- `1D swing` -> balanced wider swing windows (recommended starting point on BTC 1D).
-- `1D recall` -> more permissive 1D profile to recover missed swing anchors (wider windows + looser rho/Q + tighter same-side gap + higher retention).
+- `1D swing` -> balanced wider swing windows with moderate recall (`persist` and `revisit` softened vs manual defaults).
+- `1D recall` -> more permissive 1D profile to recover missed swing anchors (wider windows + looser rho/Q + tighter same-side gap + higher retention + softer persist/revisit gates).
 - `4H intraday` -> tighter intraday windows.
 - `1W macro` -> broad regime windows.
 
@@ -42,6 +42,9 @@ Debug table row `Mode / profile` shows the active profile. Rows `W ...`, `E/rho/
 
 ## Fail reasons and dot colors
 Enable `DIAG: show failed anchor dots` to plot failed anchors by reason.
+If this is too dense, use:
+- `DIAG failed-dot scope` = `date-window` or `inspect-only`
+- optionally enable `DIAG: use date window for failed dots` with `DIAG window start/end`
 
 - **Red**: `FAIL_E_MIN`
 - **Orange**: `FAIL_R_RATIO`
