@@ -1,5 +1,5 @@
 //@version=5
-indicator("Phase2A S/R Watcher V6 (Foxian Excursion/Reversal Model)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=350, max_lines_count=350, max_labels_count=700)
+indicator("Phase2A S/R Watcher V6 (Foxian Excursion/Reversal Model)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=350, max_lines_count=350, max_labels_count=500)
 
 // =====================================================
 // V6 Foxian-aligned excursion/reversal model
