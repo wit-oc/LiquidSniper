@@ -43,7 +43,7 @@ persistTolATR             = input.float(0.60, "persistence tolerance (ATR)", min
 deviationInvalidATR       = input.float(3.50, "deviationInvalidATR (outlier invalid, ATR)", minval=0.25, step=0.25)
 
 // Quality score Q in [0, 100]
-Q_min                     = input.float(55.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
+Q_min                     = input.float(58.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
 wE                        = input.float(0.30, "wE", minval=0.0, maxval=1.0, step=0.05)
 wR                        = input.float(0.30, "wR", minval=0.0, maxval=1.0, step=0.05)
 wS                        = input.float(0.15, "wS", minval=0.0, maxval=1.0, step=0.05)
@@ -72,8 +72,8 @@ retestDecayTolATR         = input.float(0.50, "Retest-decay matching tol (ATR)",
 useGapGate                = input.bool(true, "Use side-aware gap suppression")
 anchorPriceGapPct         = input.float(0.012, "Retention same-side price gap (% price)", minval=0.0, maxval=0.10, step=0.001)
 anchorPriceGapATR         = input.float(1.75, "Retention same-side price gap (ATR)", minval=0.0, step=0.05)
-anchorRetentionPercent    = input.float(12.0, "Anchor retention percent", minval=1.0, maxval=100.0, step=1.0)
-maxAnchorsKept            = input.int(180, "Max anchors kept", minval=20, maxval=600)
+anchorRetentionPercent    = input.float(10.0, "Anchor retention percent", minval=1.0, maxval=100.0, step=1.0)
+maxAnchorsKept            = input.int(256, "Max anchors kept", minval=20, maxval=600)
 
 // Clustering / zones
 clusterTolPct             = input.float(0.020, "Cluster tolerance (% of price)", minval=0.001, step=0.001)
@@ -87,7 +87,7 @@ mergeAcrossSides          = input.bool(true, "Merge across sides")
 zoneWidthMult             = input.float(1.35, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
 maxClusterWidthPct        = input.float(0.07, "Max cluster width (% of price)", minval=0.01, maxval=0.50, step=0.01)
 maxClustersInternal       = input.int(200, "Max clusters internal", minval=20, maxval=400)
-maxDisplayZones           = input.int(8, "Max displayed zones", minval=1, maxval=80)
+maxDisplayZones           = input.int(6, "Max displayed zones", minval=1, maxval=80)
 visibleMinGapPct          = input.float(0.015, "Visible-zone min gap (% price, 0=off)", minval=0.0, maxval=0.20, step=0.001)
 visibleMinGapATR          = input.float(1.00, "Visible-zone min gap ATR (0=off)", minval=0.0, step=0.05)
 ageWeightDecayPer1000Bars = input.float(0.10, "Cluster age decay per 1000 bars", minval=0.0, maxval=2.0, step=0.05)
@@ -163,13 +163,13 @@ if activeProfile == "1D cert"
     effWGapSameH := 216.0
     effWGapOppH := 24.0
     effRhoMin := 0.24
-    effQMin := 55.0
+    effQMin := 58.0
     effDeviationInvalidATR := 3.50
     effClusterTolPct := 0.020
     effClusterTolATR := 1.00
     effZoneWidthMult := 1.35
-    effAnchorRetentionPercent := 12.0
-    effMaxAnchorsKept := 180
+    effAnchorRetentionPercent := 10.0
+    effMaxAnchorsKept := 256
     effPersistMinInput := 3
     effRevisitMaxCount := 1
     effMinClusterAvgQ := 55.0
