@@ -113,15 +113,15 @@ Send those row values (or a screenshot including them).
 - `W_reversal_h = 240`
 - `W_persist_h = 144`
 - `W_revisit_h = 240`
-- `W_gap_same_h = 168`
-- `W_gap_opp_h = 24`
-- `E_min = 3.0`
+- `W_gap_same_h = 216`
+- `W_gap_opp_h = 18`
+- `E_min = 2.2`
 - `rho_min = 0.24`
 - `persist_min = 3`
-- `revisitMaxCount = 1`
+- `revisitMaxCount = 3`
 - `revisitTolATR = 0.20`
 - `persistTolATR = 0.60`
-- `Q_min = 60`
+- `Q_min = 55`
 - `deviationInvalidATR = 3.5`
 - `anchorRetentionPercent = 12%`
 - `maxAnchorsKept = 180`
@@ -152,6 +152,7 @@ Send those row values (or a screenshot including them).
 - `1W macro`: launch ranking ON, `hold=4.0`, `blend=0.70` (other launch fields inherit manual unless overridden).
 
 ## Notes
+- 2026-03-06 local lock (not promoted upstream yet): 1D cert defaults set from BTC 1D export (`CFG|W=240/240/144/240 G=216/18`, `CFG|E=2.2 rho=0.24 Q=55 P=3 N=3 dev=3.5`).
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.
 - Reversal is measured in a forward window **after** excursion timing (`tE`) to reduce false misses on slower swing reversals.
 - `Retest decay` is optional and off by default to keep certification runs easy to compare.
