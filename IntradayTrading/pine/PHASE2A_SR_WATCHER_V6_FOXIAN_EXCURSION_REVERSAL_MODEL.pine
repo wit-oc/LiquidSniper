@@ -27,23 +27,23 @@ W_move_h                  = input.float(240.0, "W_move hours", minval=1.0, step=
 W_reversal_h              = input.float(240.0, "W_reversal hours", minval=1.0, step=1.0)
 W_persist_h               = input.float(144.0, "W_persist hours", minval=1.0, step=1.0)
 W_revisit_h               = input.float(240.0, "W_revisit hours", minval=1.0, step=1.0)
-W_gap_same_h              = input.float(168.0, "W_gap_same hours", minval=0.0, step=1.0)
-W_gap_opp_h               = input.float(24.0, "W_gap_opp hours", minval=0.0, step=1.0)
+W_gap_same_h              = input.float(216.0, "W_gap_same hours", minval=0.0, step=1.0)
+W_gap_opp_h               = input.float(18.0, "W_gap_opp hours", minval=0.0, step=1.0)
 
 // Presets (optional)
 presetProfile             = input.string("manual", "Preset profile", options=["manual", "auto", "1D cert", "1D recall", "4H intraday", "1W macro"])
 
 // Core thresholds (manual values; defaults align with 1D cert)
-E_min                     = input.float(3.00, "E_min (ATR)", minval=0.10, step=0.05)
+E_min                     = input.float(2.20, "E_min (ATR)", minval=0.10, step=0.05)
 rho_min                   = input.float(0.24, "rho_min", minval=0.01, step=0.01)
 persist_min               = input.int(3, "persist_min bars", minval=0, maxval=400)
-revisitMaxCount           = input.int(1, "revisit max count", minval=0, maxval=200)
+revisitMaxCount           = input.int(3, "revisit max count", minval=0, maxval=200)
 revisitTolATR             = input.float(0.20, "revisit tolerance (ATR)", minval=0.0, step=0.05)
 persistTolATR             = input.float(0.60, "persistence tolerance (ATR)", minval=0.0, step=0.05)
 deviationInvalidATR       = input.float(3.50, "deviationInvalidATR (outlier invalid, ATR)", minval=0.25, step=0.25)
 
 // Quality score Q in [0, 100]
-Q_min                     = input.float(60.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
+Q_min                     = input.float(55.0, "Q_min", minval=0.0, maxval=100.0, step=0.5)
 wE                        = input.float(0.30, "wE", minval=0.0, maxval=1.0, step=0.05)
 wR                        = input.float(0.30, "wR", minval=0.0, maxval=1.0, step=0.05)
 wS                        = input.float(0.15, "wS", minval=0.0, maxval=1.0, step=0.05)
@@ -156,10 +156,10 @@ if activeProfile == "1D cert"
     effWReversalH := 240.0
     effWPersistH := 144.0
     effWRevisitH := 240.0
-    effWGapSameH := 168.0
-    effWGapOppH := 24.0
+    effWGapSameH := 216.0
+    effWGapOppH := 18.0
     effRhoMin := 0.24
-    effQMin := 60.0
+    effQMin := 55.0
     effDeviationInvalidATR := 3.50
     effClusterTolPct := 0.020
     effClusterTolATR := 1.00
@@ -167,7 +167,7 @@ if activeProfile == "1D cert"
     effAnchorRetentionPercent := 12.0
     effMaxAnchorsKept := 180
     effPersistMinInput := 3
-    effRevisitMaxCount := 1
+    effRevisitMaxCount := 3
     effMinClusterAvgQ := 55.0
     effVisibleMinGapPct := 0.015
     effVisibleMinGapATR := 1.00
