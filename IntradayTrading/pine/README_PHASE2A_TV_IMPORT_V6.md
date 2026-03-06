@@ -8,8 +8,9 @@ V6 shifts anchor quality from candle geometry to excursion/reversal behavior:
 1) evaluate both sides per bar (`high` for resistance candidate, `low` for support candidate),
 2) compute path metrics `E`, `tE`, `R`, `rho=R/max(E,eps)` in ATR units,
 3) gate with persistence, revisit, outlier deviation, and `Q` score,
-4) apply deterministic retention with side-aware gap suppression,
-5) cluster kept anchors into sparse zones with baseline zone state.
+4) compute launch significance (`Q_launch`) and blended `rankScore` for retention ordering,
+5) apply deterministic retention with side-aware gap suppression,
+6) cluster kept anchors into sparse zones with baseline zone state.
 
 Candidate filters (`local-extrema`, min range ATR) are soft by default. Use `Strict candidate veto` only when you explicitly want hard blocking for `C_soft=false` bars.
 
@@ -40,6 +41,27 @@ Default is `manual`, and manual defaults are mapped to the current `1D cert` bas
 
 Debug table row `Mode / profile` shows the active profile. Rows `W ...`, `E/rho/P/Q/dev`, `Retention...`, and `Cluster ...` show manual -> effective values where applicable.
 Additional diagnostics include visible-zone suppression count and accepted/kept age-bucket splits.
+
+### Launch-aware ranking (V6.8)
+New launch inputs:
+- `useLaunchRanking`
+- `launchHoldMult`
+- `launchPreRangeMult`
+- `launchERefATR`
+- `launchBreakRefATR`
+- `launchEdgeFracMax`
+- `launchPromoteMinBreakATR`
+- `launchBlend`
+- `launchRescueGraceQ`
+- `launchRescueMinQ`
+
+Behavior:
+- Existing score is preserved as local quality (`Q_local`).
+- Launch metrics generate `Q_launch` from hold excursion, pre-range breakout, and edge-position quality.
+- Retention ranking uses `rankScore` (blended `Q_local` + `Q_launch`) only when launch eligibility passes.
+- `minClusterAvgQ` still uses local average (`Q_local`) to avoid broad funnel loosening.
+- `4H intraday` profile keeps launch ranking off for near-backward behavior.
+- Narrow major rescue is enabled only for `FAIL_SCORE_Q` candidates that satisfy all other gates plus launch thresholds.
 
 ## Fail reasons and dot colors
 Enable `DIAG: show failed anchor dots` to plot failed anchors by reason.
@@ -75,15 +97,15 @@ Use:
 
 Debug table shows for each side:
 - gate booleans: `C`, `E`, `R`, `P`, `N`, `D`, `Q`, `G`
-- key metrics: `E`, `tE`, `R`, `rho`, `persist`, `revisit`, `dev`, `Q`
+- key metrics: `E`, `tE`, `R`, `rho`, `persist`, `revisit`, `dev`, `Q_local`, `Q_launch`, `rankScore`, `E_hold`, `breakBeyondATR`, `edgeFrac`
 - final reason code after retention stage.
 
 For sharing tuned manual configs back for preset baking, use the bottom rows:
 - `Export cfg A`
 - `Export cfg B`
-- `Export cfg C`
+- `Export cfg C/D`
 
-Send those three row values (or a screenshot including them).
+Send those row values (or a screenshot including them).
 
 ## Manual defaults (mapped to 1D cert baseline)
 - `W_move_h = 240`
@@ -111,6 +133,22 @@ Send those three row values (or a screenshot including them).
 - `maxDisplayZones = 8`
 - `visibleMinGapPct = 0.015`
 - `visibleMinGapATR = 1.00`
+- `useLaunchRanking = true`
+- `launchHoldMult = 3.0`
+- `launchPreRangeMult = 1.0`
+- `launchERefATR = 8.0`
+- `launchBreakRefATR = 2.0`
+- `launchEdgeFracMax = 0.35`
+- `launchPromoteMinBreakATR = 0.25`
+- `launchBlend = 0.60`
+- `launchRescueGraceQ = 5.0`
+- `launchRescueMinQ = 70.0`
+
+## Preset launch defaults
+- `1D cert`: launch ranking ON, `hold=3.0`, `pre=1.0`, `Eref=8.0`, `Bref=2.0`, `edgeMax=0.35`, `promoteMinBreak=0.25`, `blend=0.60`, `rescueGrace=5.0`, `rescueMinQ=70.0`.
+- `1D recall`: launch ranking ON, `hold=3.0`, `pre=1.0`, `Eref=8.0`, `Bref=1.5`, `edgeMax=0.45`, `promoteMinBreak=0.15`, `blend=0.55`, `rescueGrace=7.0`, `rescueMinQ=65.0`.
+- `4H intraday`: launch ranking OFF.
+- `1W macro`: launch ranking ON, `hold=4.0`, `blend=0.70` (other launch fields inherit manual unless overridden).
 
 ## Notes
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.

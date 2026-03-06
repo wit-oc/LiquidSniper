@@ -52,6 +52,18 @@ wN                        = input.float(0.10, "wN", minval=0.0, maxval=1.0, step
 qE_ref                    = input.float(5.0, "qE saturation ATR", minval=0.5, step=0.5)
 qR_ref                    = input.float(1.0, "qR saturation rho", minval=0.05, step=0.05)
 
+// Launch-aware ranking (V6.8)
+useLaunchRanking          = input.bool(true, "Use launch-aware ranking")
+launchHoldMult            = input.float(3.0, "launchHoldMult", minval=1.0, step=0.25)
+launchPreRangeMult        = input.float(1.0, "launchPreRangeMult", minval=0.25, step=0.25)
+launchERefATR             = input.float(8.0, "launchERefATR", minval=0.5, step=0.5)
+launchBreakRefATR         = input.float(2.0, "launchBreakRefATR", minval=0.1, step=0.1)
+launchEdgeFracMax         = input.float(0.35, "launchEdgeFracMax", minval=0.05, maxval=1.0, step=0.05)
+launchPromoteMinBreakATR  = input.float(0.25, "launchPromoteMinBreakATR", minval=0.0, step=0.05)
+launchBlend               = input.float(0.60, "launchBlend", minval=0.0, maxval=1.0, step=0.05)
+launchRescueGraceQ        = input.float(5.0, "launchRescueGraceQ", minval=0.0, maxval=50.0, step=0.5)
+launchRescueMinQ          = input.float(70.0, "launchRescueMinQ", minval=0.0, maxval=100.0, step=0.5)
+
 useRetestDecay            = input.bool(false, "Apply retest-decay hook in Q")
 retestDecayLambda         = input.float(0.35, "Retest-decay lambda", minval=0.0, step=0.05)
 retestDecayTolATR         = input.float(0.50, "Retest-decay matching tol (ATR)", minval=0.05, step=0.05)
@@ -123,6 +135,16 @@ effZoneWidthMult = zoneWidthMult
 effMinClusterAvgQ = minClusterAvgQ
 effVisibleMinGapPct = visibleMinGapPct
 effVisibleMinGapATR = visibleMinGapATR
+effUseLaunchRanking = useLaunchRanking
+effLaunchHoldMult = launchHoldMult
+effLaunchPreRangeMult = launchPreRangeMult
+effLaunchERefATR = launchERefATR
+effLaunchBreakRefATR = launchBreakRefATR
+effLaunchEdgeFracMax = launchEdgeFracMax
+effLaunchPromoteMinBreakATR = launchPromoteMinBreakATR
+effLaunchBlend = launchBlend
+effLaunchRescueGraceQ = launchRescueGraceQ
+effLaunchRescueMinQ = launchRescueMinQ
 
 effAnchorRetentionPercent = anchorRetentionPercent
 effMaxAnchorsKept = maxAnchorsKept
@@ -149,6 +171,16 @@ if activeProfile == "1D cert"
     effMinClusterAvgQ := 55.0
     effVisibleMinGapPct := 0.015
     effVisibleMinGapATR := 1.00
+    effUseLaunchRanking := true
+    effLaunchHoldMult := 3.0
+    effLaunchPreRangeMult := 1.0
+    effLaunchERefATR := 8.0
+    effLaunchBreakRefATR := 2.0
+    effLaunchEdgeFracMax := 0.35
+    effLaunchPromoteMinBreakATR := 0.25
+    effLaunchBlend := 0.60
+    effLaunchRescueGraceQ := 5.0
+    effLaunchRescueMinQ := 70.0
 else if activeProfile == "1D recall"
     effWMoveH := 240.0
     effWReversalH := 240.0
@@ -169,6 +201,16 @@ else if activeProfile == "1D recall"
     effMinClusterAvgQ := 45.0
     effVisibleMinGapPct := 0.006
     effVisibleMinGapATR := 0.40
+    effUseLaunchRanking := true
+    effLaunchHoldMult := 3.0
+    effLaunchPreRangeMult := 1.0
+    effLaunchERefATR := 8.0
+    effLaunchBreakRefATR := 1.5
+    effLaunchEdgeFracMax := 0.45
+    effLaunchPromoteMinBreakATR := 0.15
+    effLaunchBlend := 0.55
+    effLaunchRescueGraceQ := 7.0
+    effLaunchRescueMinQ := 65.0
 else if activeProfile == "4H intraday"
     effWMoveH := 72.0
     effWReversalH := 72.0
@@ -184,6 +226,7 @@ else if activeProfile == "4H intraday"
     effZoneWidthMult := 1.25
     effPersistMinInput := 3
     effRevisitMaxCount := 1
+    effUseLaunchRanking := false
 else if activeProfile == "1W macro"
     effWMoveH := 336.0
     effWReversalH := 336.0
@@ -199,6 +242,9 @@ else if activeProfile == "1W macro"
     effZoneWidthMult := 1.60
     effPersistMinInput := 1
     effRevisitMaxCount := 2
+    effUseLaunchRanking := true
+    effLaunchHoldMult := 4.0
+    effLaunchBlend := 0.70
 
 // ---------- Mode guards ----------
 isDiagMode                = mode == "DIAG"
@@ -230,6 +276,7 @@ var cTop                  = array.new_float()
 var cBot                  = array.new_float()
 var cMid                  = array.new_float()
 var cScore                = array.new_float()
+var cLocalScore           = array.new_float()
 var cCount                = array.new_int()
 var cFirstTime            = array.new_int()
 var cVisible              = array.new_bool()
@@ -267,6 +314,9 @@ var int dbgAccOld = 0
 var int dbgKeptRecent = 0
 var int dbgKeptMid = 0
 var int dbgKeptOld = 0
+var int dbgLaunchEligible = 0
+var int dbgLaunchRescued = 0
+var int dbgLaunchPromotedKept = 0
 
 // Inspect outputs
 var bool dbgInspectResSeen = false
@@ -303,6 +353,20 @@ var float dbgInspectResDev = na
 var float dbgInspectSupDev = na
 var float dbgInspectResQ = na
 var float dbgInspectSupQ = na
+var float dbgInspectResQLaunch = na
+var float dbgInspectSupQLaunch = na
+var float dbgInspectResRank = na
+var float dbgInspectSupRank = na
+var float dbgInspectResEHold = na
+var float dbgInspectSupEHold = na
+var float dbgInspectResBreak = na
+var float dbgInspectSupBreak = na
+var float dbgInspectResEdgeFrac = na
+var float dbgInspectSupEdgeFrac = na
+var bool dbgInspectResLaunchEligible = false
+var bool dbgInspectSupLaunchEligible = false
+var bool dbgInspectResLaunchRescue = false
+var bool dbgInspectSupLaunchRescue = false
 var string dbgInspectResReason = "-"
 var string dbgInspectSupReason = "-"
 
@@ -375,6 +439,7 @@ f_reset_all() =>
     array.clear(cBot)
     array.clear(cMid)
     array.clear(cScore)
+    array.clear(cLocalScore)
     array.clear(cCount)
     array.clear(cFirstTime)
     array.clear(cVisible)
@@ -383,7 +448,7 @@ f_reset_all() =>
     array.clear(cTouch)
     array.clear(cState)
 
-f_add_anchor_to_cluster(_p, _score, _time, _side, _atrRef, _ageBars) =>
+f_add_anchor_to_cluster(_p, _rankScore, _localScore, _time, _side, _atrRef, _ageBars) =>
     tolPct = math.abs(_p) * effClusterTolPct
     tolAtr = effClusterTolATR * math.max(_atrRef, syminfo.mintick)
     tol = math.max(syminfo.mintick * 2.0, math.max(tolPct, tolAtr))
@@ -401,7 +466,8 @@ f_add_anchor_to_cluster(_p, _score, _time, _side, _atrRef, _ageBars) =>
                     bestDist := d
 
     ageW = 1.0 / (1.0 + (_ageBars / 1000.0) * ageWeightDecayPer1000Bars)
-    wScore = _score * ageW
+    wScore = _rankScore * ageW
+    wLocalScore = _localScore * ageW
 
     if best >= 0
         top = math.max(array.get(cTop, best), _p)
@@ -411,6 +477,7 @@ f_add_anchor_to_cluster(_p, _score, _time, _side, _atrRef, _ageBars) =>
         array.set(cBot, best, bot)
         array.set(cMid, best, mid)
         array.set(cScore, best, array.get(cScore, best) + wScore)
+        array.set(cLocalScore, best, array.get(cLocalScore, best) + wLocalScore)
         array.set(cCount, best, array.get(cCount, best) + 1)
         array.set(cTouch, best, array.get(cTouch, best) + 1)
         array.set(cFirstTime, best, math.min(array.get(cFirstTime, best), _time))
@@ -421,6 +488,7 @@ f_add_anchor_to_cluster(_p, _score, _time, _side, _atrRef, _ageBars) =>
             array.push(cBot, _p)
             array.push(cMid, _p)
             array.push(cScore, wScore)
+            array.push(cLocalScore, wLocalScore)
             array.push(cCount, 1)
             array.push(cFirstTime, _time)
             array.push(cVisible, false)
@@ -447,7 +515,8 @@ f_finalize_clusters() =>
             top := mid + half
             bot := mid - half
 
-            avgQ = cnt > 0 ? (sc / cnt) : 0.0
+            localSc = array.get(cLocalScore, i)
+            avgQ = cnt > 0 ? (localSc / cnt) : 0.0
             passPts = cnt >= minClusterPoints
             passScore = sc >= minClusterScore
             passAvgQ = effMinClusterAvgQ <= 0.0 or avgQ >= effMinClusterAvgQ
@@ -527,8 +596,10 @@ effPersistMin = math.min(effPersistMinInput, persistBars)
 revisitBars = f_hours_to_bars(effWRevisitH)
 gapSameBars = f_hours_to_bars(effWGapSameH)
 gapOppBars = f_hours_to_bars(effWGapOppH)
+launchHoldBars = math.max(moveBars, int(math.round(moveBars * effLaunchHoldMult)))
+preRangeBars = math.max(1, int(math.round(moveBars * effLaunchPreRangeMult)))
 
-reqBars = math.max(moveBars + reversalBars, math.max(persistBars, revisitBars))
+reqBars = math.max(math.max(moveBars + reversalBars, launchHoldBars), math.max(persistBars, revisitBars))
 maxByBars = bar_index - reqBars - 2
 buildLookback = barstate.islast ? math.max(0, math.min(lookbackBars, maxByBars - 5)) : 0
 
@@ -555,6 +626,9 @@ if barstate.islast
     dbgKeptRecent := 0
     dbgKeptMid := 0
     dbgKeptOld := 0
+    dbgLaunchEligible := 0
+    dbgLaunchRescued := 0
+    dbgLaunchPromotedKept := 0
 
     dbgInspectResSeen := false
     dbgInspectSupSeen := false
@@ -590,6 +664,20 @@ if barstate.islast
     dbgInspectSupDev := na
     dbgInspectResQ := na
     dbgInspectSupQ := na
+    dbgInspectResQLaunch := na
+    dbgInspectSupQLaunch := na
+    dbgInspectResRank := na
+    dbgInspectSupRank := na
+    dbgInspectResEHold := na
+    dbgInspectSupEHold := na
+    dbgInspectResBreak := na
+    dbgInspectSupBreak := na
+    dbgInspectResEdgeFrac := na
+    dbgInspectSupEdgeFrac := na
+    dbgInspectResLaunchEligible := false
+    dbgInspectSupLaunchEligible := false
+    dbgInspectResLaunchRescue := false
+    dbgInspectSupLaunchRescue := false
     dbgInspectResReason := "-"
     dbgInspectSupReason := "-"
     lastBuildLookback := buildLookback
@@ -606,9 +694,12 @@ if barstate.islast and buildLookback > reqBars + 2
     accOff = array.new_int()
     accTime = array.new_int()
     accPrice = array.new_float()
-    accQ = array.new_float()
+    accQLocal = array.new_float()
+    accQLaunch = array.new_float()
+    accRank = array.new_float()
     accSide = array.new_int()
     accAtr = array.new_float()
+    accWasLaunchRescue = array.new_bool()
     accFinalReason = array.new_int()
 
     // Failed anchors for diagnostics (all stages)
@@ -723,15 +814,55 @@ if barstate.islast and buildLookback > reqBars + 2
                 qD = useRetestDecay ? math.exp(-retestDecayLambda * priorRetests) : 1.0
 
                 wSum = math.max(wE + wR + wS + wP + wN, eps)
-                Q = 100.0 * ((wE * qE + wR * qR + wS * qS + wP * qP + wN * qN) / wSum) * qD
-                Q := math.max(0.0, math.min(100.0, Q))
+                Q_local = 100.0 * ((wE * qE + wR * qR + wS * qS + wP * qP + wN * qN) / wSum) * qD
+                Q_local := math.max(0.0, math.min(100.0, Q_local))
+
+                E_hold = 0.0
+                tHold = 0
+                postHighHold = high[off]
+                postLowHold = low[off]
+                for hw = 1 to launchHoldBars
+                    offh = off - hw
+                    if offh >= 0
+                        postHighHold := math.max(postHighHold, high[offh])
+                        postLowHold := math.min(postLowHold, low[offh])
+                        awayHold = isRes ? (p - low[offh]) / atrRef : (high[offh] - p) / atrRef
+                        if awayHold > E_hold
+                            E_hold := awayHold
+                            tHold := hw
+
+                preHigh = high[off]
+                preLow = low[off]
+                gotPre = false
+                for pb = 1 to preRangeBars
+                    offPre = off + pb
+                    if offPre <= bar_index
+                        preHigh := math.max(preHigh, high[offPre])
+                        preLow := math.min(preLow, low[offPre])
+                        gotPre := true
+                priorRange = math.max(syminfo.mintick, preHigh - preLow)
+                edgeFracRaw = gotPre ? (isRes ? (preHigh - p) / priorRange : (p - preLow) / priorRange) : 1.0
+                edgeFrac = math.max(0.0, edgeFracRaw)
+                breakBeyondATR = isRes ? math.max(0.0, (preLow - postLowHold) / atrRef) : math.max(0.0, (postHighHold - preHigh) / atrRef)
+
+                qH = f_clamp01(E_hold / math.max(effLaunchERefATR, eps))
+                qB = f_clamp01(breakBeyondATR / math.max(effLaunchBreakRefATR, eps))
+                qA = f_clamp01(1.0 - (edgeFrac / math.max(effLaunchEdgeFracMax, eps)))
+                Q_launch = 100.0 * (0.60 * qH + 0.25 * qB + 0.15 * qA)
+                launchEligible = effUseLaunchRanking and C_soft and edgeFrac <= effLaunchEdgeFracMax and breakBeyondATR >= effLaunchPromoteMinBreakATR and E_hold > E
+                if launchEligible
+                    dbgLaunchEligible += 1
+
+                launchBlendW = f_clamp01(effLaunchBlend)
+                rankBlend = (1.0 - launchBlendW) * Q_local + launchBlendW * Q_launch
+                rankScore = launchEligible ? math.max(Q_local, rankBlend) : Q_local
 
                 passE = E >= E_min
                 passR = rho >= effRhoMin
                 passP = persistCnt >= effPersistMin
                 passN = revisitCnt <= effRevisitMaxCount
                 passD = devAgainst <= effDeviationInvalidATR
-                passQ = Q >= effQMin
+                passQ = Q_local >= effQMin
 
                 if strictCandidateVeto and not C_soft
                     passQ := false
@@ -750,6 +881,13 @@ if barstate.islast and buildLookback > reqBars + 2
                 else if not passQ
                     failCode := FAIL_SCORE_Q
 
+                relaxedRhoFloor = math.max(0.14, effRhoMin - 0.06)
+                majorRescue = failCode == FAIL_SCORE_Q and C_soft and passE and passP and passN and passD and rho >= relaxedRhoFloor and Q_local >= (effQMin - effLaunchRescueGraceQ) and Q_launch >= effLaunchRescueMinQ and launchEligible
+                if majorRescue
+                    failCode := FAIL_NONE
+                    passQ := true
+                    dbgLaunchRescued += 1
+
                 passBase = failCode == FAIL_NONE
 
                 dbgCand += 1
@@ -764,9 +902,12 @@ if barstate.islast and buildLookback > reqBars + 2
                     array.push(accOff, off)
                     array.push(accTime, time[off])
                     array.push(accPrice, p)
-                    array.push(accQ, Q)
+                    array.push(accQLocal, Q_local)
+                    array.push(accQLaunch, Q_launch)
+                    array.push(accRank, rankScore)
                     array.push(accSide, side)
                     array.push(accAtr, atrRef)
+                    array.push(accWasLaunchRescue, majorRescue)
                     array.push(accFinalReason, FAIL_NONE)
                 else
                     if failCode == FAIL_E_MIN
@@ -806,7 +947,14 @@ if barstate.islast and buildLookback > reqBars + 2
                         dbgInspectResPersist := persistCnt
                         dbgInspectResRevisit := revisitCnt
                         dbgInspectResDev := devAgainst
-                        dbgInspectResQ := Q
+                        dbgInspectResQ := Q_local
+                        dbgInspectResQLaunch := Q_launch
+                        dbgInspectResRank := rankScore
+                        dbgInspectResEHold := E_hold
+                        dbgInspectResBreak := breakBeyondATR
+                        dbgInspectResEdgeFrac := edgeFrac
+                        dbgInspectResLaunchEligible := launchEligible
+                        dbgInspectResLaunchRescue := majorRescue
                         dbgInspectResReason := f_reason_name(failCode)
                     if (not isRes) and (inspectCandleSide == "both" or inspectCandleSide == "support")
                         dbgInspectSupSeen := true
@@ -825,11 +973,18 @@ if barstate.islast and buildLookback > reqBars + 2
                         dbgInspectSupPersist := persistCnt
                         dbgInspectSupRevisit := revisitCnt
                         dbgInspectSupDev := devAgainst
-                        dbgInspectSupQ := Q
+                        dbgInspectSupQ := Q_local
+                        dbgInspectSupQLaunch := Q_launch
+                        dbgInspectSupRank := rankScore
+                        dbgInspectSupEHold := E_hold
+                        dbgInspectSupBreak := breakBeyondATR
+                        dbgInspectSupEdgeFrac := edgeFrac
+                        dbgInspectSupLaunchEligible := launchEligible
+                        dbgInspectSupLaunchRescue := majorRescue
                         dbgInspectSupReason := f_reason_name(failCode)
 
-    // Deterministic retention by top Q with stable tie-break (older first)
-    nAcc = array.size(accQ)
+    // Deterministic retention by top rankScore with stable tie-break (older first)
+    nAcc = array.size(accRank)
     keepTarget = nAcc > 0 ? int(math.ceil(nAcc * effAnchorRetentionPercent / 100.0)) : 0
     keepTarget := math.min(keepTarget, effMaxAnchorsKept)
 
@@ -838,7 +993,10 @@ if barstate.islast and buildLookback > reqBars + 2
     selOff = array.new_int()
     selTime = array.new_int()
     selPrice = array.new_float()
-    selQ = array.new_float()
+    selQLocal = array.new_float()
+    selQLaunch = array.new_float()
+    selRank = array.new_float()
+    selWasLaunchRescue = array.new_bool()
     selSide = array.new_int()
     selAtr = array.new_float()
 
@@ -848,12 +1006,12 @@ if barstate.islast and buildLookback > reqBars + 2
     if nAcc > 0 and keepTarget > 0
         for pick = 0 to nAcc - 1
             bestIdx = -1
-            bestQ = -1e10
+            bestRank = -1e10
             for i = 0 to nAcc - 1
                 if not array.get(used, i)
-                    qv = array.get(accQ, i)
-                    if qv > bestQ
-                        bestQ := qv
+                    rv = array.get(accRank, i)
+                    if rv > bestRank
+                        bestRank := rv
                         bestIdx := i
 
             if bestIdx >= 0
@@ -895,14 +1053,19 @@ if barstate.islast and buildLookback > reqBars + 2
                     array.push(failPrice, array.get(accPrice, bestIdx))
                     array.push(failCodeArr, idxCode)
                 else
-                    if array.size(selQ) < keepTarget
+                    if array.size(selRank) < keepTarget
                         array.push(selOff, off)
                         array.push(selTime, array.get(accTime, bestIdx))
                         array.push(selPrice, array.get(accPrice, bestIdx))
-                        array.push(selQ, array.get(accQ, bestIdx))
+                        array.push(selQLocal, array.get(accQLocal, bestIdx))
+                        array.push(selQLaunch, array.get(accQLaunch, bestIdx))
+                        array.push(selRank, array.get(accRank, bestIdx))
+                        array.push(selWasLaunchRescue, array.get(accWasLaunchRescue, bestIdx))
                         array.push(selSide, side)
                         array.push(selAtr, array.get(accAtr, bestIdx))
                         array.set(accFinalReason, bestIdx, FAIL_NONE)
+                        if array.get(accRank, bestIdx) > array.get(accQLocal, bestIdx) + 1e-6
+                            dbgLaunchPromotedKept += 1
                         if off <= ageB1
                             dbgKeptRecent += 1
                         else if off <= ageB2
@@ -922,7 +1085,7 @@ if barstate.islast and buildLookback > reqBars + 2
                         array.push(failPrice, array.get(accPrice, bestIdx))
                         array.push(failCodeArr, idxCode)
 
-    dbgKept := array.size(selQ)
+    dbgKept := array.size(selRank)
 
     // Update inspect gap result/reason with final taxonomy
     if inspectCandleEnabled
@@ -945,7 +1108,7 @@ if barstate.islast and buildLookback > reqBars + 2
     if dbgKept > 0
         for i = 0 to dbgKept - 1
             ageBars = array.get(selOff, i)
-            f_add_anchor_to_cluster(array.get(selPrice, i), array.get(selQ, i), array.get(selTime, i), array.get(selSide, i), array.get(selAtr, i), ageBars)
+            f_add_anchor_to_cluster(array.get(selPrice, i), array.get(selRank, i), array.get(selQLocal, i), array.get(selTime, i), array.get(selSide, i), array.get(selAtr, i), ageBars)
 
     f_finalize_clusters()
     dbgVisibleSuppressed := f_select_visible()
@@ -981,7 +1144,7 @@ if barstate.islast and buildLookback > reqBars + 2
             if dbgSelDotsEmitted < acceptedBudget
                 off = array.get(selOff, i)
                 p = array.get(selPrice, i)
-                q = array.get(selQ, i)
+                q = array.get(selRank, i)
                 ts = anchorDotXPosition == "candle-end" ? time_close[off] : time[off]
                 qShade = int(math.floor(math.max(0.0, math.min(70.0, 70.0 - q * 0.7))))
                 clr = color.new(color.aqua, qShade)
@@ -994,7 +1157,7 @@ if barstate.islast and buildLookback > reqBars + 2
 plot(close, "price_scale_anchor", display=display.none)
 
 // ---------- Debug table ----------
-var table t = table.new(position.top_right, 2, 21, border_width=1)
+var table t = table.new(position.top_right, 2, 22, border_width=1)
 if barstate.islast and effShowDebug
     zCount = array.size(cMid)
     passClusters = 0
@@ -1049,9 +1212,9 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 11, str.tostring(dbgSelDotsEmitted) + "/" + str.tostring(dbgFailDotsEmitted) + " cap " + str.tostring(selBudgetDbg) + "/" + str.tostring(failBudgetDbg) + " tot " + str.tostring(dbgDotsEmitted), text_color=color.white)
 
     rVec = dbgInspectResSeen ?
-      "C=" + str.tostring(dbgInspectResCSoft) + " E=" + str.tostring(dbgInspectResEPass) + " R=" + str.tostring(dbgInspectResRPass) + " P=" + str.tostring(dbgInspectResPPass) + " N=" + str.tostring(dbgInspectResNPass) + " D=" + str.tostring(dbgInspectResDPass) + " Q=" + str.tostring(dbgInspectResQPass) + " G=" + str.tostring(dbgInspectResGPass) : "-"
+      "C=" + str.tostring(dbgInspectResCSoft) + " E=" + str.tostring(dbgInspectResEPass) + " R=" + str.tostring(dbgInspectResRPass) + " P=" + str.tostring(dbgInspectResPPass) + " N=" + str.tostring(dbgInspectResNPass) + " D=" + str.tostring(dbgInspectResDPass) + " Q=" + str.tostring(dbgInspectResQPass) + " G=" + str.tostring(dbgInspectResGPass) + " LE=" + str.tostring(dbgInspectResLaunchEligible) + " LR=" + str.tostring(dbgInspectResLaunchRescue) : "-"
     sVec = dbgInspectSupSeen ?
-      "C=" + str.tostring(dbgInspectSupCSoft) + " E=" + str.tostring(dbgInspectSupEPass) + " R=" + str.tostring(dbgInspectSupRPass) + " P=" + str.tostring(dbgInspectSupPPass) + " N=" + str.tostring(dbgInspectSupNPass) + " D=" + str.tostring(dbgInspectSupDPass) + " Q=" + str.tostring(dbgInspectSupQPass) + " G=" + str.tostring(dbgInspectSupGPass) : "-"
+      "C=" + str.tostring(dbgInspectSupCSoft) + " E=" + str.tostring(dbgInspectSupEPass) + " R=" + str.tostring(dbgInspectSupRPass) + " P=" + str.tostring(dbgInspectSupPPass) + " N=" + str.tostring(dbgInspectSupNPass) + " D=" + str.tostring(dbgInspectSupDPass) + " Q=" + str.tostring(dbgInspectSupQPass) + " G=" + str.tostring(dbgInspectSupGPass) + " LE=" + str.tostring(dbgInspectSupLaunchEligible) + " LR=" + str.tostring(dbgInspectSupLaunchRescue) : "-"
 
     table.cell(t, 0, 12, "Inspect R gates", text_color=color.white)
     table.cell(t, 1, 12, inspectCandleEnabled ? rVec : "OFF", text_color=color.white)
@@ -1059,24 +1222,27 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 13, inspectCandleEnabled ? sVec : "OFF", text_color=color.white)
 
     rVals = dbgInspectResSeen ?
-      "E=" + str.tostring(dbgInspectResE, "#.##") + " tE=" + str.tostring(dbgInspectRestE) + " R=" + str.tostring(dbgInspectResR, "#.##") + " rho=" + str.tostring(dbgInspectResRho, "#.##") + " p=" + str.tostring(dbgInspectResPersist) + " n=" + str.tostring(dbgInspectResRevisit) + " dev=" + str.tostring(dbgInspectResDev, "#.##") + " Q=" + str.tostring(dbgInspectResQ, "#.##") + " " + dbgInspectResReason : "-"
+      "E=" + str.tostring(dbgInspectResE, "#.##") + " tE=" + str.tostring(dbgInspectRestE) + " R=" + str.tostring(dbgInspectResR, "#.##") + " rho=" + str.tostring(dbgInspectResRho, "#.##") + " p=" + str.tostring(dbgInspectResPersist) + " n=" + str.tostring(dbgInspectResRevisit) + " dev=" + str.tostring(dbgInspectResDev, "#.##") + " QL=" + str.tostring(dbgInspectResQ, "#.##") + " QLa=" + str.tostring(dbgInspectResQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectResRank, "#.##") + " Eh=" + str.tostring(dbgInspectResEHold, "#.##") + " Br=" + str.tostring(dbgInspectResBreak, "#.##") + " edge=" + str.tostring(dbgInspectResEdgeFrac, "#.###") + " " + dbgInspectResReason : "-"
     sVals = dbgInspectSupSeen ?
-      "E=" + str.tostring(dbgInspectSupE, "#.##") + " tE=" + str.tostring(dbgInspectSuptE) + " R=" + str.tostring(dbgInspectSupR, "#.##") + " rho=" + str.tostring(dbgInspectSupRho, "#.##") + " p=" + str.tostring(dbgInspectSupPersist) + " n=" + str.tostring(dbgInspectSupRevisit) + " dev=" + str.tostring(dbgInspectSupDev, "#.##") + " Q=" + str.tostring(dbgInspectSupQ, "#.##") + " " + dbgInspectSupReason : "-"
+      "E=" + str.tostring(dbgInspectSupE, "#.##") + " tE=" + str.tostring(dbgInspectSuptE) + " R=" + str.tostring(dbgInspectSupR, "#.##") + " rho=" + str.tostring(dbgInspectSupRho, "#.##") + " p=" + str.tostring(dbgInspectSupPersist) + " n=" + str.tostring(dbgInspectSupRevisit) + " dev=" + str.tostring(dbgInspectSupDev, "#.##") + " QL=" + str.tostring(dbgInspectSupQ, "#.##") + " QLa=" + str.tostring(dbgInspectSupQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectSupRank, "#.##") + " Eh=" + str.tostring(dbgInspectSupEHold, "#.##") + " Br=" + str.tostring(dbgInspectSupBreak, "#.##") + " edge=" + str.tostring(dbgInspectSupEdgeFrac, "#.###") + " " + dbgInspectSupReason : "-"
 
     table.cell(t, 0, 14, "Inspect R values", text_color=color.white)
     table.cell(t, 1, 14, inspectCandleEnabled ? rVals : "OFF", text_color=color.white)
     table.cell(t, 0, 15, "Inspect S values", text_color=color.white)
     table.cell(t, 1, 15, inspectCandleEnabled ? sVals : "OFF", text_color=color.white)
     table.cell(t, 0, 16, "Strict veto / retest decay", text_color=color.white)
-    table.cell(t, 1, 16, (strictCandidateVeto ? "ON" : "OFF") + " / " + (useRetestDecay ? ("ON " + str.tostring(retestDecayLambda, "#.##")) : "OFF"), text_color=color.white)
+    table.cell(t, 1, 16, (strictCandidateVeto ? "ON" : "OFF") + " / " + (useRetestDecay ? ("ON " + str.tostring(retestDecayLambda, "#.##")) : "OFF") + " | launch " + (effUseLaunchRanking ? "ON" : "OFF") + " b=" + str.tostring(effLaunchBlend, "#.##"), text_color=color.white)
     table.cell(t, 0, 17, "Age acc R/M/O | kept", text_color=color.white)
     table.cell(t, 1, 17, str.tostring(dbgAccRecent) + "/" + str.tostring(dbgAccMid) + "/" + str.tostring(dbgAccOld) + " | " + str.tostring(dbgKeptRecent) + "/" + str.tostring(dbgKeptMid) + "/" + str.tostring(dbgKeptOld), text_color=color.white)
+    table.cell(t, 0, 18, "Launch el/resc/prom", text_color=color.white)
+    table.cell(t, 1, 18, str.tostring(dbgLaunchEligible) + "/" + str.tostring(dbgLaunchRescued) + "/" + str.tostring(dbgLaunchPromotedKept), text_color=color.white)
     cfgA = "CFG|W=" + str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " G=" + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##")
     cfgB = "CFG|E=" + str.tostring(E_min, "#.##") + " rho=" + str.tostring(rho_min, "#.##") + " Q=" + str.tostring(Q_min, "#.##") + " P=" + str.tostring(persist_min) + " N=" + str.tostring(revisitMaxCount) + " dev=" + str.tostring(deviationInvalidATR, "#.##")
     cfgC = "CFG|ret=" + str.tostring(anchorRetentionPercent, "#.##") + " keep=" + str.tostring(maxAnchorsKept) + " cTol=" + str.tostring(clusterTolPct * 100, "#.###") + "%/" + str.tostring(clusterTolATR, "#.##") + " avgQ=" + str.tostring(minClusterAvgQ, "#.##") + " disp=" + str.tostring(maxDisplayZones) + " gap=" + str.tostring(visibleMinGapPct * 100, "#.###") + "%/" + str.tostring(visibleMinGapATR, "#.##")
-    table.cell(t, 0, 18, "Export cfg A", text_color=color.white)
-    table.cell(t, 1, 18, cfgA, text_color=color.white)
-    table.cell(t, 0, 19, "Export cfg B", text_color=color.white)
-    table.cell(t, 1, 19, cfgB, text_color=color.white)
-    table.cell(t, 0, 20, "Export cfg C", text_color=color.white)
-    table.cell(t, 1, 20, cfgC, text_color=color.white)
+    cfgD = "CFG|launch=" + str.tostring(useLaunchRanking) + " holdM=" + str.tostring(launchHoldMult, "#.##") + " preM=" + str.tostring(launchPreRangeMult, "#.##") + " eRef=" + str.tostring(launchERefATR, "#.##") + " bRef=" + str.tostring(launchBreakRefATR, "#.##") + " edgeMax=" + str.tostring(launchEdgeFracMax, "#.##") + " minBr=" + str.tostring(launchPromoteMinBreakATR, "#.##") + " blend=" + str.tostring(launchBlend, "#.##") + " rGrace=" + str.tostring(launchRescueGraceQ, "#.##") + " rQ=" + str.tostring(launchRescueMinQ, "#.##")
+    table.cell(t, 0, 19, "Export cfg A", text_color=color.white)
+    table.cell(t, 1, 19, cfgA, text_color=color.white)
+    table.cell(t, 0, 20, "Export cfg B", text_color=color.white)
+    table.cell(t, 1, 20, cfgB, text_color=color.white)
+    table.cell(t, 0, 21, "Export cfg C/D", text_color=color.white)
+    table.cell(t, 1, 21, cfgC + " || " + cfgD, text_color=color.white)
