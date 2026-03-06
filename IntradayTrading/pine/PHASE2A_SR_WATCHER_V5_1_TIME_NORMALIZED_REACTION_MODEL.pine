@@ -340,8 +340,9 @@ gapSameBars = f_hours_to_bars(minGapSameSideHours)
 gapOppBars = f_hours_to_bars(minGapOppositeSideHours)
 
 reqBars = math.max(moveBars, math.max(noRevisitBars, persistBars))
+// Add a small safety margin to avoid edge-of-buffer historical offset errors on some chart loads.
 maxByBars = bar_index - reqBars - 2
-buildLookback = barstate.islast ? math.max(0, math.min(lookbackBars, maxByBars)) : 0
+buildLookback = barstate.islast ? math.max(0, math.min(lookbackBars, maxByBars - 5)) : 0
 
 if barstate.islast
     f_reset_all()
@@ -370,6 +371,9 @@ if barstate.islast
     lastBuildLookback := buildLookback
 
 if barstate.islast and buildLookback > reqBars + 2
+    // Guard lookback so (off + candidatePivotLen) never exceeds available historical buffer.
+    safeLookback = math.max(0, math.min(buildLookback, bar_index - candidatePivotLen - reqBars - 3))
+
     // Candidate-pass arrays (pre-retention)
     passOff = array.new_int()
     passTime = array.new_int()
@@ -386,8 +390,8 @@ if barstate.islast and buildLookback > reqBars + 2
     lastPassOffSup = 100000000
 
     // Old -> new scan
-    for k = 0 to buildLookback - 1
-        off = buildLookback - k
+    for k = 0 to safeLookback - 1
+        off = safeLookback - k
         if off > reqBars and off <= bar_index
             atrRef = math.max(atrv[off], syminfo.mintick)
             inDateWindow = not useDiagDateWindow or (time_close[off] >= diagStartTime and time_close[off] <= diagEndTime)
