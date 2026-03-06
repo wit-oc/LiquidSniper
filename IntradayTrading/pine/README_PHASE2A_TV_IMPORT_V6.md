@@ -31,14 +31,15 @@ Default is `auto`.
 - `manual` → use all raw inputs exactly as entered.
 - `auto` → auto-selects by current chart timeframe:
   - `>= ~1W` -> `1W macro`
-  - `>= ~1D` -> `1D swing`
+  - `>= ~1D` -> `1D cert`
   - lower -> `4H intraday`
-- `1D swing` -> balanced wider swing windows with moderate recall (`persist` and `revisit` softened vs manual defaults).
-- `1D recall` -> more permissive 1D profile to recover missed swing anchors (wider windows + looser rho/Q + tighter same-side gap + higher retention + softer persist/revisit gates).
+- `1D cert` -> production/clean-chart profile (longer windows, stronger dedupe, tighter retention, avgQ + visible-gap thinning).
+- `1D recall` -> permissive recovery profile for missed swing anchors.
 - `4H intraday` -> tighter intraday windows.
 - `1W macro` -> broad regime windows.
 
 Debug table row `Mode / profile` shows the active profile. Rows `W ...`, `E/rho/P/Q/dev`, `Retention...`, and `Cluster ...` show manual -> effective values where applicable.
+Additional diagnostics include visible-zone suppression count and accepted/kept age-bucket splits.
 
 ## Fail reasons and dot colors
 Enable `DIAG: show failed anchor dots` to plot failed anchors by reason.
@@ -103,4 +104,5 @@ Debug table shows for each side:
 - Reversal is measured in a forward window **after** excursion timing (`tE`) to reduce false misses on slower swing reversals.
 - `Retest decay` is optional and off by default to keep certification runs easy to compare.
 - If you are looking for deviation threshold in UI, the field label is: `deviationInvalidATR (outlier invalid, ATR)`.
-- For noisy charts, tune `Q_min`, `anchorRetentionPercent`, and `minClusterScore` before tightening candidate veto.
+- For noisy charts, tune `Q_min`, `anchorRetentionPercent`, `minClusterScore`, and `minClusterAvgQ` before tightening candidate veto.
+- Use `Visible-zone min gap` settings to prevent stacked displayed zones in the same price neighborhood.
