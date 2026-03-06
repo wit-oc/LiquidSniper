@@ -28,7 +28,7 @@ W_reversal_h              = input.float(240.0, "W_reversal hours", minval=1.0, s
 W_persist_h               = input.float(144.0, "W_persist hours", minval=1.0, step=1.0)
 W_revisit_h               = input.float(240.0, "W_revisit hours", minval=1.0, step=1.0)
 W_gap_same_h              = input.float(216.0, "W_gap_same hours", minval=0.0, step=1.0)
-W_gap_opp_h               = input.float(18.0, "W_gap_opp hours", minval=0.0, step=1.0)
+W_gap_opp_h               = input.float(24.0, "W_gap_opp hours", minval=0.0, step=1.0)
 
 // Presets (optional)
 presetProfile             = input.string("manual", "Preset profile", options=["manual", "auto", "1D cert", "1D recall", "4H intraday", "1W macro"])
@@ -37,7 +37,7 @@ presetProfile             = input.string("manual", "Preset profile", options=["m
 E_min                     = input.float(2.20, "E_min (ATR)", minval=0.10, step=0.05)
 rho_min                   = input.float(0.24, "rho_min", minval=0.01, step=0.01)
 persist_min               = input.int(3, "persist_min bars", minval=0, maxval=400)
-revisitMaxCount           = input.int(3, "revisit max count", minval=0, maxval=200)
+revisitMaxCount           = input.int(1, "revisit max count", minval=0, maxval=200)
 revisitTolATR             = input.float(0.20, "revisit tolerance (ATR)", minval=0.0, step=0.05)
 persistTolATR             = input.float(0.60, "persistence tolerance (ATR)", minval=0.0, step=0.05)
 deviationInvalidATR       = input.float(3.50, "deviationInvalidATR (outlier invalid, ATR)", minval=0.25, step=0.25)
@@ -55,14 +55,14 @@ qR_ref                    = input.float(1.0, "qR saturation rho", minval=0.05, s
 // Launch-aware ranking (V6.8)
 useLaunchRanking          = input.bool(true, "Use launch-aware ranking")
 launchHoldMult            = input.float(3.0, "launchHoldMult", minval=1.0, step=0.25)
-launchPreRangeMult        = input.float(1.0, "launchPreRangeMult", minval=0.25, step=0.25)
+launchPreRangeMult        = input.float(1.75, "launchPreRangeMult", minval=0.25, step=0.25)
 launchERefATR             = input.float(8.0, "launchERefATR", minval=0.5, step=0.5)
 launchBreakRefATR         = input.float(2.0, "launchBreakRefATR", minval=0.1, step=0.1)
-launchEdgeFracMax         = input.float(0.35, "launchEdgeFracMax", minval=0.05, maxval=1.0, step=0.05)
-launchPromoteMinBreakATR  = input.float(0.25, "launchPromoteMinBreakATR", minval=0.0, step=0.05)
-launchBlend               = input.float(0.60, "launchBlend", minval=0.0, maxval=1.0, step=0.05)
-launchRescueGraceQ        = input.float(5.0, "launchRescueGraceQ", minval=0.0, maxval=50.0, step=0.5)
-launchRescueMinQ          = input.float(70.0, "launchRescueMinQ", minval=0.0, maxval=100.0, step=0.5)
+launchEdgeFracMax         = input.float(0.30, "launchEdgeFracMax", minval=0.05, maxval=1.0, step=0.05)
+launchPromoteMinBreakATR  = input.float(0.50, "launchPromoteMinBreakATR", minval=0.0, step=0.05)
+launchBlend               = input.float(0.65, "launchBlend", minval=0.0, maxval=1.0, step=0.05)
+launchRescueGraceQ        = input.float(3.5, "launchRescueGraceQ", minval=0.0, maxval=50.0, step=0.5)
+launchRescueMinQ          = input.float(80.0, "launchRescueMinQ", minval=0.0, maxval=100.0, step=0.5)
 
 useRetestDecay            = input.bool(false, "Apply retest-decay hook in Q")
 retestDecayLambda         = input.float(0.35, "Retest-decay lambda", minval=0.0, step=0.05)
@@ -70,6 +70,8 @@ retestDecayTolATR         = input.float(0.50, "Retest-decay matching tol (ATR)",
 
 // Retention / suppression
 useGapGate                = input.bool(true, "Use side-aware gap suppression")
+anchorPriceGapPct         = input.float(0.012, "Retention same-side price gap (% price)", minval=0.0, maxval=0.10, step=0.001)
+anchorPriceGapATR         = input.float(1.75, "Retention same-side price gap (ATR)", minval=0.0, step=0.05)
 anchorRetentionPercent    = input.float(12.0, "Anchor retention percent", minval=1.0, maxval=100.0, step=1.0)
 maxAnchorsKept            = input.int(180, "Max anchors kept", minval=20, maxval=600)
 
@@ -79,6 +81,8 @@ clusterTolATR             = input.float(1.00, "Cluster tolerance ATR", minval=0.
 minClusterPoints          = input.int(3, "Min points per cluster", minval=1, maxval=80)
 minClusterScore           = input.float(7.0, "Min cluster score", minval=0.0, step=0.5)
 minClusterAvgQ            = input.float(55.0, "Min cluster average Q (0=off)", minval=0.0, maxval=100.0, step=0.5)
+majorClusterMinLaunch     = input.float(85.0, "Major-cluster bypass min launch", minval=0.0, maxval=100.0, step=0.5)
+majorClusterMinRank       = input.float(80.0, "Major-cluster bypass min rank", minval=0.0, maxval=100.0, step=0.5)
 mergeAcrossSides          = input.bool(true, "Merge across sides")
 zoneWidthMult             = input.float(1.35, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
 maxClusterWidthPct        = input.float(0.07, "Max cluster width (% of price)", minval=0.01, maxval=0.50, step=0.01)
@@ -157,7 +161,7 @@ if activeProfile == "1D cert"
     effWPersistH := 144.0
     effWRevisitH := 240.0
     effWGapSameH := 216.0
-    effWGapOppH := 18.0
+    effWGapOppH := 24.0
     effRhoMin := 0.24
     effQMin := 55.0
     effDeviationInvalidATR := 3.50
@@ -167,20 +171,20 @@ if activeProfile == "1D cert"
     effAnchorRetentionPercent := 12.0
     effMaxAnchorsKept := 180
     effPersistMinInput := 3
-    effRevisitMaxCount := 3
+    effRevisitMaxCount := 1
     effMinClusterAvgQ := 55.0
     effVisibleMinGapPct := 0.015
     effVisibleMinGapATR := 1.00
     effUseLaunchRanking := true
     effLaunchHoldMult := 3.0
-    effLaunchPreRangeMult := 1.0
+    effLaunchPreRangeMult := 1.75
     effLaunchERefATR := 8.0
     effLaunchBreakRefATR := 2.0
-    effLaunchEdgeFracMax := 0.35
-    effLaunchPromoteMinBreakATR := 0.25
-    effLaunchBlend := 0.60
-    effLaunchRescueGraceQ := 5.0
-    effLaunchRescueMinQ := 70.0
+    effLaunchEdgeFracMax := 0.30
+    effLaunchPromoteMinBreakATR := 0.50
+    effLaunchBlend := 0.65
+    effLaunchRescueGraceQ := 3.5
+    effLaunchRescueMinQ := 80.0
 else if activeProfile == "1D recall"
     effWMoveH := 240.0
     effWReversalH := 240.0
@@ -277,6 +281,8 @@ var cBot                  = array.new_float()
 var cMid                  = array.new_float()
 var cScore                = array.new_float()
 var cLocalScore           = array.new_float()
+var cMaxRank              = array.new_float()
+var cMaxLaunch            = array.new_float()
 var cCount                = array.new_int()
 var cFirstTime            = array.new_int()
 var cVisible              = array.new_bool()
@@ -448,6 +454,8 @@ f_reset_all() =>
     array.clear(cMid)
     array.clear(cScore)
     array.clear(cLocalScore)
+    array.clear(cMaxRank)
+    array.clear(cMaxLaunch)
     array.clear(cCount)
     array.clear(cFirstTime)
     array.clear(cVisible)
@@ -456,7 +464,7 @@ f_reset_all() =>
     array.clear(cTouch)
     array.clear(cState)
 
-f_add_anchor_to_cluster(_p, _rankScore, _localScore, _time, _side, _atrRef, _ageBars) =>
+f_add_anchor_to_cluster(_p, _rankScore, _localScore, _launchScore, _time, _side, _atrRef, _ageBars) =>
     tolPct = math.abs(_p) * effClusterTolPct
     tolAtr = effClusterTolATR * math.max(_atrRef, syminfo.mintick)
     tol = math.max(syminfo.mintick * 2.0, math.max(tolPct, tolAtr))
@@ -486,6 +494,8 @@ f_add_anchor_to_cluster(_p, _rankScore, _localScore, _time, _side, _atrRef, _age
         array.set(cMid, best, mid)
         array.set(cScore, best, array.get(cScore, best) + wScore)
         array.set(cLocalScore, best, array.get(cLocalScore, best) + wLocalScore)
+        array.set(cMaxRank, best, math.max(array.get(cMaxRank, best), _rankScore))
+        array.set(cMaxLaunch, best, math.max(array.get(cMaxLaunch, best), _launchScore))
         array.set(cCount, best, array.get(cCount, best) + 1)
         array.set(cTouch, best, array.get(cTouch, best) + 1)
         array.set(cFirstTime, best, math.min(array.get(cFirstTime, best), _time))
@@ -497,6 +507,8 @@ f_add_anchor_to_cluster(_p, _rankScore, _localScore, _time, _side, _atrRef, _age
             array.push(cMid, _p)
             array.push(cScore, wScore)
             array.push(cLocalScore, wLocalScore)
+            array.push(cMaxRank, _rankScore)
+            array.push(cMaxLaunch, _launchScore)
             array.push(cCount, 1)
             array.push(cFirstTime, _time)
             array.push(cVisible, false)
@@ -525,7 +537,10 @@ f_finalize_clusters() =>
 
             localSc = array.get(cLocalScore, i)
             avgQ = cnt > 0 ? (localSc / cnt) : 0.0
-            passPts = cnt >= minClusterPoints
+            maxRank = array.get(cMaxRank, i)
+            maxLaunch = array.get(cMaxLaunch, i)
+            majorCluster = maxLaunch >= majorClusterMinLaunch or maxRank >= majorClusterMinRank
+            passPts = cnt >= minClusterPoints or majorCluster
             passScore = sc >= minClusterScore
             passAvgQ = effMinClusterAvgQ <= 0.0 or avgQ >= effMinClusterAvgQ
             passWidth = w <= capW + syminfo.mintick
@@ -544,7 +559,13 @@ f_finalize_clusters() =>
             array.set(cState, i, st)
 
 f_zone_display_score(i) =>
-    array.get(cScore, i) + array.get(cCount, i) * 0.25
+    cnt = math.max(array.get(cCount, i), 1)
+    avgRank = array.get(cScore, i) / cnt
+    maxRank = array.get(cMaxRank, i)
+    maxLaunch = array.get(cMaxLaunch, i)
+    baseScore = 0.65 * maxRank + 0.35 * avgRank
+    launchBoost = 0.05 * math.max(maxLaunch - 80.0, 0.0)
+    baseScore + launchBoost
 
 f_select_visible() =>
     zCount = array.size(cMid)
@@ -1029,7 +1050,11 @@ if barstate.islast and buildLookback > reqBars + 2
     selAtr = array.new_float()
 
     selResOff = array.new_int()
+    selResPrice = array.new_float()
+    selResAtr = array.new_float()
     selSupOff = array.new_int()
+    selSupPrice = array.new_float()
+    selSupAtr = array.new_float()
 
     if nAcc > 0 and keepTarget > 0
         for pick = 0 to nAcc - 1
@@ -1046,6 +1071,8 @@ if barstate.islast and buildLookback > reqBars + 2
                 array.set(used, bestIdx, true)
                 off = array.get(accOff, bestIdx)
                 side = array.get(accSide, bestIdx)
+                candidatePrice = array.get(accPrice, bestIdx)
+                candidateAtr = math.max(array.get(accAtr, bestIdx), syminfo.mintick)
 
                 violate = false
                 if useGapGate
@@ -1053,7 +1080,11 @@ if barstate.islast and buildLookback > reqBars + 2
                         nRes = array.size(selResOff)
                         if nRes > 0
                             for j = 0 to nRes - 1
-                                if math.abs(off - array.get(selResOff, j)) <= gapSameBars
+                                selOffJ = array.get(selResOff, j)
+                                selPriceJ = array.get(selResPrice, j)
+                                selAtrJ = math.max(array.get(selResAtr, j), syminfo.mintick)
+                                samePriceGapAbs = math.max(math.abs(candidatePrice) * anchorPriceGapPct, math.max(candidateAtr, selAtrJ) * anchorPriceGapATR)
+                                if math.abs(off - selOffJ) <= gapSameBars or math.abs(candidatePrice - selPriceJ) <= samePriceGapAbs
                                     violate := true
                         nSup = array.size(selSupOff)
                         if nSup > 0
@@ -1064,7 +1095,11 @@ if barstate.islast and buildLookback > reqBars + 2
                         nSup = array.size(selSupOff)
                         if nSup > 0
                             for j = 0 to nSup - 1
-                                if math.abs(off - array.get(selSupOff, j)) <= gapSameBars
+                                selOffJ = array.get(selSupOff, j)
+                                selPriceJ = array.get(selSupPrice, j)
+                                selAtrJ = math.max(array.get(selSupAtr, j), syminfo.mintick)
+                                samePriceGapAbs = math.max(math.abs(candidatePrice) * anchorPriceGapPct, math.max(candidateAtr, selAtrJ) * anchorPriceGapATR)
+                                if math.abs(off - selOffJ) <= gapSameBars or math.abs(candidatePrice - selPriceJ) <= samePriceGapAbs
                                     violate := true
                         nRes = array.size(selResOff)
                         if nRes > 0
@@ -1102,8 +1137,12 @@ if barstate.islast and buildLookback > reqBars + 2
                             dbgKeptOld += 1
                         if side == SIDE_RESIST
                             array.push(selResOff, off)
+                            array.push(selResPrice, array.get(accPrice, bestIdx))
+                            array.push(selResAtr, array.get(accAtr, bestIdx))
                         else
                             array.push(selSupOff, off)
+                            array.push(selSupPrice, array.get(accPrice, bestIdx))
+                            array.push(selSupAtr, array.get(accAtr, bestIdx))
                     else
                         dbgFailRetain += 1
                         idxCode = array.get(accFinalReason, bestIdx)
@@ -1136,7 +1175,7 @@ if barstate.islast and buildLookback > reqBars + 2
     if dbgKept > 0
         for i = 0 to dbgKept - 1
             ageBars = array.get(selOff, i)
-            f_add_anchor_to_cluster(array.get(selPrice, i), array.get(selRank, i), array.get(selQLocal, i), array.get(selTime, i), array.get(selSide, i), array.get(selAtr, i), ageBars)
+            f_add_anchor_to_cluster(array.get(selPrice, i), array.get(selRank, i), array.get(selQLocal, i), array.get(selQLaunch, i), array.get(selTime, i), array.get(selSide, i), array.get(selAtr, i), ageBars)
 
     f_finalize_clusters()
     dbgVisibleSuppressed := f_select_visible()

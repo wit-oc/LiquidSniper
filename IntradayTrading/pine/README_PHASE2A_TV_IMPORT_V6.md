@@ -114,11 +114,11 @@ Send those row values (or a screenshot including them).
 - `W_persist_h = 144`
 - `W_revisit_h = 240`
 - `W_gap_same_h = 216`
-- `W_gap_opp_h = 18`
+- `W_gap_opp_h = 24`
 - `E_min = 2.2`
 - `rho_min = 0.24`
 - `persist_min = 3`
-- `revisitMaxCount = 3`
+- `revisitMaxCount = 1`
 - `revisitTolATR = 0.20`
 - `persistTolATR = 0.60`
 - `Q_min = 55`
@@ -136,23 +136,24 @@ Send those row values (or a screenshot including them).
 - `visibleMinGapATR = 1.00`
 - `useLaunchRanking = true`
 - `launchHoldMult = 3.0`
-- `launchPreRangeMult = 1.0`
+- `launchPreRangeMult = 1.75`
 - `launchERefATR = 8.0`
 - `launchBreakRefATR = 2.0`
-- `launchEdgeFracMax = 0.35`
-- `launchPromoteMinBreakATR = 0.25`
-- `launchBlend = 0.60`
-- `launchRescueGraceQ = 5.0`
-- `launchRescueMinQ = 70.0`
+- `launchEdgeFracMax = 0.30`
+- `launchPromoteMinBreakATR = 0.50`
+- `launchBlend = 0.65`
+- `launchRescueGraceQ = 3.5`
+- `launchRescueMinQ = 80.0`
 
 ## Preset launch defaults
-- `1D cert`: launch ranking ON, `hold=3.0`, `pre=1.0`, `Eref=8.0`, `Bref=2.0`, `edgeMax=0.35`, `promoteMinBreak=0.25`, `blend=0.60`, `rescueGrace=5.0`, `rescueMinQ=70.0`.
+- `1D cert`: launch ranking ON, `hold=3.0`, `pre=1.75`, `Eref=8.0`, `Bref=2.0`, `edgeMax=0.30`, `promoteMinBreak=0.50`, `blend=0.65`, `rescueGrace=3.5`, `rescueMinQ=80.0`.
 - `1D recall`: launch ranking ON, `hold=3.0`, `pre=1.0`, `Eref=8.0`, `Bref=1.5`, `edgeMax=0.45`, `promoteMinBreak=0.15`, `blend=0.55`, `rescueGrace=7.0`, `rescueMinQ=65.0`.
 - `4H intraday`: launch ranking OFF.
 - `1W macro`: launch ranking ON, `hold=4.0`, `blend=0.70` (other launch fields inherit manual unless overridden).
 
 ## Notes
-- 2026-03-06 local lock (not promoted upstream yet): 1D cert defaults set from BTC 1D export (`CFG|W=240/240/144/240 G=216/18`, `CFG|E=2.2 rho=0.24 Q=55 P=3 N=3 dev=3.5`).
+- 2026-03-06 v6.1 pass-1 tuning: 1D cert defaults updated to (`CFG|W=240/240/144/240 G=216/24`, `CFG|E=2.2 rho=0.24 Q=55 P=3 N=1 dev=3.5`) and launch eligibility tightened.
+- 2026-03-06 v6.1 pass-1 logic: added same-side price dedupe in retention (`anchorPriceGapPct/ATR`), cluster scoring biased to `maxRank+avgRank`, and major-anchor min-point bypass (`majorClusterMinLaunch/Rank`).
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.
 - Reversal is measured in a forward window **after** excursion timing (`tE`) to reduce false misses on slower swing reversals.
 - `Retest decay` is optional and off by default to keep certification runs easy to compare.
