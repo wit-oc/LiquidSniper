@@ -13,6 +13,8 @@ indicator("Phase2A S/R Watcher V6 (Foxian Excursion/Reversal Model)", overlay=tr
 // ---------- Inputs ----------
 mode                      = input.string("CERT", "Operating mode", options=["CERT", "DIAG"])
 lookbackBars              = input.int(3500, "Historical lookback bars", minval=300, maxval=5000)
+computeBudgetBars         = input.int(1200, "Compute budget: max bars scanned", minval=200, maxval=5000)
+candidateStrideBars       = input.int(1, "Compute budget: candidate stride bars", minval=1, maxval=10)
 
 // Candidate stream (soft by default)
 anchorCandidateMode       = input.string("local-extrema", "Candidate mode", options=["local-extrema", "all-bars"])
@@ -227,6 +229,7 @@ var cLine                 = array.new_line()
 var dDots                 = array.new_label()
 
 var int lastBuildLookback = na
+var int lastSafeLookback = na
 
 // Debug counters
 var int dbgCand           = 0
@@ -544,9 +547,12 @@ if barstate.islast
     dbgInspectResReason := "-"
     dbgInspectSupReason := "-"
     lastBuildLookback := buildLookback
+    lastSafeLookback := na
 
 if barstate.islast and buildLookback > reqBars + 2
-    safeLookback = math.max(0, math.min(buildLookback, bar_index - candidatePivotLen - reqBars - 3))
+    safeLookbackRaw = math.max(0, math.min(buildLookback, bar_index - candidatePivotLen - reqBars - 3))
+    safeLookback = math.max(0, math.min(safeLookbackRaw, computeBudgetBars))
+    lastSafeLookback := safeLookback
 
     // Accepted at base-gates stage
     accOff = array.new_int()
@@ -564,7 +570,8 @@ if barstate.islast and buildLookback > reqBars + 2
 
     for k = 0 to safeLookback - 1
         off = safeLookback - k
-        if off > reqBars and off <= bar_index
+        scanThis = candidateStrideBars <= 1 or (k % candidateStrideBars == 0)
+        if scanThis and off > reqBars and off <= bar_index
             atrRef = math.max(atrv[off], syminfo.mintick)
 
             for s = 0 to 1
@@ -951,8 +958,8 @@ if barstate.islast and effShowDebug
 
     table.cell(t, 0, 0, "Mode / profile", text_color=color.white)
     table.cell(t, 1, 0, mode + " / " + activeProfile, text_color=color.white)
-    table.cell(t, 0, 1, "Lookback / reqBars", text_color=color.white)
-    table.cell(t, 1, 1, (not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-") + " / " + str.tostring(reqBars), text_color=color.white)
+    table.cell(t, 0, 1, "Lookback raw/safe/req", text_color=color.white)
+    table.cell(t, 1, 1, (not na(lastBuildLookback) ? str.tostring(lastBuildLookback) : "-") + "/" + (not na(lastSafeLookback) ? str.tostring(lastSafeLookback) : "-") + "/" + str.tostring(reqBars) + " s" + str.tostring(candidateStrideBars), text_color=color.white)
     table.cell(t, 0, 2, "Candidate/Accepted/Kept", text_color=color.white)
     table.cell(t, 1, 2, str.tostring(dbgCand) + " / " + str.tostring(dbgAccepted) + " / " + str.tostring(dbgKept), text_color=color.white)
     table.cell(t, 0, 3, "Fail E/R/P/N/D/Q/G/Rt", text_color=color.white)

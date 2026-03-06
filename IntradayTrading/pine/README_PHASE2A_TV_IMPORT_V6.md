@@ -46,6 +46,13 @@ If this is too dense, use:
 - `DIAG failed-dot scope` = `date-window` or `inspect-only`
 - optionally enable `DIAG: use date window for failed dots` with `DIAG window start/end`
 
+## Runtime safety (new)
+If TradingView shows `Loop takes too long (> 500 ms)`, reduce workload using:
+- `Compute budget: max bars scanned` (default 1200)
+- `Compute budget: candidate stride bars` (set 2 or 3 for quick diagnostics)
+
+Debug row `Lookback raw/safe/req` shows the effective scan size.
+
 - **Red**: `FAIL_E_MIN`
 - **Orange**: `FAIL_R_RATIO`
 - **Yellow**: `FAIL_PERSIST`
