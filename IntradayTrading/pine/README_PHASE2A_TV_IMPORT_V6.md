@@ -2,7 +2,9 @@
 
 ## File
 - `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_FOXIAN_EXCURSION_REVERSAL_MODEL.pine`
-- `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (new geometry-projector branch)
+- `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (geometry-projector branch)
+- `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_1_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (neutral-zone evidence refactor)
+- `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_2_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (flip-priority display/pass tuning)
 
 ## Model summary
 V6 shifts anchor quality from candle geometry to excursion/reversal behavior:
@@ -157,6 +159,7 @@ Send those row values (or a screenshot including them).
 - 2026-03-06 v6.1 pass-1 logic: added same-side price dedupe in retention (`anchorPriceGapPct/ATR`), cluster scoring biased to `maxRank+avgRank`, and major-anchor min-point bypass (`majorClusterMinLaunch/Rank`).
 - 2026-03-06 v6.1 pass-3 logic: added optional launch velocity term (`tBreak`-based) into `Q_launch`, and widened major-rescue to permit `FAIL_R_RATIO` (still constrained by launch eligibility + `rescueMajorBreakMin`).
 - 2026-03-06 v6.2 geometry branch: clusters now form from seed intervals (not raw wick points), cluster pass uses peak-quality gates (`minClusterPeakRank/Launch`), `mergeAcrossSides` defaults OFF, and weakening state uses real post-formation retest counts (`cRetestCount`).
+- 2026-03-07 v6.2.2 tuning branch: exposed display retest penalty knobs (`displayRetestPenaltyPerTouch`, `displayRetestPenaltyMaxTouches`), added explicit flip bonus in display score using dual-side evidence, and allowed two-sided evidence (`passPeakFlipMinEvidence`) to satisfy peak gate.
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.
 - Reversal is measured in a forward window **after** excursion timing (`tE`) to reduce false misses on slower swing reversals.
 - `Retest decay` is optional and off by default to keep certification runs easy to compare.
