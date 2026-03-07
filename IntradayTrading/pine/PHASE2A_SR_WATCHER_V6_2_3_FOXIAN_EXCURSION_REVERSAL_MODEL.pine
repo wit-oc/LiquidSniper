@@ -643,22 +643,6 @@ f_finalize_clusters(_scanBars) =>
             retests = f_count_zone_retests(top, bot, array.get(cFirstTime, i), _scanBars)
             st = not pass ? ZONE_STATE_CANDIDATE : zoneCrossed ? ZONE_STATE_BROKEN : retests >= zoneWeakRetests ? ZONE_STATE_WEAKENING : ZONE_STATE_ACTIVE
 
-            if probeBandEnabled and f_band_overlap(top, bot, probeBandLow, probeBandHigh)
-                dbgProbeBandClustersPre += 1
-                if pass
-                    dbgProbeBandClustersPass += 1
-                else
-                    if not passPts
-                        dbgProbeBandFailPts += 1
-                    if not passPeak
-                        dbgProbeBandFailPeak += 1
-                    if not passAvgQ
-                        dbgProbeBandFailAvgQ += 1
-                    if not passWidth
-                        dbgProbeBandFailWidth += 1
-                    if not passTrafficScore
-                        dbgProbeBandFailTraffic += 1
-
             array.set(cTop, i, top)
             array.set(cBot, i, bot)
             array.set(cMid, i, (top + bot) * 0.5)
@@ -1348,6 +1332,48 @@ if barstate.islast and buildLookback > reqBars + 2
 
     f_finalize_clusters(safeLookback)
     if probeBandEnabled
+        zProbe = array.size(cMid)
+        if zProbe > 0
+            for zi = 0 to zProbe - 1
+                topZ = array.get(cTop, zi)
+                botZ = array.get(cBot, zi)
+                if f_band_overlap(topZ, botZ, probeBandLow, probeBandHigh)
+                    dbgProbeBandClustersPre += 1
+                    cntZ = array.get(cCount, zi)
+                    scZ = array.get(cScore, zi)
+                    localScZ = array.get(cLocalScore, zi)
+                    avgQZ = cntZ > 0 ? (localScZ / cntZ) : 0.0
+                    maxRankZ = array.get(cMaxRank, zi)
+                    maxLaunchZ = array.get(cMaxLaunch, zi)
+                    bullEvZ = array.get(cBullEvidence, zi)
+                    bearEvZ = array.get(cBearEvidence, zi)
+                    flipQualifiedZ = bullEvZ >= passPeakFlipMinEvidence and bearEvZ >= passPeakFlipMinEvidence
+                    flipShelfBypassZ = bullEvZ >= flipShelfBypassMinEvidence and bearEvZ >= flipShelfBypassMinEvidence and cntZ >= flipShelfBypassMinAnchors and (effMinClusterAvgQ <= 0.0 or avgQZ >= math.max(0.0, effMinClusterAvgQ - flipShelfBypassAvgQGrace))
+                    majorClusterZ = maxLaunchZ >= majorClusterMinLaunch or maxRankZ >= majorClusterMinRank
+                    passPtsZ = cntZ >= minClusterPoints or majorClusterZ
+                    passTrafficZ = minClusterScore <= 0.0 or scZ >= minClusterScore
+                    passPeakZ = maxRankZ >= minClusterPeakRank or maxLaunchZ >= minClusterPeakLaunch or flipQualifiedZ
+                    passAvgQZ = effMinClusterAvgQ <= 0.0 or avgQZ >= effMinClusterAvgQ
+                    midZ = array.get(cMid, zi)
+                    widthZ = math.abs(topZ - botZ)
+                    capWZ = math.max(syminfo.mintick * 4.0, math.abs(midZ) * maxClusterWidthPct)
+                    passWidthZ = widthZ <= capWZ + syminfo.mintick
+                    passSignalZ = (passPeakZ and passAvgQZ) or flipShelfBypassZ
+                    passZ = passPtsZ and passSignalZ and passWidthZ and passTrafficZ
+                    if passZ
+                        dbgProbeBandClustersPass += 1
+                    else
+                        if not passPtsZ
+                            dbgProbeBandFailPts += 1
+                        if not passPeakZ
+                            dbgProbeBandFailPeak += 1
+                        if not passAvgQZ
+                            dbgProbeBandFailAvgQ += 1
+                        if not passWidthZ
+                            dbgProbeBandFailWidth += 1
+                        if not passTrafficZ
+                            dbgProbeBandFailTraffic += 1
+
         if dbgProbeBandClustersPre == 0
             dbgProbeBandStatus := "NO_CLUSTER"
         else if dbgProbeBandClustersPass > 0
