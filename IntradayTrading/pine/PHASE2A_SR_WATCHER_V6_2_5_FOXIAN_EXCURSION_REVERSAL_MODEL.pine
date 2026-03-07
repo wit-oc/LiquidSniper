@@ -115,6 +115,8 @@ passPeakFlipMinEvidence   = input.float(55.0, "Pass-peak flip min evidence", min
 flipShelfBypassMinEvidence = input.float(55.0, "Flip-shelf bypass min evidence", minval=0.0, maxval=100.0, step=0.5)
 flipShelfBypassMinAnchors = input.int(2, "Flip-shelf bypass min anchors", minval=1, maxval=20)
 flipShelfBypassAvgQGrace  = input.float(5.0, "Flip-shelf bypass avgQ grace", minval=0.0, maxval=30.0, step=0.5)
+flipWidthGracePct         = input.float(0.004, "Flip width grace (% price)", minval=0.0, step=0.001)
+flipWidthGraceATR         = input.float(0.50, "Flip width grace ATR", minval=0.0, step=0.05)
 ageWeightDecayPer1000Bars = input.float(0.10, "Cluster age decay per 1000 bars", minval=0.0, maxval=2.0, step=0.05)
 
 // Zone state baseline
@@ -353,6 +355,12 @@ var cBearCount            = array.new_int()
 var cDistOnlyMergeCount   = array.new_int()
 var cAnchorCount          = array.new_int()
 var cRetestCount          = array.new_int()
+var cTargetW              = array.new_float()
+var cCapW                 = array.new_float()
+var cSoftCap              = array.new_float()
+var cWidthLimit           = array.new_float()
+var cFinalW               = array.new_float()
+var cGuardHit             = array.new_bool()
 var cState                = array.new_int()
 
 var cBox                  = array.new_box()
@@ -397,6 +405,11 @@ var float dbgProbeBandPreMidSum = 0.0
 var float dbgProbeBandPostMidSum = 0.0
 var float dbgProbeBandPreWidthSum = 0.0
 var float dbgProbeBandPostWidthSum = 0.0
+var float dbgProbeBandPostCapWSum = 0.0
+var float dbgProbeBandPostSoftCapSum = 0.0
+var float dbgProbeBandPostWidthLimitSum = 0.0
+var float dbgProbeBandPostFinalWSum = 0.0
+var int dbgProbeBandGuardHits = 0
 var int dbgProbeBandFailPeak = 0
 var int dbgProbeBandFailAvgQ = 0
 var int dbgProbeBandFailWidth = 0
@@ -555,6 +568,12 @@ f_reset_all() =>
     array.clear(cDistOnlyMergeCount)
     array.clear(cAnchorCount)
     array.clear(cRetestCount)
+    array.clear(cTargetW)
+    array.clear(cCapW)
+    array.clear(cSoftCap)
+    array.clear(cWidthLimit)
+    array.clear(cFinalW)
+    array.clear(cGuardHit)
     array.clear(cState)
 
 f_add_anchor_to_cluster(_seedTop, _seedBot, _seedMid, _rankScore, _localScore, _launchScore, _time, _side, _atrRef, _ageBars) =>
@@ -633,6 +652,12 @@ f_add_anchor_to_cluster(_seedTop, _seedBot, _seedMid, _rankScore, _localScore, _
             array.push(cDistOnlyMergeCount, 0)
             array.push(cAnchorCount, 1)
             array.push(cRetestCount, 0)
+            array.push(cTargetW, 0.0)
+            array.push(cCapW, 0.0)
+            array.push(cSoftCap, 0.0)
+            array.push(cWidthLimit, 0.0)
+            array.push(cFinalW, 0.0)
+            array.push(cGuardHit, false)
             array.push(cState, ZONE_STATE_CANDIDATE)
 
 f_count_zone_retests(_top, _bot, _startTime, _scanBars) =>
@@ -680,6 +705,7 @@ f_finalize_clusters(_scanBars) =>
 
             top := topPad
             bot := botPad
+            guardTriggered = false
             if spanPad > desiredW
                 over = spanPad - desiredW
                 trimScale = capMode == "soft" ? 0.50 : capMode == "off" ? 0.0 : 1.0
@@ -702,6 +728,7 @@ f_finalize_clusters(_scanBars) =>
                 postBandOverlap = probeBandEnabled and f_band_overlap(candTop, candBot, probeBandLow, probeBandHigh)
 
                 if finalizeFlipNoShrinkGuard and flipQualifiedCap and preBandOverlap and not postBandOverlap
+                    guardTriggered := true
                     softTop = topPad - trimTop * 0.20
                     softBot = botPad + trimBot * 0.20
                     softOverlap = probeBandEnabled and f_band_overlap(softTop, softBot, probeBandLow, probeBandHigh)
@@ -731,7 +758,14 @@ f_finalize_clusters(_scanBars) =>
             passTrafficScore = minClusterScore <= 0.0 or sc >= minClusterScore
             passPeak = maxRank >= minClusterPeakRank or maxLaunch >= minClusterPeakLaunch or flipQualified
             passAvgQ = effMinClusterAvgQ <= 0.0 or avgQ >= effMinClusterAvgQ
-            passWidth = w <= capW + syminfo.mintick
+            strictWidthLimit = capW
+            softWidthLimit = softCap
+            offWidthLimit = 1e10
+            baseWidthLimit = capMode == "strict" ? strictWidthLimit : capMode == "soft" ? softWidthLimit : offWidthLimit
+            flipWidthGraceAbs = math.max(math.abs(mid) * flipWidthGracePct, math.max(atrv, syminfo.mintick) * flipWidthGraceATR)
+            widthLimit = (flipQualified and finalizeFlipNoShrinkGuard) ? math.max(baseWidthLimit, strictWidthLimit + flipWidthGraceAbs) : baseWidthLimit
+            widthGraceApplied = widthLimit > baseWidthLimit + syminfo.mintick
+            passWidth = w <= widthLimit + syminfo.mintick
             passSignal = (passPeak and passAvgQ) or flipShelfBypass
             pass = passPts and passSignal and passWidth and passTrafficScore
 
@@ -746,6 +780,12 @@ f_finalize_clusters(_scanBars) =>
             array.set(cPass, i, pass)
             array.set(cVisible, i, false)
             array.set(cRetestCount, i, retests)
+            array.set(cTargetW, i, targetW)
+            array.set(cCapW, i, capW)
+            array.set(cSoftCap, i, softCap)
+            array.set(cWidthLimit, i, widthLimit)
+            array.set(cFinalW, i, w)
+            array.set(cGuardHit, i, guardTriggered or widthGraceApplied)
             array.set(cState, i, st)
 
 f_zone_role_hint(i) =>
@@ -869,6 +909,11 @@ if barstate.islast
     dbgProbeBandPostMidSum := 0.0
     dbgProbeBandPreWidthSum := 0.0
     dbgProbeBandPostWidthSum := 0.0
+    dbgProbeBandPostCapWSum := 0.0
+    dbgProbeBandPostSoftCapSum := 0.0
+    dbgProbeBandPostWidthLimitSum := 0.0
+    dbgProbeBandPostFinalWSum := 0.0
+    dbgProbeBandGuardHits := 0
     dbgProbeBandFailPeak := 0
     dbgProbeBandFailAvgQ := 0
     dbgProbeBandFailWidth := 0
@@ -1456,6 +1501,12 @@ if barstate.islast and buildLookback > reqBars + 2
                     dbgProbeBandClustersPost += 1
                     dbgProbeBandPostMidSum += ((topZ + botZ) * 0.5)
                     dbgProbeBandPostWidthSum += math.abs(topZ - botZ)
+                    dbgProbeBandPostCapWSum += array.get(cCapW, zi)
+                    dbgProbeBandPostSoftCapSum += array.get(cSoftCap, zi)
+                    dbgProbeBandPostWidthLimitSum += array.get(cWidthLimit, zi)
+                    dbgProbeBandPostFinalWSum += array.get(cFinalW, zi)
+                    if array.get(cGuardHit, zi)
+                        dbgProbeBandGuardHits += 1
                     cntZ = array.get(cCount, zi)
                     scZ = array.get(cScore, zi)
                     localScZ = array.get(cLocalScore, zi)
@@ -1471,10 +1522,9 @@ if barstate.islast and buildLookback > reqBars + 2
                     passTrafficZ = minClusterScore <= 0.0 or scZ >= minClusterScore
                     passPeakZ = maxRankZ >= minClusterPeakRank or maxLaunchZ >= minClusterPeakLaunch or flipQualifiedZ
                     passAvgQZ = effMinClusterAvgQ <= 0.0 or avgQZ >= effMinClusterAvgQ
-                    midZ = array.get(cMid, zi)
                     widthZ = math.abs(topZ - botZ)
-                    capWZ = math.max(syminfo.mintick * 4.0, math.abs(midZ) * maxClusterWidthPct)
-                    passWidthZ = widthZ <= capWZ + syminfo.mintick
+                    widthLimitZ = array.get(cWidthLimit, zi)
+                    passWidthZ = widthZ <= widthLimitZ + syminfo.mintick
                     passSignalZ = (passPeakZ and passAvgQZ) or flipShelfBypassZ
                     passZ = passPtsZ and passSignalZ and passWidthZ and passTrafficZ
                     if passZ
@@ -1606,7 +1656,7 @@ if barstate.islast and effShowDebug
     table.cell(t, 0, 9, "Retention% / max", text_color=color.white)
     table.cell(t, 1, 9, str.tostring(anchorRetentionPercent, "#.##") + "->" + str.tostring(effAnchorRetentionPercent, "#.##") + "% / " + str.tostring(maxAnchorsKept) + "->" + str.tostring(effMaxAnchorsKept), text_color=color.white)
     table.cell(t, 0, 10, "Cluster+merge tol/pts/traf/peak/avgQ", text_color=color.white)
-    table.cell(t, 1, 10, "c:" + str.tostring(clusterTolPct * 100, "#.##") + "->" + str.tostring(effClusterTolPct * 100, "#.##") + "%|" + str.tostring(clusterTolATR, "#.##") + "->" + str.tostring(effClusterTolATR, "#.##") + " m:" + str.tostring(mergeTolPct * 100, "#.##") + "->" + str.tostring(effMergeTolPct * 100, "#.##") + "%|" + str.tostring(mergeTolATR, "#.##") + "->" + str.tostring(effMergeTolATR, "#.##") + " d=" + str.tostring(mergeAllowDistanceFallback) + "->" + str.tostring(effMergeAllowDistanceFallback) + " fCap=" + finalizeCapMode + "/" + str.tostring(finalizeFlipNoShrinkGuard) + "/" + str.tostring(finalizeFlipMinEvidence, "#.##") + " / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##") + " / " + str.tostring(minClusterPeakRank, "#.##") + "/" + str.tostring(minClusterPeakLaunch, "#.##") + " / " + str.tostring(minClusterAvgQ, "#.##") + "->" + str.tostring(effMinClusterAvgQ, "#.##"), text_color=color.white)
+    table.cell(t, 1, 10, "c:" + str.tostring(clusterTolPct * 100, "#.##") + "->" + str.tostring(effClusterTolPct * 100, "#.##") + "%|" + str.tostring(clusterTolATR, "#.##") + "->" + str.tostring(effClusterTolATR, "#.##") + " m:" + str.tostring(mergeTolPct * 100, "#.##") + "->" + str.tostring(effMergeTolPct * 100, "#.##") + "%|" + str.tostring(mergeTolATR, "#.##") + "->" + str.tostring(effMergeTolATR, "#.##") + " d=" + str.tostring(mergeAllowDistanceFallback) + "->" + str.tostring(effMergeAllowDistanceFallback) + " fCap=" + finalizeCapMode + "/" + str.tostring(finalizeFlipNoShrinkGuard) + "/" + str.tostring(finalizeFlipMinEvidence, "#.##") + " wG=" + str.tostring(flipWidthGracePct * 100, "#.###") + "%/" + str.tostring(flipWidthGraceATR, "#.##") + " / " + str.tostring(minClusterPoints) + " / " + str.tostring(minClusterScore, "#.##") + " / " + str.tostring(minClusterPeakRank, "#.##") + "/" + str.tostring(minClusterPeakLaunch, "#.##") + " / " + str.tostring(minClusterAvgQ, "#.##") + "->" + str.tostring(effMinClusterAvgQ, "#.##"), text_color=color.white)
     selBudgetDbg = math.min(maxAnchorDots, 500)
     failBudgetDbg = math.min(maxFailedAnchorDots, math.max(0, 500 - selBudgetDbg))
     table.cell(t, 0, 11, "Dots sel/fail/tot", text_color=color.white)
@@ -1657,13 +1707,18 @@ if barstate.islast and effShowDebug
     postMidAvg = dbgProbeBandClustersPost > 0 ? (dbgProbeBandPostMidSum / dbgProbeBandClustersPost) : na
     preWAvg = dbgProbeBandClustersPre > 0 ? (dbgProbeBandPreWidthSum / dbgProbeBandClustersPre) : na
     postWAvg = dbgProbeBandClustersPost > 0 ? (dbgProbeBandPostWidthSum / dbgProbeBandClustersPost) : na
+    postCapAvg = dbgProbeBandClustersPost > 0 ? (dbgProbeBandPostCapWSum / dbgProbeBandClustersPost) : na
+    postSoftCapAvg = dbgProbeBandClustersPost > 0 ? (dbgProbeBandPostSoftCapSum / dbgProbeBandClustersPost) : na
+    postWidthLimitAvg = dbgProbeBandClustersPost > 0 ? (dbgProbeBandPostWidthLimitSum / dbgProbeBandClustersPost) : na
+    postFinalWAvg = dbgProbeBandClustersPost > 0 ? (dbgProbeBandPostFinalWSum / dbgProbeBandClustersPost) : na
     dMidTxt = (not na(preMidAvg) and not na(postMidAvg)) ? str.tostring(postMidAvg - preMidAvg, "#.##") : "-"
     dWTxt = (not na(preWAvg) and not na(postWAvg)) ? str.tostring(postWAvg - preWAvg, "#.##") : "-"
-    bandDiag = probeBandEnabled ? ("A/K=" + str.tostring(dbgProbeBandAccepted) + "/" + str.tostring(dbgProbeBandKept) + "\nC pre/post/pass=" + str.tostring(dbgProbeBandClustersPre) + "/" + str.tostring(dbgProbeBandClustersPost) + "/" + str.tostring(dbgProbeBandClustersPass) + "\nΔmid=" + dMidTxt + " Δw=" + dWTxt + " dOnly=" + str.tostring(dbgProbeBandDistOnlyMerges) + "\n" + dbgProbeBandStatus + " f(pk/aq/w/t/p)=" + str.tostring(dbgProbeBandFailPeak) + "/" + str.tostring(dbgProbeBandFailAvgQ) + "/" + str.tostring(dbgProbeBandFailWidth) + "/" + str.tostring(dbgProbeBandFailTraffic) + "/" + str.tostring(dbgProbeBandFailPts)) : "probe OFF"
+    widthDiagTxt = (not na(postFinalWAvg) and not na(postCapAvg) and not na(postSoftCapAvg) and not na(postWidthLimitAvg)) ? ("W fin/cap/soft/lim=" + str.tostring(postFinalWAvg, "#.##") + "/" + str.tostring(postCapAvg, "#.##") + "/" + str.tostring(postSoftCapAvg, "#.##") + "/" + str.tostring(postWidthLimitAvg, "#.##") + " g=" + str.tostring(dbgProbeBandGuardHits)) : "W fin/cap/soft/lim=-/-/-/-"
+    bandDiag = probeBandEnabled ? ("A/K=" + str.tostring(dbgProbeBandAccepted) + "/" + str.tostring(dbgProbeBandKept) + "\nC pre/post/pass=" + str.tostring(dbgProbeBandClustersPre) + "/" + str.tostring(dbgProbeBandClustersPost) + "/" + str.tostring(dbgProbeBandClustersPass) + "\nΔmid=" + dMidTxt + " Δw=" + dWTxt + " dOnly=" + str.tostring(dbgProbeBandDistOnlyMerges) + "\n" + widthDiagTxt + "\n" + dbgProbeBandStatus + " f(pk/aq/w/t/p)=" + str.tostring(dbgProbeBandFailPeak) + "/" + str.tostring(dbgProbeBandFailAvgQ) + "/" + str.tostring(dbgProbeBandFailWidth) + "/" + str.tostring(dbgProbeBandFailTraffic) + "/" + str.tostring(dbgProbeBandFailPts)) : "probe OFF"
     table.cell(t, 1, 18, "L/R/P=" + str.tostring(dbgLaunchEligible) + "/" + str.tostring(dbgLaunchRescued) + "/" + str.tostring(dbgLaunchPromotedKept) + "\n" + bandDiag, text_color=color.white)
     cfgA = "CFG|W=" + str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " G=" + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##")
     cfgB = "CFG|E=" + str.tostring(E_min, "#.##") + " rho=" + str.tostring(rho_min, "#.##") + " Q=" + str.tostring(Q_min, "#.##") + " P=" + str.tostring(persist_min) + " N=" + str.tostring(revisitMaxCount) + " dev=" + str.tostring(deviationInvalidATR, "#.##")
-    cfgC = "CFG|ret=" + str.tostring(anchorRetentionPercent, "#.##") + " keep=" + str.tostring(maxAnchorsKept) + " cTol=" + str.tostring(clusterTolPct * 100, "#.###") + "%/" + str.tostring(clusterTolATR, "#.##") + " mTol=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " mDrift=" + str.tostring(mergeMaxMidDriftPct * 100, "#.###") + "%/" + str.tostring(mergeMaxMidDriftATR, "#.##") + " mDist=" + str.tostring(mergeAllowDistanceFallback) + " fCap=" + finalizeCapMode + "/" + str.tostring(finalizeFlipNoShrinkGuard) + "/" + str.tostring(finalizeFlipMinEvidence, "#.##") + " peak=" + str.tostring(minClusterPeakRank, "#.##") + "/" + str.tostring(minClusterPeakLaunch, "#.##") + "/flip" + str.tostring(passPeakFlipMinEvidence, "#.##") + " avgQ=" + str.tostring(minClusterAvgQ, "#.##") + " bypass=" + str.tostring(flipShelfBypassMinEvidence, "#.##") + "@" + str.tostring(flipShelfBypassMinAnchors) + "/g" + str.tostring(flipShelfBypassAvgQGrace, "#.##") + " disp=" + str.tostring(maxDisplayZones) + " gap=" + str.tostring(visibleMinGapPct * 100, "#.###") + "%/" + str.tostring(visibleMinGapATR, "#.##") + " rPen=" + str.tostring(displayRetestPenaltyPerTouch, "#.##") + "x" + str.tostring(displayRetestPenaltyMaxTouches) + " flipB=" + str.tostring(displayFlipBonusPoints, "#.##") + "@" + str.tostring(displayFlipBonusMinEvidence, "#.##") + " probe=" + str.tostring(probeBandEnabled) + "[" + str.tostring(probeBandLow, "#.##") + "," + str.tostring(probeBandHigh, "#.##") + "]"
+    cfgC = "CFG|ret=" + str.tostring(anchorRetentionPercent, "#.##") + " keep=" + str.tostring(maxAnchorsKept) + " cTol=" + str.tostring(clusterTolPct * 100, "#.###") + "%/" + str.tostring(clusterTolATR, "#.##") + " mTol=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " mDrift=" + str.tostring(mergeMaxMidDriftPct * 100, "#.###") + "%/" + str.tostring(mergeMaxMidDriftATR, "#.##") + " mDist=" + str.tostring(mergeAllowDistanceFallback) + " fCap=" + finalizeCapMode + "/" + str.tostring(finalizeFlipNoShrinkGuard) + "/" + str.tostring(finalizeFlipMinEvidence, "#.##") + " wGrace=" + str.tostring(flipWidthGracePct * 100, "#.###") + "%/" + str.tostring(flipWidthGraceATR, "#.##") + " peak=" + str.tostring(minClusterPeakRank, "#.##") + "/" + str.tostring(minClusterPeakLaunch, "#.##") + "/flip" + str.tostring(passPeakFlipMinEvidence, "#.##") + " avgQ=" + str.tostring(minClusterAvgQ, "#.##") + " bypass=" + str.tostring(flipShelfBypassMinEvidence, "#.##") + "@" + str.tostring(flipShelfBypassMinAnchors) + "/g" + str.tostring(flipShelfBypassAvgQGrace, "#.##") + " disp=" + str.tostring(maxDisplayZones) + " gap=" + str.tostring(visibleMinGapPct * 100, "#.###") + "%/" + str.tostring(visibleMinGapATR, "#.##") + " rPen=" + str.tostring(displayRetestPenaltyPerTouch, "#.##") + "x" + str.tostring(displayRetestPenaltyMaxTouches) + " flipB=" + str.tostring(displayFlipBonusPoints, "#.##") + "@" + str.tostring(displayFlipBonusMinEvidence, "#.##") + " probe=" + str.tostring(probeBandEnabled) + "[" + str.tostring(probeBandLow, "#.##") + "," + str.tostring(probeBandHigh, "#.##") + "]"
     cfgD = "CFG|launch=" + str.tostring(useLaunchRanking) + " holdM=" + str.tostring(launchHoldMult, "#.##") + " preM=" + str.tostring(launchPreRangeMult, "#.##") + " eRef=" + str.tostring(launchERefATR, "#.##") + " bRef=" + str.tostring(launchBreakRefATR, "#.##") + " edgeMax=" + str.tostring(launchEdgeFracMax, "#.##") + " minBr=" + str.tostring(launchPromoteMinBreakATR, "#.##") + " blend=" + str.tostring(launchBlend, "#.##") + " rGrace=" + str.tostring(launchRescueGraceQ, "#.##") + " rQ=" + str.tostring(launchRescueMinQ, "#.##") + " rBr=" + str.tostring(rescueMajorBreakMin, "#.##") + " vel=" + str.tostring(useLaunchVelocity) + " seed=" + str.tostring(launchSeedInwardFrac, "#.##") + "/" + str.tostring(launchSeedMaxATR, "#.##") + " local=" + str.tostring(localSeedInwardFrac, "#.##") + "/" + str.tostring(localSeedMaxATR, "#.##") + " mrg=" + str.tostring(mergeAcrossSides)
     if showExportCfg
         table.cell(t, 0, 19, "Export cfg A", text_color=color.white)
