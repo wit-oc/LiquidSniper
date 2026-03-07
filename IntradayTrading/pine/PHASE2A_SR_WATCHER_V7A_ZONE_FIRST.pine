@@ -19,11 +19,26 @@ maxDisplayZones             = input.int(10, "Max displayed zones", minval=1, max
 mergeTolPct                 = input.float(0.004, "Zone merge tolerance (% of price)", minval=0.0005, step=0.0005)
 mergeTolATR                 = input.float(0.60, "Zone merge tolerance ATR", minval=0.05, step=0.05)
 
+// Structure adapter (V7B-aligned scaffold)
+structurePivotLen           = input.int(3, "Structure pivot length", minval=2, maxval=12)
+structureATRBandMult        = input.float(0.35, "Structure seed band ATR", minval=0.05, step=0.05)
+structureBreakMinFrac       = input.float(0.15, "Structure BoS break min frac", minval=0.0, maxval=1.0, step=0.01)
+structureChochMinFrac       = input.float(0.15, "Structure CHoCH break min frac", minval=0.0, maxval=1.0, step=0.01)
+structureRequireFreshCross  = input.bool(true, "Structure BoS requires fresh cross")
+structureEmitProtected      = input.bool(true, "Structure emit protected events")
+structureEventMinGapBars    = input.int(4, "Structure event min gap bars", minval=0, maxval=100)
+
 // Base detector (V7A minimal)
 baseWindowBars              = input.int(12, "Base window bars", minval=4, maxval=80)
 baseMinOverlapFrac          = input.float(0.55, "Base min overlap frac", minval=0.10, maxval=1.00, step=0.05)
 baseMaxATRSpan              = input.float(2.20, "Base max span ATR", minval=0.5, step=0.1)
 baseBreakMinATR             = input.float(0.80, "Base break min ATR", minval=0.1, step=0.1)
+baseEventMinGapBars         = input.int(4, "Base event min gap bars", minval=0, maxval=100)
+
+// Foxian evidence channel
+foxianMinImpulseATR         = input.float(1.50, "Foxian min impulse ATR", minval=0.2, step=0.1)
+foxianPreRangeBars          = input.int(12, "Foxian pre-range bars", minval=3, maxval=120)
+foxianEventMinGapBars       = input.int(3, "Foxian event min gap bars", minval=0, maxval=100)
 
 // Zone scoring and classing (map-first)
 minStructuralScore          = input.float(50.0, "Min structural score", minval=0.0, maxval=100.0, step=0.5)
@@ -177,64 +192,174 @@ f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _evidence, _localQ,
         array.push(eBaseScore, _base)
         array.push(eStructureScore, _structure)
 
-f_stageA_structure_events() =>
-    atr = math.max(ta.atr(14), syminfo.mintick)
+f_add_struct_level_event(_etype, _dir, _t, _level, _atr, _evidence, _localQ, _launch, _base, _structure) =>
+    band = _atr * structureATRBandMult
+    top = _dir == DIR_BULL ? (_level + band) : _level
+    bot = _dir == DIR_BULL ? _level : (_level - band)
+    if _dir == DIR_NEUTRAL
+        top := _level + band * 0.5
+        bot := _level - band * 0.5
+    f_add_event(_etype, _dir, _t, _t, top, bot, _evidence, _localQ, _launch, _base, _structure)
 
-    // TODO(v7b): Replace these pivots with direct Phase1 v3.3 event adapter semantics.
-    ph = ta.pivothigh(high, 3, 3)
-    pl = ta.pivotlow(low, 3, 3)
+f_stageA_structure_events(_safeLookback) =>
+    if _safeLookback >= 2
+        atrSeries = ta.atr(14)
+        ph = ta.pivothigh(high, structurePivotLen, structurePivotLen)
+        pl = ta.pivotlow(low, structurePivotLen, structurePivotLen)
 
-    if not na(ph)
-        top = ph
-        bot = ph - atr * 0.25
-        f_add_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[3], time[3], top, bot, 75.0, 55.0, 0.0, 0.0, 75.0)
-        dbgStructEvents += 1
+        regime = DIR_NEUTRAL
+        validatedHigh = na
+        validatedLow = na
+        validatedHighOff = na
+        validatedLowOff = na
+        candHigh = na
+        candLow = na
+        candHighOff = na
+        candLowOff = na
+        protectedHigh = na
+        protectedLow = na
+        protectedHighOff = na
+        protectedLowOff = na
+        lastBosUpRefOff = na
+        lastBosDnRefOff = na
+        lastStructEventOff = na
 
-    if not na(pl)
-        top = pl + atr * 0.25
-        bot = pl
-        f_add_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[3], time[3], top, bot, 75.0, 55.0, 0.0, 0.0, 75.0)
-        dbgStructEvents += 1
+        for off = _safeLookback to 0
+            atrOff = math.max(atrSeries[off], syminfo.mintick)
+            phv = ph[off]
+            plv = pl[off]
 
-f_stageA_base_events() =>
-    atr = math.max(ta.atr(14), syminfo.mintick)
-    baseTop = ta.highest(high, baseWindowBars)
-    baseBot = ta.lowest(low, baseWindowBars)
-    baseSpan = baseTop - baseBot
-    baseSpanATR = baseSpan / atr
+            if not na(phv)
+                candHigh := phv
+                candHighOff := off
+                if regime != DIR_BEAR
+                    validatedHigh := phv
+                    validatedHighOff := off
+                if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[off], phv, atrOff, 70.0, 50.0, 0.0, 0.0, 70.0)
+                    dbgStructEvents += 1
+                    lastStructEventOff := off
 
-    overlapCloseness = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
-    overlapOk = overlapCloseness >= baseMinOverlapFrac
+            if not na(plv)
+                candLow := plv
+                candLowOff := off
+                if regime != DIR_BULL
+                    validatedLow := plv
+                    validatedLowOff := off
+                if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[off], plv, atrOff, 70.0, 50.0, 0.0, 0.0, 70.0)
+                    dbgStructEvents += 1
+                    lastStructEventOff := off
 
-    if overlapOk
-        baseQ = 100.0 * overlapCloseness
-        f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[baseWindowBars - 1], time, baseTop, baseBot, baseQ, 50.0, 0.0, baseQ, 0.0)
-        dbgBaseEvents += 1
+            cRange = math.max(high[off] - low[off], syminfo.mintick)
+            prevClose = off < bar_index ? close[off + 1] : na
 
-    upBreak = close > baseTop[1] and (close - baseTop[1]) / atr >= baseBreakMinATR
-    dnBreak = close < baseBot[1] and (baseBot[1] - close) / atr >= baseBreakMinATR
+            bosUp = not na(validatedHigh) and close[off] > validatedHigh and ((close[off] - validatedHigh) / cRange) >= structureBreakMinFrac
+            bosUpFresh = not structureRequireFreshCross or na(prevClose) or prevClose <= validatedHigh
+            bosUpAllowed = bosUp and bosUpFresh and (na(lastBosUpRefOff) or validatedHighOff != lastBosUpRefOff)
 
-    if upBreak or dnBreak
-        dir = upBreak ? DIR_BULL : DIR_BEAR
-        top = baseTop
-        bot = baseBot
-        breakMag = upBreak ? (close - baseTop[1]) / atr : (baseBot[1] - close) / atr
-        breakScore = 100.0 * f_clamp01(breakMag / 3.0)
-        f_add_event(EVENT_BASE_BREAKOUT, dir, time[baseWindowBars - 1], time, top, bot, breakScore, 55.0, breakScore, breakScore, 0.0)
-        dbgBaseEvents += 1
+            if bosUpAllowed
+                regime := DIR_BULL
+                lastBosUpRefOff := validatedHighOff
+                if not na(candLow)
+                    protectedLow := candLow
+                    protectedLowOff := candLowOff
+                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BULL, time[off], protectedLow, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
+                    dbgStructEvents += 1
+                    lastStructEventOff := off
 
-f_stageA_foxian_events() =>
-    atr = math.max(ta.atr(14), syminfo.mintick)
-    barRangeATR = (high - low) / atr
-    impulse = barRangeATR >= 1.50
-    if impulse
-        dir = close >= open ? DIR_BULL : DIR_BEAR
-        top = dir == DIR_BULL ? close : high
-        bot = dir == DIR_BULL ? low : close
-        launchScore = 100.0 * f_clamp01(barRangeATR / 4.0)
-        localQ = 100.0 * f_clamp01(barRangeATR / 3.0)
-        f_add_event(EVENT_FOXIAN_LAUNCH, dir, time, time, top, bot, launchScore, localQ, launchScore, 0.0, 0.0)
-        dbgFoxianEvents += 1
+            bosDn = not na(validatedLow) and close[off] < validatedLow and ((validatedLow - close[off]) / cRange) >= structureBreakMinFrac
+            bosDnFresh = not structureRequireFreshCross or na(prevClose) or prevClose >= validatedLow
+            bosDnAllowed = bosDn and bosDnFresh and (na(lastBosDnRefOff) or validatedLowOff != lastBosDnRefOff)
+
+            if bosDnAllowed
+                regime := DIR_BEAR
+                lastBosDnRefOff := validatedLowOff
+                if not na(candHigh)
+                    protectedHigh := candHigh
+                    protectedHighOff := candHighOff
+                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BEAR, time[off], protectedHigh, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
+                    dbgStructEvents += 1
+                    lastStructEventOff := off
+
+            chochDn = regime == DIR_BULL and not na(protectedLow) and close[off] < protectedLow and ((protectedLow - close[off]) / cRange) >= structureChochMinFrac
+            if chochDn
+                regime := DIR_BEAR
+                lenFlipBear = na(protectedLowOff) ? 1 : math.max(1, protectedLowOff - off + 1)
+                flipBearHigh = ta.highest(high, lenFlipBear)[off]
+                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BEAR, time[off], flipBearHigh, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
+                dbgStructEvents += 1
+
+            chochUp = regime == DIR_BEAR and not na(protectedHigh) and close[off] > protectedHigh and ((close[off] - protectedHigh) / cRange) >= structureChochMinFrac
+            if chochUp
+                regime := DIR_BULL
+                lenFlipBull = na(protectedHighOff) ? 1 : math.max(1, protectedHighOff - off + 1)
+                flipBullLow = ta.lowest(low, lenFlipBull)[off]
+                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BULL, time[off], flipBullLow, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
+                dbgStructEvents += 1
+
+f_stageA_base_events(_safeLookback) =>
+    if _safeLookback >= 1
+        atrSeries = ta.atr(14)
+        highWin = ta.highest(high, baseWindowBars)
+        lowWin = ta.lowest(low, baseWindowBars)
+        lastShelfOff = na
+        lastBreakOff = na
+
+        for off = _safeLookback to 1
+            atrOff = math.max(atrSeries[off], syminfo.mintick)
+            baseTop = highWin[off]
+            baseBot = lowWin[off]
+            baseSpan = baseTop - baseBot
+            baseSpanATR = baseSpan / atrOff
+
+            overlapCloseness = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
+            overlapOk = overlapCloseness >= baseMinOverlapFrac
+
+            if overlapOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
+                baseQ = 100.0 * overlapCloseness
+                openOff = math.min(off + baseWindowBars - 1, bar_index)
+                f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, baseQ, 50.0, 0.0, baseQ, 0.0)
+                dbgBaseEvents += 1
+                lastShelfOff := off
+
+            prevTop = off < bar_index ? highWin[off + 1] : baseTop
+            prevBot = off < bar_index ? lowWin[off + 1] : baseBot
+            upBreak = close[off] > prevTop and (close[off] - prevTop) / atrOff >= baseBreakMinATR
+            dnBreak = close[off] < prevBot and (prevBot - close[off]) / atrOff >= baseBreakMinATR
+
+            if (upBreak or dnBreak) and (na(lastBreakOff) or (lastBreakOff - off) >= baseEventMinGapBars)
+                dir = upBreak ? DIR_BULL : DIR_BEAR
+                breakMag = upBreak ? (close[off] - prevTop) / atrOff : (prevBot - close[off]) / atrOff
+                breakScore = 100.0 * f_clamp01(breakMag / 3.0)
+                openOff = math.min(off + baseWindowBars - 1, bar_index)
+                f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, breakScore, 55.0, breakScore, breakScore, 0.0)
+                dbgBaseEvents += 1
+                lastBreakOff := off
+
+f_stageA_foxian_events(_safeLookback) =>
+    if _safeLookback >= 1
+        atrSeries = ta.atr(14)
+        highPre = ta.highest(high, foxianPreRangeBars)
+        lowPre = ta.lowest(low, foxianPreRangeBars)
+        lastFoxOff = na
+
+        for off = _safeLookback to 1
+            atrOff = math.max(atrSeries[off], syminfo.mintick)
+            barRangeATR = (high[off] - low[off]) / atrOff
+            impulse = barRangeATR >= foxianMinImpulseATR
+            if impulse and (na(lastFoxOff) or (lastFoxOff - off) >= foxianEventMinGapBars)
+                dir = close[off] >= open[off] ? DIR_BULL : DIR_BEAR
+                preTop = off < bar_index ? highPre[off + 1] : highPre[off]
+                preBot = off < bar_index ? lowPre[off + 1] : lowPre[off]
+                breakMag = dir == DIR_BULL ? math.max(0.0, (close[off] - preTop) / atrOff) : math.max(0.0, (preBot - close[off]) / atrOff)
+                launchScore = 100.0 * f_clamp01(math.max(barRangeATR, breakMag) / 4.0)
+                localQ = 100.0 * f_clamp01(barRangeATR / 3.0)
+                top = dir == DIR_BULL ? close[off] : high[off]
+                bot = dir == DIR_BULL ? low[off] : close[off]
+                f_add_event(EVENT_FOXIAN_LAUNCH, dir, time[off], time[off], top, bot, launchScore, localQ, launchScore, 0.0, 0.0)
+                dbgFoxianEvents += 1
+                lastFoxOff := off
 
 f_build_zones_from_events() =>
     atr = math.max(ta.atr(14), syminfo.mintick)
@@ -498,10 +623,13 @@ if barstate.isconfirmed
     f_clear_events()
     f_clear_zones()
 
+    minWarmup = math.max(baseWindowBars + 2, math.max(structurePivotLen * 2 + 2, foxianPreRangeBars + 2))
+    safeLookback = math.min(lookbackBars, math.max(0, bar_index - minWarmup))
+
     // Stage A
-    f_stageA_structure_events()
-    f_stageA_base_events()
-    f_stageA_foxian_events()
+    f_stageA_structure_events(safeLookback)
+    f_stageA_base_events(safeLookback)
+    f_stageA_foxian_events(safeLookback)
 
     // Stage B
     f_build_zones_from_events()
