@@ -7,6 +7,7 @@
 - `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_2_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (flip-priority display/pass tuning)
 - `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_3_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (probe-band diagnostics + flip-shelf bypass)
 - `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_4_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (overlap-first merge + pre/post finalize drift probe)
+- `IntradayTrading/pine/PHASE2A_SR_WATCHER_V6_2_5_FOXIAN_EXCURSION_REVERSAL_MODEL.pine` (bound-preserving finalize + compact probe diagnostics)
 
 ## Model summary
 V6 shifts anchor quality from candle geometry to excursion/reversal behavior:
@@ -106,7 +107,7 @@ Debug table shows for each side:
 - key metrics: `E`, `tE`, `R`, `rho`, `persist`, `revisit`, `dev`, `Q_local`, `Q_launch`, `rankScore`, `E_hold`, `breakBeyondATR`, `edgeFrac`, and launch thresholds (`thBr`, `thEd`)
 - final reason code after retention stage.
 
-For sharing tuned manual configs back for preset baking, use the bottom rows:
+For sharing tuned manual configs back for preset baking, enable `DIAG: show export cfg rows` and use the bottom rows:
 - `Export cfg A`
 - `Export cfg B`
 - `Export cfg C/D`
@@ -164,6 +165,7 @@ Send those row values (or a screenshot including them).
 - 2026-03-07 v6.2.2 tuning branch: exposed display retest penalty knobs (`displayRetestPenaltyPerTouch`, `displayRetestPenaltyMaxTouches`), added explicit flip bonus in display score using dual-side evidence, and allowed two-sided evidence (`passPeakFlipMinEvidence`) to satisfy peak gate.
 - 2026-03-07 v6.2.3 diagnostics branch: added target-band probe (`probeBandEnabled`, `probeBandLow`, `probeBandHigh`) with debug counters for accepted/kept anchors and cluster pass/fail breakdown; added flip-shelf bypass (`flipShelfBypass*`) and lowered default `passPeakFlipMinEvidence` to 55.
 - 2026-03-07 v6.2.4 drift-control branch: implemented overlap-first merge defaults with separate merge tolerances (`mergeTol*`) and anti-drift caps (`mergeMaxMidDrift*`), optional distance-only fallback, and split probe diagnostics for pre-finalize vs post-finalize overlap plus distance-only merge counts.
+- 2026-03-07 v6.2.5 finalize branch: switched cluster finalize from symmetric recentering to bound-preserving seed-bound finalize (pad-first, cap-trim with side-biased trimming), and compacted probe diagnostics with multiline row output (`Δmid`, `Δw`) plus optional export-cfg rows (`showExportCfg`).
 - Zone states are baseline placeholders for portability: `candidate`, `active`, `weakening`, `broken`.
 - Reversal is measured in a forward window **after** excursion timing (`tE`) to reduce false misses on slower swing reversals.
 - `Retest decay` is optional and off by default to keep certification runs easy to compare.
