@@ -70,6 +70,9 @@ launchSeedMaxATR          = input.float(1.75, "Launch seed max inward (ATR)", mi
 localSeedInwardFrac       = input.float(0.15, "Local seed inward fraction", minval=0.01, maxval=1.00, step=0.01)
 localSeedMaxATR           = input.float(0.90, "Local seed max inward (ATR)", minval=0.10, step=0.05)
 seedFinalizePadATR        = input.float(0.15, "Seed finalize pad (ATR)", minval=0.0, step=0.05)
+finalizeCapMode           = input.string("soft", "Finalize cap mode", options=["strict", "soft", "off"])
+finalizeFlipNoShrinkGuard = input.bool(true, "Finalize flip no-shrink guard")
+finalizeFlipMinEvidence   = input.float(55.0, "Finalize flip guard min evidence", minval=0.0, maxval=100.0, step=0.5)
 
 useRetestDecay            = input.bool(false, "Apply retest-decay hook in Q")
 retestDecayLambda         = input.float(0.35, "Retest-decay lambda", minval=0.0, step=0.05)
@@ -130,6 +133,7 @@ probeBandEnabled          = input.bool(false, "DIAG: probe target band")
 probeBandLow              = input.float(72000.0, "DIAG probe band low", step=100.0)
 probeBandHigh             = input.float(75000.0, "DIAG probe band high", step=100.0)
 showExportCfg             = input.bool(false, "DIAG: show export cfg rows")
+debugCompactMode          = input.bool(true, "DIAG: compact debug table")
 
 // Visuals
 showZones                 = input.bool(true, "Show zones")
@@ -670,24 +674,46 @@ f_finalize_clusters(_scanBars) =>
             spanPad = math.max(syminfo.mintick * 2.0, topPad - botPad)
             targetW = rawSpan * effZoneWidthMult + (pad * 2.0)
             capW = math.max(syminfo.mintick * 4.0, math.abs(rawMid) * maxClusterWidthPct)
-            desiredW = math.min(targetW, capW)
+            capMode = finalizeCapMode
+            softCap = capW + (0.35 * math.max(targetW - capW, 0.0))
+            desiredW = capMode == "off" ? targetW : capMode == "soft" ? math.min(targetW, softCap) : math.min(targetW, capW)
 
             top := topPad
             bot := botPad
             if spanPad > desiredW
                 over = spanPad - desiredW
+                trimScale = capMode == "soft" ? 0.50 : capMode == "off" ? 0.0 : 1.0
+                trimOver = over * trimScale
                 bullEvCap = array.get(cBullEvidence, i)
                 bearEvCap = array.get(cBearEvidence, i)
-                trimTop = over * 0.5
-                trimBot = over * 0.5
+                trimTop = trimOver * 0.5
+                trimBot = trimOver * 0.5
                 if bullEvCap > bearEvCap + 1.0
-                    trimTop := over * 0.75
-                    trimBot := over * 0.25
+                    trimTop := trimOver * 0.75
+                    trimBot := trimOver * 0.25
                 else if bearEvCap > bullEvCap + 1.0
-                    trimTop := over * 0.25
-                    trimBot := over * 0.75
-                top := topPad - trimTop
-                bot := botPad + trimBot
+                    trimTop := trimOver * 0.25
+                    trimBot := trimOver * 0.75
+
+                candTop = topPad - trimTop
+                candBot = botPad + trimBot
+                flipQualifiedCap = bullEvCap >= finalizeFlipMinEvidence and bearEvCap >= finalizeFlipMinEvidence
+                preBandOverlap = probeBandEnabled and f_band_overlap(topPad, botPad, probeBandLow, probeBandHigh)
+                postBandOverlap = probeBandEnabled and f_band_overlap(candTop, candBot, probeBandLow, probeBandHigh)
+
+                if finalizeFlipNoShrinkGuard and flipQualifiedCap and preBandOverlap and not postBandOverlap
+                    softTop = topPad - trimTop * 0.20
+                    softBot = botPad + trimBot * 0.20
+                    softOverlap = probeBandEnabled and f_band_overlap(softTop, softBot, probeBandLow, probeBandHigh)
+                    if softOverlap
+                        top := softTop
+                        bot := softBot
+                    else
+                        top := topPad
+                        bot := botPad
+                else
+                    top := candTop
+                    bot := candBot
 
             mid := (top + bot) * 0.5
             w = math.max(syminfo.mintick * 2.0, top - bot)
@@ -1586,29 +1612,46 @@ if barstate.islast and effShowDebug
     table.cell(t, 0, 11, "Dots sel/fail/tot", text_color=color.white)
     table.cell(t, 1, 11, str.tostring(dbgSelDotsEmitted) + "/" + str.tostring(dbgFailDotsEmitted) + " cap " + str.tostring(selBudgetDbg) + "/" + str.tostring(failBudgetDbg) + " tot " + str.tostring(dbgDotsEmitted), text_color=color.white)
 
-    rVec = dbgInspectResSeen ?
-      "C=" + str.tostring(dbgInspectResCSoft) + " E=" + str.tostring(dbgInspectResEPass) + " R=" + str.tostring(dbgInspectResRPass) + " P=" + str.tostring(dbgInspectResPPass) + " N=" + str.tostring(dbgInspectResNPass) + " D=" + str.tostring(dbgInspectResDPass) + " Q=" + str.tostring(dbgInspectResQPass) + " G=" + str.tostring(dbgInspectResGPass) + " LE=" + str.tostring(dbgInspectResLaunchEligible) + " LR=" + str.tostring(dbgInspectResLaunchRescue) + " lc/ed/br/ho=" + str.tostring(dbgInspectResLEC) + "/" + str.tostring(dbgInspectResLEEdge) + "/" + str.tostring(dbgInspectResLEBreak) + "/" + str.tostring(dbgInspectResLEHold) : "-"
-    sVec = dbgInspectSupSeen ?
-      "C=" + str.tostring(dbgInspectSupCSoft) + " E=" + str.tostring(dbgInspectSupEPass) + " R=" + str.tostring(dbgInspectSupRPass) + " P=" + str.tostring(dbgInspectSupPPass) + " N=" + str.tostring(dbgInspectSupNPass) + " D=" + str.tostring(dbgInspectSupDPass) + " Q=" + str.tostring(dbgInspectSupQPass) + " G=" + str.tostring(dbgInspectSupGPass) + " LE=" + str.tostring(dbgInspectSupLaunchEligible) + " LR=" + str.tostring(dbgInspectSupLaunchRescue) + " lc/ed/br/ho=" + str.tostring(dbgInspectSupLEC) + "/" + str.tostring(dbgInspectSupLEEdge) + "/" + str.tostring(dbgInspectSupLEBreak) + "/" + str.tostring(dbgInspectSupLEHold) : "-"
+    if inspectCandleEnabled
+        rVec = dbgInspectResSeen ?
+          "C=" + str.tostring(dbgInspectResCSoft) + " E=" + str.tostring(dbgInspectResEPass) + " R=" + str.tostring(dbgInspectResRPass) + " P=" + str.tostring(dbgInspectResPPass) + " N=" + str.tostring(dbgInspectResNPass) + " D=" + str.tostring(dbgInspectResDPass) + " Q=" + str.tostring(dbgInspectResQPass) + " G=" + str.tostring(dbgInspectResGPass) + " LE=" + str.tostring(dbgInspectResLaunchEligible) + " LR=" + str.tostring(dbgInspectResLaunchRescue) + " lc/ed/br/ho=" + str.tostring(dbgInspectResLEC) + "/" + str.tostring(dbgInspectResLEEdge) + "/" + str.tostring(dbgInspectResLEBreak) + "/" + str.tostring(dbgInspectResLEHold) : "-"
+        sVec = dbgInspectSupSeen ?
+          "C=" + str.tostring(dbgInspectSupCSoft) + " E=" + str.tostring(dbgInspectSupEPass) + " R=" + str.tostring(dbgInspectSupRPass) + " P=" + str.tostring(dbgInspectSupPPass) + " N=" + str.tostring(dbgInspectSupNPass) + " D=" + str.tostring(dbgInspectSupDPass) + " Q=" + str.tostring(dbgInspectSupQPass) + " G=" + str.tostring(dbgInspectSupGPass) + " LE=" + str.tostring(dbgInspectSupLaunchEligible) + " LR=" + str.tostring(dbgInspectSupLaunchRescue) + " lc/ed/br/ho=" + str.tostring(dbgInspectSupLEC) + "/" + str.tostring(dbgInspectSupLEEdge) + "/" + str.tostring(dbgInspectSupLEBreak) + "/" + str.tostring(dbgInspectSupLEHold) : "-"
 
-    table.cell(t, 0, 12, "Inspect R gates", text_color=color.white)
-    table.cell(t, 1, 12, inspectCandleEnabled ? rVec : "OFF", text_color=color.white)
-    table.cell(t, 0, 13, "Inspect S gates", text_color=color.white)
-    table.cell(t, 1, 13, inspectCandleEnabled ? sVec : "OFF", text_color=color.white)
+        table.cell(t, 0, 12, "Inspect R gates", text_color=color.white)
+        table.cell(t, 1, 12, rVec, text_color=color.white)
+        table.cell(t, 0, 13, "Inspect S gates", text_color=color.white)
+        table.cell(t, 1, 13, sVec, text_color=color.white)
 
-    rVals = dbgInspectResSeen ?
-      "E=" + str.tostring(dbgInspectResE, "#.##") + " tE=" + str.tostring(dbgInspectRestE) + " R=" + str.tostring(dbgInspectResR, "#.##") + " rho=" + str.tostring(dbgInspectResRho, "#.##") + " p=" + str.tostring(dbgInspectResPersist) + " n=" + str.tostring(dbgInspectResRevisit) + " dev=" + str.tostring(dbgInspectResDev, "#.##") + " QL=" + str.tostring(dbgInspectResQ, "#.##") + " QLa=" + str.tostring(dbgInspectResQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectResRank, "#.##") + " Eh=" + str.tostring(dbgInspectResEHold, "#.##") + " Br=" + str.tostring(dbgInspectResBreak, "#.##") + " edge=" + str.tostring(dbgInspectResEdgeFrac, "#.###") + " thBr=" + str.tostring(effLaunchPromoteMinBreakATR, "#.##") + " thEd=" + str.tostring(effLaunchEdgeFracMax, "#.##") + " " + dbgInspectResReason : "-"
-    sVals = dbgInspectSupSeen ?
-      "E=" + str.tostring(dbgInspectSupE, "#.##") + " tE=" + str.tostring(dbgInspectSuptE) + " R=" + str.tostring(dbgInspectSupR, "#.##") + " rho=" + str.tostring(dbgInspectSupRho, "#.##") + " p=" + str.tostring(dbgInspectSupPersist) + " n=" + str.tostring(dbgInspectSupRevisit) + " dev=" + str.tostring(dbgInspectSupDev, "#.##") + " QL=" + str.tostring(dbgInspectSupQ, "#.##") + " QLa=" + str.tostring(dbgInspectSupQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectSupRank, "#.##") + " Eh=" + str.tostring(dbgInspectSupEHold, "#.##") + " Br=" + str.tostring(dbgInspectSupBreak, "#.##") + " edge=" + str.tostring(dbgInspectSupEdgeFrac, "#.###") + " thBr=" + str.tostring(effLaunchPromoteMinBreakATR, "#.##") + " thEd=" + str.tostring(effLaunchEdgeFracMax, "#.##") + " " + dbgInspectSupReason : "-"
+        rVals = dbgInspectResSeen ?
+          "E=" + str.tostring(dbgInspectResE, "#.##") + " tE=" + str.tostring(dbgInspectRestE) + " R=" + str.tostring(dbgInspectResR, "#.##") + " rho=" + str.tostring(dbgInspectResRho, "#.##") + " p=" + str.tostring(dbgInspectResPersist) + " n=" + str.tostring(dbgInspectResRevisit) + " dev=" + str.tostring(dbgInspectResDev, "#.##") + " QL=" + str.tostring(dbgInspectResQ, "#.##") + " QLa=" + str.tostring(dbgInspectResQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectResRank, "#.##") + " Eh=" + str.tostring(dbgInspectResEHold, "#.##") + " Br=" + str.tostring(dbgInspectResBreak, "#.##") + " edge=" + str.tostring(dbgInspectResEdgeFrac, "#.###") + " thBr=" + str.tostring(effLaunchPromoteMinBreakATR, "#.##") + " thEd=" + str.tostring(effLaunchEdgeFracMax, "#.##") + " " + dbgInspectResReason : "-"
+        sVals = dbgInspectSupSeen ?
+          "E=" + str.tostring(dbgInspectSupE, "#.##") + " tE=" + str.tostring(dbgInspectSuptE) + " R=" + str.tostring(dbgInspectSupR, "#.##") + " rho=" + str.tostring(dbgInspectSupRho, "#.##") + " p=" + str.tostring(dbgInspectSupPersist) + " n=" + str.tostring(dbgInspectSupRevisit) + " dev=" + str.tostring(dbgInspectSupDev, "#.##") + " QL=" + str.tostring(dbgInspectSupQ, "#.##") + " QLa=" + str.tostring(dbgInspectSupQLaunch, "#.##") + " rank=" + str.tostring(dbgInspectSupRank, "#.##") + " Eh=" + str.tostring(dbgInspectSupEHold, "#.##") + " Br=" + str.tostring(dbgInspectSupBreak, "#.##") + " edge=" + str.tostring(dbgInspectSupEdgeFrac, "#.###") + " thBr=" + str.tostring(effLaunchPromoteMinBreakATR, "#.##") + " thEd=" + str.tostring(effLaunchEdgeFracMax, "#.##") + " " + dbgInspectSupReason : "-"
 
-    table.cell(t, 0, 14, "Inspect R values", text_color=color.white)
-    table.cell(t, 1, 14, inspectCandleEnabled ? rVals : "OFF", text_color=color.white)
-    table.cell(t, 0, 15, "Inspect S values", text_color=color.white)
-    table.cell(t, 1, 15, inspectCandleEnabled ? sVals : "OFF", text_color=color.white)
-    table.cell(t, 0, 16, "Strict veto / retest decay", text_color=color.white)
-    table.cell(t, 1, 16, (strictCandidateVeto ? "ON" : "OFF") + " / " + (useRetestDecay ? ("ON " + str.tostring(retestDecayLambda, "#.##")) : "OFF") + " | launch " + (effUseLaunchRanking ? "ON" : "OFF") + " b=" + str.tostring(effLaunchBlend, "#.##"), text_color=color.white)
-    table.cell(t, 0, 17, "Age acc R/M/O | kept", text_color=color.white)
-    table.cell(t, 1, 17, str.tostring(dbgAccRecent) + "/" + str.tostring(dbgAccMid) + "/" + str.tostring(dbgAccOld) + " | " + str.tostring(dbgKeptRecent) + "/" + str.tostring(dbgKeptMid) + "/" + str.tostring(dbgKeptOld), text_color=color.white)
+        table.cell(t, 0, 14, "Inspect R values", text_color=color.white)
+        table.cell(t, 1, 14, rVals, text_color=color.white)
+        table.cell(t, 0, 15, "Inspect S values", text_color=color.white)
+        table.cell(t, 1, 15, sVals, text_color=color.white)
+    else
+        table.cell(t, 0, 12, "Inspect rows", text_color=color.white)
+        table.cell(t, 1, 12, debugCompactMode ? "HIDDEN (compact)" : "OFF", text_color=color.white)
+        table.cell(t, 0, 13, "", text_color=color.white)
+        table.cell(t, 1, 13, "", text_color=color.white)
+        table.cell(t, 0, 14, "", text_color=color.white)
+        table.cell(t, 1, 14, "", text_color=color.white)
+        table.cell(t, 0, 15, "", text_color=color.white)
+        table.cell(t, 1, 15, "", text_color=color.white)
+
+    if debugCompactMode
+        table.cell(t, 0, 16, "Aux rows", text_color=color.white)
+        table.cell(t, 1, 16, "HIDDEN (compact)", text_color=color.white)
+        table.cell(t, 0, 17, "", text_color=color.white)
+        table.cell(t, 1, 17, "", text_color=color.white)
+    else
+        table.cell(t, 0, 16, "Strict veto / retest decay", text_color=color.white)
+        table.cell(t, 1, 16, (strictCandidateVeto ? "ON" : "OFF") + " / " + (useRetestDecay ? ("ON " + str.tostring(retestDecayLambda, "#.##")) : "OFF") + " | launch " + (effUseLaunchRanking ? "ON" : "OFF") + " b=" + str.tostring(effLaunchBlend, "#.##"), text_color=color.white)
+        table.cell(t, 0, 17, "Age acc R/M/O | kept", text_color=color.white)
+        table.cell(t, 1, 17, str.tostring(dbgAccRecent) + "/" + str.tostring(dbgAccMid) + "/" + str.tostring(dbgAccOld) + " | " + str.tostring(dbgKeptRecent) + "/" + str.tostring(dbgKeptMid) + "/" + str.tostring(dbgKeptOld), text_color=color.white)
     table.cell(t, 0, 18, "Launch + probe band", text_color=color.white)
     preMidAvg = dbgProbeBandClustersPre > 0 ? (dbgProbeBandPreMidSum / dbgProbeBandClustersPre) : na
     postMidAvg = dbgProbeBandClustersPost > 0 ? (dbgProbeBandPostMidSum / dbgProbeBandClustersPost) : na
@@ -1620,7 +1663,7 @@ if barstate.islast and effShowDebug
     table.cell(t, 1, 18, "L/R/P=" + str.tostring(dbgLaunchEligible) + "/" + str.tostring(dbgLaunchRescued) + "/" + str.tostring(dbgLaunchPromotedKept) + "\n" + bandDiag, text_color=color.white)
     cfgA = "CFG|W=" + str.tostring(W_move_h, "#.##") + "/" + str.tostring(W_reversal_h, "#.##") + "/" + str.tostring(W_persist_h, "#.##") + "/" + str.tostring(W_revisit_h, "#.##") + " G=" + str.tostring(W_gap_same_h, "#.##") + "/" + str.tostring(W_gap_opp_h, "#.##")
     cfgB = "CFG|E=" + str.tostring(E_min, "#.##") + " rho=" + str.tostring(rho_min, "#.##") + " Q=" + str.tostring(Q_min, "#.##") + " P=" + str.tostring(persist_min) + " N=" + str.tostring(revisitMaxCount) + " dev=" + str.tostring(deviationInvalidATR, "#.##")
-    cfgC = "CFG|ret=" + str.tostring(anchorRetentionPercent, "#.##") + " keep=" + str.tostring(maxAnchorsKept) + " cTol=" + str.tostring(clusterTolPct * 100, "#.###") + "%/" + str.tostring(clusterTolATR, "#.##") + " mTol=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " mDrift=" + str.tostring(mergeMaxMidDriftPct * 100, "#.###") + "%/" + str.tostring(mergeMaxMidDriftATR, "#.##") + " mDist=" + str.tostring(mergeAllowDistanceFallback) + " peak=" + str.tostring(minClusterPeakRank, "#.##") + "/" + str.tostring(minClusterPeakLaunch, "#.##") + "/flip" + str.tostring(passPeakFlipMinEvidence, "#.##") + " avgQ=" + str.tostring(minClusterAvgQ, "#.##") + " bypass=" + str.tostring(flipShelfBypassMinEvidence, "#.##") + "@" + str.tostring(flipShelfBypassMinAnchors) + "/g" + str.tostring(flipShelfBypassAvgQGrace, "#.##") + " disp=" + str.tostring(maxDisplayZones) + " gap=" + str.tostring(visibleMinGapPct * 100, "#.###") + "%/" + str.tostring(visibleMinGapATR, "#.##") + " rPen=" + str.tostring(displayRetestPenaltyPerTouch, "#.##") + "x" + str.tostring(displayRetestPenaltyMaxTouches) + " flipB=" + str.tostring(displayFlipBonusPoints, "#.##") + "@" + str.tostring(displayFlipBonusMinEvidence, "#.##") + " probe=" + str.tostring(probeBandEnabled) + "[" + str.tostring(probeBandLow, "#.##") + "," + str.tostring(probeBandHigh, "#.##") + "]"
+    cfgC = "CFG|ret=" + str.tostring(anchorRetentionPercent, "#.##") + " keep=" + str.tostring(maxAnchorsKept) + " cTol=" + str.tostring(clusterTolPct * 100, "#.###") + "%/" + str.tostring(clusterTolATR, "#.##") + " mTol=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " mDrift=" + str.tostring(mergeMaxMidDriftPct * 100, "#.###") + "%/" + str.tostring(mergeMaxMidDriftATR, "#.##") + " mDist=" + str.tostring(mergeAllowDistanceFallback) + " fCap=" + finalizeCapMode + "/" + str.tostring(finalizeFlipNoShrinkGuard) + " peak=" + str.tostring(minClusterPeakRank, "#.##") + "/" + str.tostring(minClusterPeakLaunch, "#.##") + "/flip" + str.tostring(passPeakFlipMinEvidence, "#.##") + " avgQ=" + str.tostring(minClusterAvgQ, "#.##") + " bypass=" + str.tostring(flipShelfBypassMinEvidence, "#.##") + "@" + str.tostring(flipShelfBypassMinAnchors) + "/g" + str.tostring(flipShelfBypassAvgQGrace, "#.##") + " disp=" + str.tostring(maxDisplayZones) + " gap=" + str.tostring(visibleMinGapPct * 100, "#.###") + "%/" + str.tostring(visibleMinGapATR, "#.##") + " rPen=" + str.tostring(displayRetestPenaltyPerTouch, "#.##") + "x" + str.tostring(displayRetestPenaltyMaxTouches) + " flipB=" + str.tostring(displayFlipBonusPoints, "#.##") + "@" + str.tostring(displayFlipBonusMinEvidence, "#.##") + " probe=" + str.tostring(probeBandEnabled) + "[" + str.tostring(probeBandLow, "#.##") + "," + str.tostring(probeBandHigh, "#.##") + "]"
     cfgD = "CFG|launch=" + str.tostring(useLaunchRanking) + " holdM=" + str.tostring(launchHoldMult, "#.##") + " preM=" + str.tostring(launchPreRangeMult, "#.##") + " eRef=" + str.tostring(launchERefATR, "#.##") + " bRef=" + str.tostring(launchBreakRefATR, "#.##") + " edgeMax=" + str.tostring(launchEdgeFracMax, "#.##") + " minBr=" + str.tostring(launchPromoteMinBreakATR, "#.##") + " blend=" + str.tostring(launchBlend, "#.##") + " rGrace=" + str.tostring(launchRescueGraceQ, "#.##") + " rQ=" + str.tostring(launchRescueMinQ, "#.##") + " rBr=" + str.tostring(rescueMajorBreakMin, "#.##") + " vel=" + str.tostring(useLaunchVelocity) + " seed=" + str.tostring(launchSeedInwardFrac, "#.##") + "/" + str.tostring(launchSeedMaxATR, "#.##") + " local=" + str.tostring(localSeedInwardFrac, "#.##") + "/" + str.tostring(localSeedMaxATR, "#.##") + " mrg=" + str.tostring(mergeAcrossSides)
     if showExportCfg
         table.cell(t, 0, 19, "Export cfg A", text_color=color.white)
