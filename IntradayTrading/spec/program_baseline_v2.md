@@ -22,6 +22,8 @@ This file is the canonical Phase-0/Phase-1 baseline reference for the intraday p
   - `spec/checklists/PHASE_GATE_CHECKLIST.md`
 - Wave/structure contract (Phase 0 draft baseline):
   - `spec/phases/PHASE0_WAVE_ENGINE_SPEC.md`
+- MTF strategy architecture (scaling reference):
+  - `spec/strategy/MTF_STRATEGY_ARCHITECTURE_V1.md`
 
 ## Locked process rules
 1. Control thread approves transitions; phase threads carry diagnostics.
@@ -32,7 +34,8 @@ This file is the canonical Phase-0/Phase-1 baseline reference for the intraday p
 
 ## Current phase context
 - Phase 0 baseline: complete (spec/process baseline locked).
-- Phase 1 HTF Structure/Bias: indicator candidate converged (`v3.3`) and pending Python parity certification workflow.
+- Phase 1 HTF Structure/Bias: complete and certified (`v3.3` baseline).
+- Phase 2 Watch Engine: in flight (dedicated thread + kickoff pack).
 
 ## Why this file exists
 Earlier references pointed to `program_baseline_v2.md`; this file now serves as the explicit baseline entrypoint and index for the phase docs above.

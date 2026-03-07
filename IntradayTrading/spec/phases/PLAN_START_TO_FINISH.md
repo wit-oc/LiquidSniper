@@ -16,6 +16,13 @@
 8. Phase 5: Config-only tuning (`phase-5-tuning-config-only`)
 9. Phase 6: Promotion + parity (`phase-6-promotion-parity`)
 
+## Architecture guardrails (locked)
+- 1D = directional permission
+- 1D/4H = setup context
+- 15m = trigger confirmation (Phase 3)
+- 5m = optional refinement only after valid 15m trigger
+- Backtests/replays must be point-in-time (no hindsight zone leakage)
+
 ## Transition rule
 - PASS or CONDITIONAL PASS required in control thread before moving forward.
 - Any FAIL requires smallest-fix loop in same phase thread.

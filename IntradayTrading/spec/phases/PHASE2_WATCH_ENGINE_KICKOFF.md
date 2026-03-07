@@ -11,7 +11,8 @@ Certify watch-state logic using only Phase-1 structural outputs.
 Build and certify:
 - `WATCH` / `INVALID` / `EXPIRED` states
 - POI mapping + Fib value-zone context
-- no trigger-entry decisions yet
+- setup qualification + reaction-evidence gating (without trigger execution)
+- no trigger-entry decisions yet (15m trigger stays in Phase 3)
 
 ## Required outputs
 - `phase2_handoff.md`
@@ -19,35 +20,36 @@ Build and certify:
 
 ## Pass criteria
 - Watch start/stop align with expected context windows
+- 4H context guard prevents impulsive-opposition false watches
 - Fib directional policy is enforced correctly (including short premium rule)
 - Rejection/invalid reasons are auditable and coherent
+- Point-in-time reconstruction is deterministic (no hindsight leakage)
 
 ## Proposed implementation slices
 1. Watch state contract + schema (`watch_event`, `state_before`, `state_after`, `reason_code`)
 2. POI mapper (phase-1 anchor-derived zones)
-3. Fib context calculator (direction-aware premium/discount + invalidation coupling)
-4. State transition engine with explicit expiry policy
-5. Deterministic replay artifacts for BTC/ETH 1D
+3. 4H context/stall guard module for setup qualification
+4. Fib context calculator (direction-aware premium/discount + invalidation coupling)
+5. Reaction-evidence scoring gate (stall/rejection/displacement classification)
+6. State transition engine with explicit expiry policy
+7. Deterministic replay artifacts for BTC/ETH 1D (point-in-time rebuild)
 
 ## Technical questions to resolve at Phase 2 start
-1. **Watch start trigger:** exact event gate?
-   - On BoS only?
-   - On CHoCH only?
-   - On either with direction constraints?
-2. **Expiry policy:** should watch expire by:
-   - bars elapsed,
-   - opposite structure event,
-   - both?
-3. **POI source priority:** when multiple POIs are valid, what is rank order?
-4. **Fib anchor source:** use latest structural anchor pair only, or allow fallback when one side stale?
-5. **Reason taxonomy lock:** list canonical reason codes for INVALID/EXPIRED and no-watch.
-6. **Cross-timeframe policy:** stay single timeframe for phase cert (1D), or ingest HTF/LTF blend now?
+1. **Watch-start gate:** BoS-only, CHoCH-only, or either with direction constraints?
+2. **4H opposition filter:** what exact definition of “fresh impulsive opposition” blocks WATCH?
+3. **Reaction evidence policy:** which minimum signals count (stall, rejection, displacement) before WATCH can arm?
+4. **Expiry policy:** bars elapsed, opposite structure event, or hybrid?
+5. **POI source priority:** when multiple POIs are valid, what is rank order?
+6. **Fib anchor source:** latest structural anchor pair only, or fallback hierarchy when one side stale?
+7. **Reason taxonomy lock:** canonical reason codes for INVALID/EXPIRED/no-watch.
+8. **Point-in-time audit level:** per-bar event tape only, or full intermediate feature snapshots for replay parity?
 
 ## Initial defaults proposal (for approval)
-- Cert timeframe: 1D only (BTC/ETH)
+- Cert universe/timeframe: BTC/ETH 1D primary + 4H context feed
 - Watch starts on confirmed BoS in active structural direction
+- Watch requires 4H non-impulsive-opposition context + minimum reaction evidence
 - Watch invalidates on opposing CHoCH close
-- Watch expires after fixed bar timeout (configurable), whichever comes first with invalidation
+- Watch expires after fixed bar timeout OR invalidation (whichever first)
 
 ## Handoff to control thread
 After pass, return with:
