@@ -78,6 +78,15 @@ ZONE_STATE_ACTIVE           = 1
 ZONE_STATE_WEAKENING        = 2
 ZONE_STATE_BROKEN           = 3
 
+// ---------- Precomputed TA series (called every calc for consistency) ----------
+atr14Series                 = ta.atr(14)
+structPhSeries              = ta.pivothigh(high, structurePivotLen, structurePivotLen)
+structPlSeries              = ta.pivotlow(low, structurePivotLen, structurePivotLen)
+baseHighWinSeries           = ta.highest(high, baseWindowBars)
+baseLowWinSeries            = ta.lowest(low, baseWindowBars)
+foxHighPreSeries            = ta.highest(high, foxianPreRangeBars)
+foxLowPreSeries             = ta.lowest(low, foxianPreRangeBars)
+
 // ---------- Event store ----------
 var eType                   = array.new_int()
 var eDir                    = array.new_int()
@@ -117,17 +126,6 @@ var zVisible                = array.new_bool()
 var zoneBoxes               = array.new_box()
 var zoneMidLines            = array.new_line()
 
-// ---------- Debug counters ----------
-var int dbgStructEvents     = 0
-var int dbgBaseEvents       = 0
-var int dbgFoxianEvents     = 0
-var int dbgZoneCount        = 0
-var int dbgStructuralCount  = 0
-var int dbgTradeableCount   = 0
-var int dbgRejectScore      = 0
-var int dbgRejectWidth      = 0
-var int dbgRejectRetest     = 0
-
 f_clamp01(_v) =>
     math.max(0.0, math.min(1.0, _v))
 
@@ -137,6 +135,24 @@ f_interval_overlap(_topA, _botA, _topB, _botB, _tol) =>
     bTop = math.max(_topB, _botB)
     bBot = math.min(_topB, _botB)
     not (aTop < bBot - _tol or aBot > bTop + _tol)
+
+f_range_high(_offA, _offB) =>
+    lo = math.max(0, math.min(_offA, _offB))
+    hi = math.min(bar_index, math.max(_offA, _offB))
+    out = high[lo]
+    if hi > lo
+        for i = lo + 1 to hi
+            out := math.max(out, high[i])
+    out
+
+f_range_low(_offA, _offB) =>
+    lo = math.max(0, math.min(_offA, _offB))
+    hi = math.min(bar_index, math.max(_offA, _offB))
+    out = low[lo]
+    if hi > lo
+        for i = lo + 1 to hi
+            out := math.min(out, low[i])
+    out
 
 f_clear_events() =>
     array.clear(eType)
@@ -203,9 +219,9 @@ f_add_struct_level_event(_etype, _dir, _t, _level, _atr, _evidence, _localQ, _la
 
 f_stageA_structure_events(_safeLookback) =>
     if _safeLookback >= 2
-        atrSeries = ta.atr(14)
-        ph = ta.pivothigh(high, structurePivotLen, structurePivotLen)
-        pl = ta.pivotlow(low, structurePivotLen, structurePivotLen)
+        atrSeries = atr14Series
+        ph = structPhSeries
+        pl = structPlSeries
 
         int regime = DIR_NEUTRAL
         float validatedHigh = na
@@ -237,7 +253,6 @@ f_stageA_structure_events(_safeLookback) =>
                     validatedHighOff := off
                 if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
                     f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[off], phv, atrOff, 70.0, 50.0, 0.0, 0.0, 70.0)
-                    dbgStructEvents += 1
                     lastStructEventOff := off
 
             if not na(plv)
@@ -248,7 +263,6 @@ f_stageA_structure_events(_safeLookback) =>
                     validatedLowOff := off
                 if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
                     f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[off], plv, atrOff, 70.0, 50.0, 0.0, 0.0, 70.0)
-                    dbgStructEvents += 1
                     lastStructEventOff := off
 
             cRange = math.max(high[off] - low[off], syminfo.mintick)
@@ -265,7 +279,6 @@ f_stageA_structure_events(_safeLookback) =>
                     protectedLow := candLow
                     protectedLowOff := candLowOff
                     f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BULL, time[off], protectedLow, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
-                    dbgStructEvents += 1
                     lastStructEventOff := off
 
             bosDn = not na(validatedLow) and close[off] < validatedLow and ((validatedLow - close[off]) / cRange) >= structureBreakMinFrac
@@ -279,30 +292,25 @@ f_stageA_structure_events(_safeLookback) =>
                     protectedHigh := candHigh
                     protectedHighOff := candHighOff
                     f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BEAR, time[off], protectedHigh, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
-                    dbgStructEvents += 1
                     lastStructEventOff := off
 
             chochDn = regime == DIR_BULL and not na(protectedLow) and close[off] < protectedLow and ((protectedLow - close[off]) / cRange) >= structureChochMinFrac
             if chochDn
                 regime := DIR_BEAR
-                lenFlipBear = na(protectedLowOff) ? 1 : math.max(1, protectedLowOff - off + 1)
-                flipBearHigh = ta.highest(high, lenFlipBear)[off]
+                flipBearHigh = na(protectedLowOff) ? high[off] : f_range_high(off, protectedLowOff)
                 f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BEAR, time[off], flipBearHigh, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
-                dbgStructEvents += 1
 
             chochUp = regime == DIR_BEAR and not na(protectedHigh) and close[off] > protectedHigh and ((close[off] - protectedHigh) / cRange) >= structureChochMinFrac
             if chochUp
                 regime := DIR_BULL
-                lenFlipBull = na(protectedHighOff) ? 1 : math.max(1, protectedHighOff - off + 1)
-                flipBullLow = ta.lowest(low, lenFlipBull)[off]
+                flipBullLow = na(protectedHighOff) ? low[off] : f_range_low(off, protectedHighOff)
                 f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BULL, time[off], flipBullLow, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
-                dbgStructEvents += 1
 
 f_stageA_base_events(_safeLookback) =>
     if _safeLookback >= 1
-        atrSeries = ta.atr(14)
-        highWin = ta.highest(high, baseWindowBars)
-        lowWin = ta.lowest(low, baseWindowBars)
+        atrSeries = atr14Series
+        highWin = baseHighWinSeries
+        lowWin = baseLowWinSeries
         int lastShelfOff = na
         int lastBreakOff = na
 
@@ -320,7 +328,6 @@ f_stageA_base_events(_safeLookback) =>
                 baseQ = 100.0 * overlapCloseness
                 openOff = math.min(off + baseWindowBars - 1, bar_index)
                 f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, baseQ, 50.0, 0.0, baseQ, 0.0)
-                dbgBaseEvents += 1
                 lastShelfOff := off
 
             prevTop = off < bar_index ? highWin[off + 1] : baseTop
@@ -334,14 +341,13 @@ f_stageA_base_events(_safeLookback) =>
                 breakScore = 100.0 * f_clamp01(breakMag / 3.0)
                 openOff = math.min(off + baseWindowBars - 1, bar_index)
                 f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, breakScore, 55.0, breakScore, breakScore, 0.0)
-                dbgBaseEvents += 1
                 lastBreakOff := off
 
 f_stageA_foxian_events(_safeLookback) =>
     if _safeLookback >= 1
-        atrSeries = ta.atr(14)
-        highPre = ta.highest(high, foxianPreRangeBars)
-        lowPre = ta.lowest(low, foxianPreRangeBars)
+        atrSeries = atr14Series
+        highPre = foxHighPreSeries
+        lowPre = foxLowPreSeries
         int lastFoxOff = na
 
         for off = _safeLookback to 1
@@ -358,11 +364,10 @@ f_stageA_foxian_events(_safeLookback) =>
                 top = dir == DIR_BULL ? close[off] : high[off]
                 bot = dir == DIR_BULL ? low[off] : close[off]
                 f_add_event(EVENT_FOXIAN_LAUNCH, dir, time[off], time[off], top, bot, launchScore, localQ, launchScore, 0.0, 0.0)
-                dbgFoxianEvents += 1
                 lastFoxOff := off
 
 f_build_zones_from_events() =>
-    atr = math.max(ta.atr(14), syminfo.mintick)
+    atr = math.max(atr14Series, syminfo.mintick)
     eCount = array.size(eType)
 
     if eCount > 0
@@ -443,12 +448,6 @@ f_build_zones_from_events() =>
                     array.push(zVisible, false)
 
 f_score_and_class_zones() =>
-    dbgStructuralCount := 0
-    dbgTradeableCount := 0
-    dbgRejectScore := 0
-    dbgRejectWidth := 0
-    dbgRejectRetest := 0
-
     zCount = array.size(zTop)
     if zCount > 0
         for zi = 0 to zCount - 1
@@ -481,18 +480,9 @@ f_score_and_class_zones() =>
             cls = ZONE_CLASS_NONE
             if structuralPass
                 cls := ZONE_CLASS_STRUCTURAL
-                dbgStructuralCount += 1
 
             if structuralPass and tradeScorePass and tradeWidthPass and tradeRetestPass
                 cls := ZONE_CLASS_TRADEABLE
-                dbgTradeableCount += 1
-            else if structuralPass
-                if not tradeScorePass
-                    dbgRejectScore += 1
-                if not tradeWidthPass
-                    dbgRejectWidth += 1
-                if not tradeRetestPass
-                    dbgRejectRetest += 1
 
             st = retests == 0 ? ZONE_STATE_FRESH : retests < 3 ? ZONE_STATE_ACTIVE : retests < 6 ? ZONE_STATE_WEAKENING : ZONE_STATE_BROKEN
             array.set(zClass, zi, cls)
@@ -584,11 +574,53 @@ f_render_debug_table() =>
         if nearIdx >= 0
             nearTxt := str.tostring(array.get(zMid, nearIdx), format.mintick) + " (" + f_zone_class_name(array.get(zClass, nearIdx)) + ", " + f_zone_state_name(array.get(zState, nearIdx)) + ", s=" + str.tostring(array.get(zZoneScore, nearIdx), "#.##") + ")"
 
+        eCount = array.size(eType)
+        structEvents = 0
+        baseEvents = 0
+        foxEvents = 0
+        if eCount > 0
+            for ei = 0 to eCount - 1
+                et = array.get(eType, ei)
+                if et == EVENT_STRUCT_BOS_ANCHOR or et == EVENT_STRUCT_FLIP_ANCHOR or et == EVENT_STRUCT_PROTECTED
+                    structEvents += 1
+                else if et == EVENT_BASE_SHELF or et == EVENT_BASE_BREAKOUT
+                    baseEvents += 1
+                else if et == EVENT_FOXIAN_LAUNCH
+                    foxEvents += 1
+
+        structuralCount = 0
+        tradeableCount = 0
+        rejectScore = 0
+        rejectWidth = 0
+        rejectRetest = 0
+
+        if zCount > 0
+            for zi = 0 to zCount - 1
+                cls = array.get(zClass, zi)
+                if cls == ZONE_CLASS_STRUCTURAL
+                    structuralCount += 1
+                    scorePass = array.get(zZoneScore, zi) >= minTradeableScore
+                    zTopV = array.get(zTop, zi)
+                    zBotV = array.get(zBot, zi)
+                    zMidV = array.get(zMid, zi)
+                    zWidth = math.max(zTopV - zBotV, syminfo.mintick)
+                    zWidthPct = zWidth / math.max(math.abs(zMidV), syminfo.mintick)
+                    widthPass = zWidthPct <= maxTradeableWidthPct
+                    retPass = array.get(zRetestCount, zi) <= maxTradeableRetests
+                    if not scorePass
+                        rejectScore += 1
+                    if not widthPass
+                        rejectWidth += 1
+                    if not retPass
+                        rejectRetest += 1
+                else if cls == ZONE_CLASS_TRADEABLE
+                    tradeableCount += 1
+
         table.cell(t, 0, 0, "Mode", text_color=color.white)
-        table.cell(t, 1, 0, mode + " | events=" + str.tostring(array.size(eType)) + " zones=" + str.tostring(array.size(zTop)), text_color=color.white)
+        table.cell(t, 1, 0, mode + " | events=" + str.tostring(eCount) + " zones=" + str.tostring(array.size(zTop)), text_color=color.white)
 
         table.cell(t, 0, 1, "Events generated", text_color=color.white)
-        table.cell(t, 1, 1, "struct=" + str.tostring(dbgStructEvents) + " base=" + str.tostring(dbgBaseEvents) + " foxian=" + str.tostring(dbgFoxianEvents), text_color=color.white)
+        table.cell(t, 1, 1, "struct=" + str.tostring(structEvents) + " base=" + str.tostring(baseEvents) + " foxian=" + str.tostring(foxEvents), text_color=color.white)
 
         avgSpanTxt = "-"
         if zCount > 0
@@ -602,10 +634,10 @@ f_render_debug_table() =>
         table.cell(t, 1, 2, "count=" + str.tostring(zCount) + " avgSpan=" + avgSpanTxt, text_color=color.white)
 
         table.cell(t, 0, 3, "Zone classes", text_color=color.white)
-        table.cell(t, 1, 3, "struct=" + str.tostring(dbgStructuralCount) + " tradeable=" + str.tostring(dbgTradeableCount), text_color=color.white)
+        table.cell(t, 1, 3, "struct=" + str.tostring(structuralCount) + " tradeable=" + str.tostring(tradeableCount), text_color=color.white)
 
         table.cell(t, 0, 4, "Tradeable rejects", text_color=color.white)
-        table.cell(t, 1, 4, "score=" + str.tostring(dbgRejectScore) + " width=" + str.tostring(dbgRejectWidth) + " retest=" + str.tostring(dbgRejectRetest), text_color=color.white)
+        table.cell(t, 1, 4, "score=" + str.tostring(rejectScore) + " width=" + str.tostring(rejectWidth) + " retest=" + str.tostring(rejectRetest), text_color=color.white)
 
         table.cell(t, 0, 5, "Nearest visible zone", text_color=color.white)
         table.cell(t, 1, 5, nearTxt, text_color=color.white)
@@ -616,10 +648,6 @@ f_render_debug_table() =>
 
 // ---------- Main ----------
 if barstate.isconfirmed
-    dbgStructEvents := 0
-    dbgBaseEvents := 0
-    dbgFoxianEvents := 0
-
     f_clear_events()
     f_clear_zones()
 
