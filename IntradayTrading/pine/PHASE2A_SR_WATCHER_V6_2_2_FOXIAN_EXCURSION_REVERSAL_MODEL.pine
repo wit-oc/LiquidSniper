@@ -92,7 +92,7 @@ minClusterPeakLaunch      = input.float(85.0, "Min cluster peak launch", minval=
 minClusterPeakRank        = input.float(72.0, "Min cluster peak rank", minval=0.0, maxval=100.0, step=0.5)
 majorClusterMinLaunch     = input.float(85.0, "Major-cluster bypass min launch", minval=0.0, maxval=100.0, step=0.5)
 majorClusterMinRank       = input.float(80.0, "Major-cluster bypass min rank", minval=0.0, maxval=100.0, step=0.5)
-mergeAcrossSides          = input.bool(false, "Merge across sides")
+mergeAcrossSides          = input.bool(true, "Merge across sides")
 zoneWidthMult             = input.float(1.12, "Zone width multiplier", minval=0.5, maxval=3.0, step=0.05)
 maxClusterWidthPct        = input.float(0.05, "Max cluster width (% of price)", minval=0.01, maxval=0.50, step=0.01)
 maxClustersInternal       = input.int(200, "Max clusters internal", minval=20, maxval=400)
