@@ -1,0 +1,517 @@
+//@version=5
+indicator("Phase2A S/R Watcher V7A Zone-First (Scaffold)", overlay=true, scale=scale.right, format=format.price, max_boxes_count=250, max_labels_count=250, max_lines_count=250)
+
+// =====================================================
+// V7A Zone-First Scaffold
+// Stage A: Evidence events (structure/base/foxian)
+// Stage B: Provisional zones from interval overlap
+// Stage C: Zone-level scoring
+// Stage D: Zone class (STRUCTURAL vs TRADEABLE)
+// Stage E: Selection + rendering
+// =====================================================
+
+// ---------- Inputs ----------
+mode                        = input.string("MAP", "Mode", options=["MAP", "LIVE"])
+lookbackBars                = input.int(1200, "Lookback bars", minval=200, maxval=5000)
+maxEvents                   = input.int(320, "Max events", minval=50, maxval=1200)
+maxZones                    = input.int(120, "Max provisional zones", minval=20, maxval=400)
+maxDisplayZones             = input.int(10, "Max displayed zones", minval=1, maxval=60)
+mergeTolPct                 = input.float(0.004, "Zone merge tolerance (% of price)", minval=0.0005, step=0.0005)
+mergeTolATR                 = input.float(0.60, "Zone merge tolerance ATR", minval=0.05, step=0.05)
+
+// Base detector (V7A minimal)
+baseWindowBars              = input.int(12, "Base window bars", minval=4, maxval=80)
+baseMinOverlapFrac          = input.float(0.55, "Base min overlap frac", minval=0.10, maxval=1.00, step=0.05)
+baseMaxATRSpan              = input.float(2.20, "Base max span ATR", minval=0.5, step=0.1)
+baseBreakMinATR             = input.float(0.80, "Base break min ATR", minval=0.1, step=0.1)
+
+// Zone scoring and classing (map-first)
+minStructuralScore          = input.float(50.0, "Min structural score", minval=0.0, maxval=100.0, step=0.5)
+minTradeableScore           = input.float(65.0, "Min tradeable score", minval=0.0, maxval=100.0, step=0.5)
+maxTradeableWidthPct        = input.float(0.06, "Max tradeable width (% price)", minval=0.005, maxval=0.50, step=0.005)
+maxTradeableRetests         = input.int(3, "Max tradeable retests", minval=0, maxval=30)
+
+// Rendering
+showStructuralZones         = input.bool(true, "Show structural zones")
+showTradeableZones          = input.bool(true, "Show tradeable zones")
+showZoneMidline             = input.bool(true, "Show zone midline")
+structuralZoneAlpha         = input.int(88, "Structural zone alpha", minval=0, maxval=100)
+tradeableZoneAlpha          = input.int(80, "Tradeable zone alpha", minval=0, maxval=100)
+
+// Debug
+showDebugTable              = input.bool(true, "Show debug table")
+compactDebug                = input.bool(true, "Compact debug")
+
+// ---------- Constants ----------
+DIR_BEAR                    = -1
+DIR_NEUTRAL                 = 0
+DIR_BULL                    = 1
+
+EVENT_STRUCT_BOS_ANCHOR     = 1
+EVENT_STRUCT_FLIP_ANCHOR    = 2
+EVENT_STRUCT_PROTECTED      = 3
+EVENT_BASE_SHELF            = 4
+EVENT_BASE_BREAKOUT         = 5
+EVENT_FOXIAN_LAUNCH         = 6
+
+ZONE_CLASS_NONE             = 0
+ZONE_CLASS_STRUCTURAL       = 1
+ZONE_CLASS_TRADEABLE        = 2
+
+ZONE_STATE_FRESH            = 0
+ZONE_STATE_ACTIVE           = 1
+ZONE_STATE_WEAKENING        = 2
+ZONE_STATE_BROKEN           = 3
+
+// ---------- Event store ----------
+var eType                   = array.new_int()
+var eDir                    = array.new_int()
+var eTimeOpen               = array.new_int()
+var eTimeClose              = array.new_int()
+var eTop                    = array.new_float()
+var eBot                    = array.new_float()
+var eMid                    = array.new_float()
+var eEvidenceScore          = array.new_float()
+var eLocalQ                 = array.new_float()
+var eLaunchScore            = array.new_float()
+var eBaseScore              = array.new_float()
+var eStructureScore         = array.new_float()
+
+// ---------- Zone store ----------
+var zTop                    = array.new_float()
+var zBot                    = array.new_float()
+var zMid                    = array.new_float()
+var zBirthTime              = array.new_int()
+var zHasStruct              = array.new_bool()
+var zHasBase                = array.new_bool()
+var zHasFoxian              = array.new_bool()
+var zBestBullEvidence       = array.new_float()
+var zBestBearEvidence       = array.new_float()
+var zBestLaunch             = array.new_float()
+var zBestBase               = array.new_float()
+var zBestStructure          = array.new_float()
+var zAvgLocalQ              = array.new_float()
+var zEventCount             = array.new_int()
+var zRetestCount            = array.new_int()
+var zState                  = array.new_int()
+var zZoneScore              = array.new_float()
+var zDisplayScore           = array.new_float()
+var zClass                  = array.new_int()
+var zVisible                = array.new_bool()
+
+var zoneBoxes               = array.new_box()
+var zoneMidLines            = array.new_line()
+
+// ---------- Debug counters ----------
+var int dbgStructEvents     = 0
+var int dbgBaseEvents       = 0
+var int dbgFoxianEvents     = 0
+var int dbgZoneCount        = 0
+var int dbgStructuralCount  = 0
+var int dbgTradeableCount   = 0
+var int dbgRejectScore      = 0
+var int dbgRejectWidth      = 0
+var int dbgRejectRetest     = 0
+
+f_clamp01(_v) =>
+    math.max(0.0, math.min(1.0, _v))
+
+f_interval_overlap(_topA, _botA, _topB, _botB, _tol) =>
+    aTop = math.max(_topA, _botA)
+    aBot = math.min(_topA, _botA)
+    bTop = math.max(_topB, _botB)
+    bBot = math.min(_topB, _botB)
+    not (aTop < bBot - _tol or aBot > bTop + _tol)
+
+f_clear_events() =>
+    array.clear(eType)
+    array.clear(eDir)
+    array.clear(eTimeOpen)
+    array.clear(eTimeClose)
+    array.clear(eTop)
+    array.clear(eBot)
+    array.clear(eMid)
+    array.clear(eEvidenceScore)
+    array.clear(eLocalQ)
+    array.clear(eLaunchScore)
+    array.clear(eBaseScore)
+    array.clear(eStructureScore)
+
+f_clear_zones() =>
+    array.clear(zTop)
+    array.clear(zBot)
+    array.clear(zMid)
+    array.clear(zBirthTime)
+    array.clear(zHasStruct)
+    array.clear(zHasBase)
+    array.clear(zHasFoxian)
+    array.clear(zBestBullEvidence)
+    array.clear(zBestBearEvidence)
+    array.clear(zBestLaunch)
+    array.clear(zBestBase)
+    array.clear(zBestStructure)
+    array.clear(zAvgLocalQ)
+    array.clear(zEventCount)
+    array.clear(zRetestCount)
+    array.clear(zState)
+    array.clear(zZoneScore)
+    array.clear(zDisplayScore)
+    array.clear(zClass)
+    array.clear(zVisible)
+
+f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _evidence, _localQ, _launch, _base, _structure) =>
+    if array.size(eType) < maxEvents
+        top = math.max(_top, _bot)
+        bot = math.min(_top, _bot)
+        mid = (top + bot) * 0.5
+        array.push(eType, _etype)
+        array.push(eDir, _dir)
+        array.push(eTimeOpen, _timeOpen)
+        array.push(eTimeClose, _timeClose)
+        array.push(eTop, top)
+        array.push(eBot, bot)
+        array.push(eMid, mid)
+        array.push(eEvidenceScore, _evidence)
+        array.push(eLocalQ, _localQ)
+        array.push(eLaunchScore, _launch)
+        array.push(eBaseScore, _base)
+        array.push(eStructureScore, _structure)
+
+f_stageA_structure_events() =>
+    atr = math.max(ta.atr(14), syminfo.mintick)
+
+    // TODO(v7b): Replace these pivots with direct Phase1 v3.3 event adapter semantics.
+    ph = ta.pivothigh(high, 3, 3)
+    pl = ta.pivotlow(low, 3, 3)
+
+    if not na(ph)
+        top = ph
+        bot = ph - atr * 0.25
+        f_add_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[3], time[3], top, bot, 75.0, 55.0, 0.0, 0.0, 75.0)
+        dbgStructEvents += 1
+
+    if not na(pl)
+        top = pl + atr * 0.25
+        bot = pl
+        f_add_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[3], time[3], top, bot, 75.0, 55.0, 0.0, 0.0, 75.0)
+        dbgStructEvents += 1
+
+f_stageA_base_events() =>
+    atr = math.max(ta.atr(14), syminfo.mintick)
+    baseTop = ta.highest(high, baseWindowBars)
+    baseBot = ta.lowest(low, baseWindowBars)
+    baseSpan = baseTop - baseBot
+    baseSpanATR = baseSpan / atr
+
+    overlapCloseness = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
+    overlapOk = overlapCloseness >= baseMinOverlapFrac
+
+    if overlapOk
+        baseQ = 100.0 * overlapCloseness
+        f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[baseWindowBars - 1], time, baseTop, baseBot, baseQ, 50.0, 0.0, baseQ, 0.0)
+        dbgBaseEvents += 1
+
+    upBreak = close > baseTop[1] and (close - baseTop[1]) / atr >= baseBreakMinATR
+    dnBreak = close < baseBot[1] and (baseBot[1] - close) / atr >= baseBreakMinATR
+
+    if upBreak or dnBreak
+        dir = upBreak ? DIR_BULL : DIR_BEAR
+        top = baseTop
+        bot = baseBot
+        breakMag = upBreak ? (close - baseTop[1]) / atr : (baseBot[1] - close) / atr
+        breakScore = 100.0 * f_clamp01(breakMag / 3.0)
+        f_add_event(EVENT_BASE_BREAKOUT, dir, time[baseWindowBars - 1], time, top, bot, breakScore, 55.0, breakScore, breakScore, 0.0)
+        dbgBaseEvents += 1
+
+f_stageA_foxian_events() =>
+    atr = math.max(ta.atr(14), syminfo.mintick)
+    barRangeATR = (high - low) / atr
+    impulse = barRangeATR >= 1.50
+    if impulse
+        dir = close >= open ? DIR_BULL : DIR_BEAR
+        top = dir == DIR_BULL ? close : high
+        bot = dir == DIR_BULL ? low : close
+        launchScore = 100.0 * f_clamp01(barRangeATR / 4.0)
+        localQ = 100.0 * f_clamp01(barRangeATR / 3.0)
+        f_add_event(EVENT_FOXIAN_LAUNCH, dir, time, time, top, bot, launchScore, localQ, launchScore, 0.0, 0.0)
+        dbgFoxianEvents += 1
+
+f_build_zones_from_events() =>
+    atr = math.max(ta.atr(14), syminfo.mintick)
+    eCount = array.size(eType)
+
+    if eCount > 0
+        for ei = 0 to eCount - 1
+            etype = array.get(eType, ei)
+            edir = array.get(eDir, ei)
+            eTopV = array.get(eTop, ei)
+            eBotV = array.get(eBot, ei)
+            eMidV = array.get(eMid, ei)
+            eStruct = array.get(eStructureScore, ei)
+            eBaseV = array.get(eBaseScore, ei)
+            eLaunch = array.get(eLaunchScore, ei)
+            eLocal = array.get(eLocalQ, ei)
+
+            tolAbs = math.max(math.abs(eMidV) * mergeTolPct, atr * mergeTolATR)
+
+            zCount = array.size(zTop)
+            best = -1
+            bestDist = 1e10
+
+            if zCount > 0
+                for zi = 0 to zCount - 1
+                    zTopV = array.get(zTop, zi)
+                    zBotV = array.get(zBot, zi)
+                    zMidV = array.get(zMid, zi)
+                    overlap = f_interval_overlap(eTopV, eBotV, zTopV, zBotV, tolAbs)
+                    d = math.abs(eMidV - zMidV)
+                    if (overlap or d <= tolAbs) and d < bestDist
+                        best := zi
+                        bestDist := d
+
+            if best >= 0
+                oldTop = array.get(zTop, best)
+                oldBot = array.get(zBot, best)
+                newTop = math.max(oldTop, eTopV)
+                newBot = math.min(oldBot, eBotV)
+                newMid = (newTop + newBot) * 0.5
+                oldCnt = array.get(zEventCount, best)
+                oldAvgQ = array.get(zAvgLocalQ, best)
+                newAvgQ = (oldAvgQ * oldCnt + eLocal) / math.max(oldCnt + 1, 1)
+
+                array.set(zTop, best, newTop)
+                array.set(zBot, best, newBot)
+                array.set(zMid, best, newMid)
+                array.set(zEventCount, best, oldCnt + 1)
+                array.set(zAvgLocalQ, best, newAvgQ)
+                array.set(zBestLaunch, best, math.max(array.get(zBestLaunch, best), eLaunch))
+                array.set(zBestBase, best, math.max(array.get(zBestBase, best), eBaseV))
+                array.set(zBestStructure, best, math.max(array.get(zBestStructure, best), eStruct))
+                array.set(zHasStruct, best, array.get(zHasStruct, best) or etype <= EVENT_STRUCT_PROTECTED)
+                array.set(zHasBase, best, array.get(zHasBase, best) or (etype == EVENT_BASE_SHELF or etype == EVENT_BASE_BREAKOUT))
+                array.set(zHasFoxian, best, array.get(zHasFoxian, best) or etype == EVENT_FOXIAN_LAUNCH)
+                if edir == DIR_BULL
+                    array.set(zBestBullEvidence, best, math.max(array.get(zBestBullEvidence, best), math.max(eLaunch, eStruct)))
+                if edir == DIR_BEAR
+                    array.set(zBestBearEvidence, best, math.max(array.get(zBestBearEvidence, best), math.max(eLaunch, eStruct)))
+            else
+                if array.size(zTop) < maxZones
+                    array.push(zTop, eTopV)
+                    array.push(zBot, eBotV)
+                    array.push(zMid, eMidV)
+                    array.push(zBirthTime, array.get(eTimeOpen, ei))
+                    array.push(zHasStruct, etype <= EVENT_STRUCT_PROTECTED)
+                    array.push(zHasBase, etype == EVENT_BASE_SHELF or etype == EVENT_BASE_BREAKOUT)
+                    array.push(zHasFoxian, etype == EVENT_FOXIAN_LAUNCH)
+                    array.push(zBestBullEvidence, edir == DIR_BULL ? math.max(eLaunch, eStruct) : 0.0)
+                    array.push(zBestBearEvidence, edir == DIR_BEAR ? math.max(eLaunch, eStruct) : 0.0)
+                    array.push(zBestLaunch, eLaunch)
+                    array.push(zBestBase, eBaseV)
+                    array.push(zBestStructure, eStruct)
+                    array.push(zAvgLocalQ, eLocal)
+                    array.push(zEventCount, 1)
+                    array.push(zRetestCount, 0)
+                    array.push(zState, ZONE_STATE_FRESH)
+                    array.push(zZoneScore, 0.0)
+                    array.push(zDisplayScore, 0.0)
+                    array.push(zClass, ZONE_CLASS_NONE)
+                    array.push(zVisible, false)
+
+f_score_and_class_zones() =>
+    dbgStructuralCount := 0
+    dbgTradeableCount := 0
+    dbgRejectScore := 0
+    dbgRejectWidth := 0
+    dbgRejectRetest := 0
+
+    zCount = array.size(zTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            zTopV = array.get(zTop, zi)
+            zBotV = array.get(zBot, zi)
+            zMidV = array.get(zMid, zi)
+            zWidth = math.max(zTopV - zBotV, syminfo.mintick)
+            zWidthPct = zWidth / math.max(math.abs(zMidV), syminfo.mintick)
+
+            structureScore = array.get(zBestStructure, zi)
+            baseScore = array.get(zBestBase, zi)
+            launchScore = array.get(zBestLaunch, zi)
+            bullEv = array.get(zBestBullEvidence, zi)
+            bearEv = array.get(zBestBearEvidence, zi)
+            flipScore = math.min(bullEv, bearEv)
+            retests = array.get(zRetestCount, zi)
+            freshnessScore = math.max(0.0, 100.0 - retests * 20.0)
+
+            zoneScore = 0.30 * structureScore + 0.25 * baseScore + 0.20 * launchScore + 0.10 * flipScore + 0.15 * freshnessScore
+            displayScore = zoneScore - math.min(retests, 4) * 1.0
+
+            array.set(zZoneScore, zi, zoneScore)
+            array.set(zDisplayScore, zi, displayScore)
+
+            structuralPass = zoneScore >= minStructuralScore
+            tradeScorePass = zoneScore >= minTradeableScore
+            tradeWidthPass = zWidthPct <= maxTradeableWidthPct
+            tradeRetestPass = retests <= maxTradeableRetests
+
+            cls = ZONE_CLASS_NONE
+            if structuralPass
+                cls := ZONE_CLASS_STRUCTURAL
+                dbgStructuralCount += 1
+
+            if structuralPass and tradeScorePass and tradeWidthPass and tradeRetestPass
+                cls := ZONE_CLASS_TRADEABLE
+                dbgTradeableCount += 1
+            else if structuralPass
+                if not tradeScorePass
+                    dbgRejectScore += 1
+                if not tradeWidthPass
+                    dbgRejectWidth += 1
+                if not tradeRetestPass
+                    dbgRejectRetest += 1
+
+            st = retests == 0 ? ZONE_STATE_FRESH : retests < 3 ? ZONE_STATE_ACTIVE : retests < 6 ? ZONE_STATE_WEAKENING : ZONE_STATE_BROKEN
+            array.set(zClass, zi, cls)
+            array.set(zState, zi, st)
+            array.set(zVisible, zi, false)
+
+f_select_visible_zones() =>
+    zCount = array.size(zTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            array.set(zVisible, zi, false)
+
+        left = maxDisplayZones
+        while left > 0
+            best = -1
+            bestScore = -1e10
+            for zi = 0 to zCount - 1
+                cls = array.get(zClass, zi)
+                already = array.get(zVisible, zi)
+                showClass = (cls == ZONE_CLASS_TRADEABLE and showTradeableZones) or (cls == ZONE_CLASS_STRUCTURAL and showStructuralZones)
+                sc = array.get(zDisplayScore, zi)
+                if showClass and not already and sc > bestScore
+                    best := zi
+                    bestScore := sc
+            if best >= 0
+                array.set(zVisible, best, true)
+                left -= 1
+            else
+                left := 0
+
+f_clear_drawings() =>
+    nBox = array.size(zoneBoxes)
+    if nBox > 0
+        for bi = 0 to nBox - 1
+            box.delete(array.get(zoneBoxes, bi))
+    array.clear(zoneBoxes)
+
+    nLine = array.size(zoneMidLines)
+    if nLine > 0
+        for li = 0 to nLine - 1
+            line.delete(array.get(zoneMidLines, li))
+    array.clear(zoneMidLines)
+
+f_render_zones() =>
+    f_clear_drawings()
+    zCount = array.size(zTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            if array.get(zVisible, zi)
+                cls = array.get(zClass, zi)
+                top = array.get(zTop, zi)
+                bot = array.get(zBot, zi)
+                mid = array.get(zMid, zi)
+                birth = array.get(zBirthTime, zi)
+                leftT = birth > 0 ? birth : time
+                fillColor = cls == ZONE_CLASS_TRADEABLE ? color.new(color.teal, tradeableZoneAlpha) : color.new(color.gray, structuralZoneAlpha)
+                borderColor = cls == ZONE_CLASS_TRADEABLE ? color.teal : color.silver
+
+                b = box.new(left=leftT, top=top, right=time, bottom=bot, xloc=xloc.bar_time, bgcolor=fillColor, border_color=borderColor)
+                array.push(zoneBoxes, b)
+
+                if showZoneMidline
+                    l = line.new(x1=leftT, y1=mid, x2=time, y2=mid, xloc=xloc.bar_time, color=borderColor, width=1)
+                    array.push(zoneMidLines, l)
+
+f_zone_state_name(_st) =>
+    _st == ZONE_STATE_FRESH ? "fresh" : _st == ZONE_STATE_ACTIVE ? "active" : _st == ZONE_STATE_WEAKENING ? "weakening" : "broken"
+
+f_zone_class_name(_cls) =>
+    _cls == ZONE_CLASS_TRADEABLE ? "tradeable" : _cls == ZONE_CLASS_STRUCTURAL ? "structural" : "none"
+
+f_render_debug_table() =>
+    if showDebugTable
+        var t = table.new(position.top_right, 2, 7, border_width=1)
+
+        // nearest visible zone summary
+        nearIdx = -1
+        nearDist = 1e18
+        zCount = array.size(zTop)
+        if zCount > 0
+            for zi = 0 to zCount - 1
+                if array.get(zVisible, zi)
+                    d = math.abs(close - array.get(zMid, zi))
+                    if d < nearDist
+                        nearDist := d
+                        nearIdx := zi
+
+        nearTxt = "-"
+        if nearIdx >= 0
+            nearTxt := str.tostring(array.get(zMid, nearIdx), format.mintick) + " (" + f_zone_class_name(array.get(zClass, nearIdx)) + ", " + f_zone_state_name(array.get(zState, nearIdx)) + ", s=" + str.tostring(array.get(zZoneScore, nearIdx), "#.##") + ")"
+
+        table.cell(t, 0, 0, "Mode", text_color=color.white)
+        table.cell(t, 1, 0, mode + " | events=" + str.tostring(array.size(eType)) + " zones=" + str.tostring(array.size(zTop)), text_color=color.white)
+
+        table.cell(t, 0, 1, "Events generated", text_color=color.white)
+        table.cell(t, 1, 1, "struct=" + str.tostring(dbgStructEvents) + " base=" + str.tostring(dbgBaseEvents) + " foxian=" + str.tostring(dbgFoxianEvents), text_color=color.white)
+
+        avgSpanTxt = "-"
+        if zCount > 0
+            spanSum = 0.0
+            for zi = 0 to zCount - 1
+                spanSum += math.abs(array.get(zTop, zi) - array.get(zBot, zi))
+            avgSpan = spanSum / zCount
+            avgSpanTxt := str.tostring(avgSpan, format.mintick)
+
+        table.cell(t, 0, 2, "Provisional zones", text_color=color.white)
+        table.cell(t, 1, 2, "count=" + str.tostring(zCount) + " avgSpan=" + avgSpanTxt, text_color=color.white)
+
+        table.cell(t, 0, 3, "Zone classes", text_color=color.white)
+        table.cell(t, 1, 3, "struct=" + str.tostring(dbgStructuralCount) + " tradeable=" + str.tostring(dbgTradeableCount), text_color=color.white)
+
+        table.cell(t, 0, 4, "Tradeable rejects", text_color=color.white)
+        table.cell(t, 1, 4, "score=" + str.tostring(dbgRejectScore) + " width=" + str.tostring(dbgRejectWidth) + " retest=" + str.tostring(dbgRejectRetest), text_color=color.white)
+
+        table.cell(t, 0, 5, "Nearest visible zone", text_color=color.white)
+        table.cell(t, 1, 5, nearTxt, text_color=color.white)
+
+        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxEvents) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##")
+        table.cell(t, 0, 6, "Config digest", text_color=color.white)
+        table.cell(t, 1, 6, compactDebug ? cfg : cfg + " | baseW=" + str.tostring(baseWindowBars) + " baseATR=" + str.tostring(baseMaxATRSpan, "#.##") + " tScore=" + str.tostring(minTradeableScore, "#.##"), text_color=color.white)
+
+// ---------- Main ----------
+if barstate.isconfirmed
+    dbgStructEvents := 0
+    dbgBaseEvents := 0
+    dbgFoxianEvents := 0
+
+    f_clear_events()
+    f_clear_zones()
+
+    // Stage A
+    f_stageA_structure_events()
+    f_stageA_base_events()
+    f_stageA_foxian_events()
+
+    // Stage B
+    f_build_zones_from_events()
+
+    // Stage C + D
+    f_score_and_class_zones()
+
+    // Stage E
+    f_select_visible_zones()
+
+    // Render
+    f_render_zones()
+    f_render_debug_table()
