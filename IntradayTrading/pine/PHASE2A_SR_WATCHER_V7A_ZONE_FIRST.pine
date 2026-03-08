@@ -542,14 +542,15 @@ f_render_zones() =>
                 mid = array.get(zMid, zi)
                 birth = array.get(zBirthTime, zi)
                 leftT = birth > 0 ? birth : time
-                fillColor = cls == ZONE_CLASS_TRADEABLE ? color.new(color.blue, tradeableZoneAlpha) : color.new(color.blue, structuralZoneAlpha)
-                borderColor = color.blue
+                fillColor = cls == ZONE_CLASS_TRADEABLE ? color.new(color.blue, tradeableZoneAlpha) : color.new(color.aqua, structuralZoneAlpha)
+                borderColor = cls == ZONE_CLASS_TRADEABLE ? color.blue : color.aqua
 
                 b = box.new(left=leftT, top=top, right=time, bottom=bot, xloc=xloc.bar_time, bgcolor=fillColor, border_color=borderColor)
                 array.push(zoneBoxes, b)
 
                 if showZoneMidline
-                    l = line.new(x1=leftT, y1=mid, x2=time, y2=mid, xloc=xloc.bar_time, color=borderColor, width=1)
+                    lStyle = cls == ZONE_CLASS_TRADEABLE ? line.style_solid : line.style_dashed
+                    l = line.new(x1=leftT, y1=mid, x2=time, y2=mid, xloc=xloc.bar_time, color=borderColor, style=lStyle, width=1)
                     array.push(zoneMidLines, l)
 
 f_zone_state_name(_st) =>
