@@ -229,14 +229,29 @@ def classify_retest_events(zone: dict[str, Any], candles: list[dict[str, Any]], 
     }
 
 
-def build_zones_for_tf(symbol: str, tf: str, candles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    pivots = extract_pivots(candles)
+def build_zones_for_tf(
+    symbol: str,
+    tf: str,
+    candles: list[dict[str, Any]],
+    *,
+    pivot_k: int = 3,
+    cluster_eps: float = 0.75,
+    reaction_atr_min: float = 0.35,
+    min_meaningful_touches: int = 3,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    pivots = extract_pivots(candles, k=pivot_k)
     tf_atr = atr(candles)
-    zones = cluster_pivots(pivots, atr_value=tf_atr)
+    zones = cluster_pivots(pivots, atr_value=tf_atr, eps=cluster_eps)
     final_zones: list[dict[str, Any]] = []
     touches: list[dict[str, Any]] = []
     for idx, zone in enumerate(zones, start=1):
-        z, t = evaluate_zone_lifecycle(zone, candles, atr_value=tf_atr)
+        z, t = evaluate_zone_lifecycle(
+            zone,
+            candles,
+            atr_value=tf_atr,
+            reaction_atr_min=reaction_atr_min,
+            min_meaningful_touches=min_meaningful_touches,
+        )
         zone_id = f"{symbol}:{tf}:{idx}:{round(z['zone_mid'], 4)}"
         z.update(
             {
@@ -337,10 +352,19 @@ def nearest_sr_levels_v1(*, profile_id: str, entry: float, zones: list[dict[str,
     supports_ranked.sort(key=lambda x: (x[0], x[1]))
     resistances_ranked.sort(key=lambda x: (x[0], x[1]))
 
-    nearest_support = supports_ranked[0] if len(supports_ranked) >= 1 else None
-    next_support = supports_ranked[1] if len(supports_ranked) >= 2 else None
-    nearest_resistance = resistances_ranked[0] if len(resistances_ranked) >= 1 else None
-    next_resistance = resistances_ranked[1] if len(resistances_ranked) >= 2 else None
+    def _pick_unique(candidates: list[tuple[float, float, dict[str, Any]]], used_ids: set[str]) -> tuple[float, float, dict[str, Any]] | None:
+        for row in candidates:
+            zid = str(row[2].get("zone_id") or "")
+            if zid and zid not in used_ids:
+                used_ids.add(zid)
+                return row
+        return None
+
+    used_ids: set[str] = set()
+    nearest_support = _pick_unique(supports_ranked, used_ids)
+    next_support = _pick_unique(supports_ranked, used_ids)
+    nearest_resistance = _pick_unique(resistances_ranked, used_ids)
+    next_resistance = _pick_unique(resistances_ranked, used_ids)
 
     return {
         "contract": "nearest_sr_v1",
