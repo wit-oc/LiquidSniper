@@ -35,7 +35,9 @@ structureEventMinGapBars    = input.int(4, "Structure event min gap bars", minva
 baseWindowBars              = input.int(12, "Base window bars", minval=4, maxval=80)
 baseMinOverlapFrac          = input.float(0.55, "Base min overlap frac", minval=0.10, maxval=1.00, step=0.05)
 baseMaxATRSpan              = input.float(2.20, "Base max span ATR", minval=0.5, step=0.1)
+baseTouchTolATR             = input.float(0.18, "Base touch tolerance ATR", minval=0.02, maxval=1.00, step=0.01)
 baseBreakMinATR             = input.float(0.80, "Base break min ATR", minval=0.1, step=0.1)
+baseBreakConfirmBars        = input.int(2, "Base breakout confirm bars", minval=1, maxval=5)
 baseEventMinGapBars         = input.int(4, "Base event min gap bars", minval=0, maxval=100)
 
 // Foxian evidence channel
@@ -89,8 +91,6 @@ ZONE_STATE_BROKEN           = 3
 atr14Series                 = ta.atr(14)
 structPhSeries              = ta.pivothigh(high, structurePivotLen, structurePivotLen)
 structPlSeries              = ta.pivotlow(low, structurePivotLen, structurePivotLen)
-baseHighWinSeries           = ta.highest(high, baseWindowBars)
-baseLowWinSeries            = ta.lowest(low, baseWindowBars)
 foxHighPreSeries            = ta.highest(high, foxianPreRangeBars)
 foxLowPreSeries             = ta.lowest(low, foxianPreRangeBars)
 
@@ -108,6 +108,13 @@ var eLaunchScore            = array.new_float()
 var eBaseScore              = array.new_float()
 var eStructureScore         = array.new_float()
 var eAtrRef                 = array.new_float()
+var eBaseOverlapCount       = array.new_int()
+var eBaseTouchCountTop      = array.new_int()
+var eBaseTouchCountBot      = array.new_int()
+var eBaseCompressionScore   = array.new_float()
+var eBaseBreakoutScore      = array.new_float()
+var eFoxPersistenceScore    = array.new_float()
+var eFoxBreakRangeScore     = array.new_float()
 var eCountStruct            = 0
 var eCountBase              = 0
 var eCountFoxian            = 0
@@ -125,6 +132,8 @@ var zBestBearEvidence       = array.new_float()
 var zBestLaunch             = array.new_float()
 var zBestBase               = array.new_float()
 var zBestStructure          = array.new_float()
+var zBestFoxPersistence     = array.new_float()
+var zBestFoxBreakRange      = array.new_float()
 var zAvgLocalQ              = array.new_float()
 var zEventCount             = array.new_int()
 var zRetestCount            = array.new_int()
@@ -179,6 +188,13 @@ f_clear_events() =>
     array.clear(eBaseScore)
     array.clear(eStructureScore)
     array.clear(eAtrRef)
+    array.clear(eBaseOverlapCount)
+    array.clear(eBaseTouchCountTop)
+    array.clear(eBaseTouchCountBot)
+    array.clear(eBaseCompressionScore)
+    array.clear(eBaseBreakoutScore)
+    array.clear(eFoxPersistenceScore)
+    array.clear(eFoxBreakRangeScore)
     eCountStruct := 0
     eCountBase := 0
     eCountFoxian := 0
@@ -196,6 +212,8 @@ f_clear_zones() =>
     array.clear(zBestLaunch)
     array.clear(zBestBase)
     array.clear(zBestStructure)
+    array.clear(zBestFoxPersistence)
+    array.clear(zBestFoxBreakRange)
     array.clear(zAvgLocalQ)
     array.clear(zEventCount)
     array.clear(zRetestCount)
@@ -241,6 +259,13 @@ f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _atrRef, _evidence,
         array.push(eBaseScore, _base)
         array.push(eStructureScore, _structure)
         array.push(eAtrRef, math.max(_atrRef, syminfo.mintick))
+        array.push(eBaseOverlapCount, 0)
+        array.push(eBaseTouchCountTop, 0)
+        array.push(eBaseTouchCountBot, 0)
+        array.push(eBaseCompressionScore, 0.0)
+        array.push(eBaseBreakoutScore, 0.0)
+        array.push(eFoxPersistenceScore, 0.0)
+        array.push(eFoxBreakRangeScore, 0.0)
         f_note_event_added(_etype)
 
 f_add_struct_level_event(_etype, _dir, _t, _level, _atr, _evidence, _localQ, _launch, _base, _structure) =>
@@ -251,6 +276,21 @@ f_add_struct_level_event(_etype, _dir, _t, _level, _atr, _evidence, _localQ, _la
         top := _level + band * 0.5
         bot := _level - band * 0.5
     f_add_event(_etype, _dir, _t, _t, top, bot, _atr, _evidence, _localQ, _launch, _base, _structure)
+
+f_set_last_base_diagnostics(_baseOverlapCount, _baseTouchCountTop, _baseTouchCountBot, _baseCompressionScore, _baseBreakoutScore) =>
+    last = array.size(eType) - 1
+    if last >= 0
+        array.set(eBaseOverlapCount, last, _baseOverlapCount)
+        array.set(eBaseTouchCountTop, last, _baseTouchCountTop)
+        array.set(eBaseTouchCountBot, last, _baseTouchCountBot)
+        array.set(eBaseCompressionScore, last, _baseCompressionScore)
+        array.set(eBaseBreakoutScore, last, _baseBreakoutScore)
+
+f_set_last_foxian_diagnostics(_persistenceScore, _breakRangeScore) =>
+    last = array.size(eType) - 1
+    if last >= 0
+        array.set(eFoxPersistenceScore, last, _persistenceScore)
+        array.set(eFoxBreakRangeScore, last, _breakRangeScore)
 
 f_stageA_structure_events(_safeLookback) =>
     if _safeLookback >= 2
@@ -345,40 +385,77 @@ f_stageA_structure_events(_safeLookback) =>
 f_stageA_base_events(_safeLookback) =>
     if _safeLookback >= baseWindowBars
         atrSeries = atr14Series
-        highWin = baseHighWinSeries
-        lowWin = baseLowWinSeries
         int lastShelfOff = na
         int lastBreakOff = na
 
-        maxOff = _safeLookback - (baseWindowBars - 1)
-        if maxOff >= 1
-            for off = maxOff to 1
+        maxOff = _safeLookback - (baseWindowBars - 1) - baseBreakConfirmBars
+        if maxOff >= 2
+            for off = maxOff to 2
                 atrOff = math.max(atrSeries[off], syminfo.mintick)
-                baseTop = highWin[off]
-                baseBot = lowWin[off]
+                openOff = off + baseWindowBars - 1
+                baseTop = high[openOff]
+                baseBot = low[openOff]
+                baseOverlapCount = 0
+                baseTouchCountTop = 0
+                baseTouchCountBot = 0
+
+                touchTol = atrOff * baseTouchTolATR
+                for wi = openOff - 1 to off
+                    barTop = high[wi]
+                    barBot = low[wi]
+                    ovTop = math.min(baseTop, barTop)
+                    ovBot = math.max(baseBot, barBot)
+                    if ovTop > ovBot
+                        baseOverlapCount += 1
+                        baseTop := ovTop
+                        baseBot := ovBot
+
+                    if math.abs(barTop - baseTop) <= touchTol
+                        baseTouchCountTop += 1
+                    if math.abs(barBot - baseBot) <= touchTol
+                        baseTouchCountBot += 1
+
                 baseSpan = baseTop - baseBot
                 baseSpanATR = baseSpan / atrOff
+                overlapRatio = baseWindowBars > 1 ? (baseOverlapCount / (baseWindowBars - 1)) : 0.0
+                touchRatio = f_clamp01((baseTouchCountTop + baseTouchCountBot) / 6.0)
+                compressCore = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
+                baseCompressionScore = 100.0 * f_clamp01(0.55 * compressCore + 0.30 * overlapRatio + 0.15 * touchRatio)
 
-                overlapCloseness = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
-                overlapOk = overlapCloseness >= baseMinOverlapFrac
+                overlapOk = overlapRatio >= baseMinOverlapFrac
+                shelfTouchOk = baseTouchCountTop >= 1 and baseTouchCountBot >= 1
+                shelfSpanOk = baseSpanATR <= baseMaxATRSpan
+                shelfOk = overlapOk and shelfTouchOk and shelfSpanOk
 
-                if overlapOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
-                    baseQ = 100.0 * overlapCloseness
-                    openOff = math.min(off + baseWindowBars - 1, _safeLookback)
-                    f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, atrOff, baseQ, 50.0, 0.0, baseQ, 0.0)
+                if shelfOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
+                    shelfQ = math.max(baseCompressionScore, 40.0)
+                    f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, atrOff, shelfQ, 52.0, 0.0, shelfQ, 0.0)
+                    f_set_last_base_diagnostics(baseOverlapCount, baseTouchCountTop, baseTouchCountBot, baseCompressionScore, 0.0)
                     lastShelfOff := off
 
-                prevTop = off < _safeLookback ? highWin[off + 1] : baseTop
-                prevBot = off < _safeLookback ? lowWin[off + 1] : baseBot
-                upBreak = close[off] > prevTop and (close[off] - prevTop) / atrOff >= baseBreakMinATR
-                dnBreak = close[off] < prevBot and (prevBot - close[off]) / atrOff >= baseBreakMinATR
+                upBreakBars = 0
+                dnBreakBars = 0
+                maxBreakMag = 0.0
+                for bi = 0 to baseBreakConfirmBars - 1
+                    closeProbe = close[off - bi]
+                    upMag = (closeProbe - baseTop) / atrOff
+                    dnMag = (baseBot - closeProbe) / atrOff
+                    if upMag >= baseBreakMinATR
+                        upBreakBars += 1
+                        maxBreakMag := math.max(maxBreakMag, upMag)
+                    if dnMag >= baseBreakMinATR
+                        dnBreakBars += 1
+                        maxBreakMag := math.max(maxBreakMag, dnMag)
 
-                if (upBreak or dnBreak) and (na(lastBreakOff) or (lastBreakOff - off) >= baseEventMinGapBars)
+                upBreak = upBreakBars >= baseBreakConfirmBars
+                dnBreak = dnBreakBars >= baseBreakConfirmBars
+
+                if shelfOk and (upBreak or dnBreak) and (na(lastBreakOff) or (lastBreakOff - off) >= baseEventMinGapBars)
                     dir = upBreak ? DIR_BULL : DIR_BEAR
-                    breakMag = upBreak ? (close[off] - prevTop) / atrOff : (prevBot - close[off]) / atrOff
-                    breakScore = 100.0 * f_clamp01(breakMag / 3.0)
-                    openOff = math.min(off + baseWindowBars - 1, _safeLookback)
-                    f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, atrOff, breakScore, 55.0, breakScore, breakScore, 0.0)
+                    baseBreakoutScore = 100.0 * f_clamp01(maxBreakMag / 3.0)
+                    breakScore = 100.0 * f_clamp01(0.60 * (maxBreakMag / 3.0) + 0.40 * (baseCompressionScore / 100.0))
+                    f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, atrOff, breakScore, 58.0, breakScore, breakScore, 0.0)
+                    f_set_last_base_diagnostics(baseOverlapCount, baseTouchCountTop, baseTouchCountBot, baseCompressionScore, baseBreakoutScore)
                     lastBreakOff := off
 
 f_stageA_foxian_events(_safeLookback) =>
@@ -400,9 +477,19 @@ f_stageA_foxian_events(_safeLookback) =>
                 breakMag = dir == DIR_BULL ? math.max(0.0, (close[off] - preTop) / atrOff) : math.max(0.0, (preBot - close[off]) / atrOff)
                 launchScore = 100.0 * f_clamp01(math.max(barRangeATR, breakMag) / 4.0)
                 localQ = 100.0 * f_clamp01(barRangeATR / 3.0)
+                persBars = 0
+                maxPersCheck = math.min(3, off)
+                for pi = 0 to maxPersCheck
+                    closeNext = close[off - pi]
+                    persOk = dir == DIR_BULL ? closeNext > preTop : closeNext < preBot
+                    if persOk
+                        persBars += 1
+                persistenceScore = 100.0 * f_clamp01(persBars / 3.0)
+                breakBeyondRangeScore = 100.0 * f_clamp01(breakMag / 2.5)
                 top = dir == DIR_BULL ? close[off] : high[off]
                 bot = dir == DIR_BULL ? low[off] : close[off]
                 f_add_event(EVENT_FOXIAN_LAUNCH, dir, time[off], time[off], top, bot, atrOff, launchScore, localQ, launchScore, 0.0, 0.0)
+                f_set_last_foxian_diagnostics(persistenceScore, breakBeyondRangeScore)
                 lastFoxOff := off
 
 f_build_zones_from_events() =>
@@ -420,6 +507,8 @@ f_build_zones_from_events() =>
             eBaseV = array.get(eBaseScore, ei)
             eLaunch = array.get(eLaunchScore, ei)
             eLocal = array.get(eLocalQ, ei)
+            eFoxPersist = array.get(eFoxPersistenceScore, ei)
+            eFoxBreak = array.get(eFoxBreakRangeScore, ei)
 
             tolAbs = math.max(math.abs(eMidV) * mergeTolPct, atr * mergeTolATR)
 
@@ -456,6 +545,8 @@ f_build_zones_from_events() =>
                 array.set(zBestLaunch, best, math.max(array.get(zBestLaunch, best), eLaunch))
                 array.set(zBestBase, best, math.max(array.get(zBestBase, best), eBaseV))
                 array.set(zBestStructure, best, math.max(array.get(zBestStructure, best), eStruct))
+                array.set(zBestFoxPersistence, best, math.max(array.get(zBestFoxPersistence, best), eFoxPersist))
+                array.set(zBestFoxBreakRange, best, math.max(array.get(zBestFoxBreakRange, best), eFoxBreak))
                 array.set(zHasStruct, best, array.get(zHasStruct, best) or etype <= EVENT_STRUCT_PROTECTED)
                 array.set(zHasBase, best, array.get(zHasBase, best) or (etype == EVENT_BASE_SHELF or etype == EVENT_BASE_BREAKOUT))
                 array.set(zHasFoxian, best, array.get(zHasFoxian, best) or etype == EVENT_FOXIAN_LAUNCH)
@@ -477,6 +568,8 @@ f_build_zones_from_events() =>
                     array.push(zBestLaunch, eLaunch)
                     array.push(zBestBase, eBaseV)
                     array.push(zBestStructure, eStruct)
+                    array.push(zBestFoxPersistence, eFoxPersist)
+                    array.push(zBestFoxBreakRange, eFoxBreak)
                     array.push(zAvgLocalQ, eLocal)
                     array.push(zEventCount, 1)
                     array.push(zRetestCount, 0)
@@ -499,13 +592,15 @@ f_score_and_class_zones() =>
             structureScore = array.get(zBestStructure, zi)
             baseScore = array.get(zBestBase, zi)
             launchScore = array.get(zBestLaunch, zi)
+            foxPersistenceScore = array.get(zBestFoxPersistence, zi)
+            foxBreakRangeScore = array.get(zBestFoxBreakRange, zi)
             bullEv = array.get(zBestBullEvidence, zi)
             bearEv = array.get(zBestBearEvidence, zi)
             flipScore = math.min(bullEv, bearEv)
             retests = array.get(zRetestCount, zi)
             freshnessScore = math.max(0.0, 100.0 - retests * 20.0)
 
-            zoneScore = 0.30 * structureScore + 0.25 * baseScore + 0.20 * launchScore + 0.10 * flipScore + 0.15 * freshnessScore
+            zoneScore = 0.30 * structureScore + 0.25 * baseScore + 0.10 * launchScore + 0.10 * foxPersistenceScore + 0.10 * foxBreakRangeScore + 0.10 * flipScore + 0.05 * freshnessScore
             displayScore = zoneScore - math.min(retests, 4) * 1.0
 
             array.set(zZoneScore, zi, zoneScore)
