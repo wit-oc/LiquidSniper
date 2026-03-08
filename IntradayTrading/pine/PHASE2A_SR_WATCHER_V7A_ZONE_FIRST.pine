@@ -411,6 +411,34 @@ f_finalize_event_selection() =>
             if array.get(eSelected, ei)
                 selectedTotal += 1
 
+        // safety fallback: never leave selection empty when raw events exist
+        if selectedTotal == 0 and eCount > 0
+            fallbackN = maxEventsTotal > 0 ? math.min(eCount, maxEventsTotal) : eCount
+            if fallbackN > 0
+                array.set(eCountByFamily, EVENT_FAMILY_STRUCT, 0)
+                array.set(eCountByFamily, EVENT_FAMILY_BASE, 0)
+                array.set(eCountByFamily, EVENT_FAMILY_FOXIAN, 0)
+                usedFallback = array.new_bool(eCount, false)
+                for pi = 0 to fallbackN - 1
+                    best = -1
+                    bestScore = -1e18
+                    for ei = 0 to eCount - 1
+                        if not array.get(usedFallback, ei)
+                            sc = f_event_rank_score(ei)
+                            if sc > bestScore
+                                bestScore := sc
+                                best := ei
+                    if best >= 0
+                        array.set(usedFallback, best, true)
+                        array.set(eSelected, best, true)
+                        fam = f_event_family(array.get(eType, best))
+                        array.set(eCountByFamily, fam, array.get(eCountByFamily, fam) + 1)
+
+                selectedTotal := 0
+                for ei = 0 to eCount - 1
+                    if array.get(eSelected, ei)
+                        selectedTotal += 1
+
     selectedTotal
 
 f_add_event(_etype, _dir, _regimeId, _timeOpen, _timeClose, _openBarIndex, _top, _bot, _atrRef, _evidence, _localQ, _launch, _base, _structure) =>
