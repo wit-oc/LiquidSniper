@@ -65,6 +65,8 @@ tradeableZoneAlpha          = input.int(80, "Tradeable zone alpha", minval=0, ma
 // Debug
 showDebugTable              = input.bool(true, "Show debug table")
 compactDebug                = input.bool(true, "Compact debug")
+computeLastBarOnly          = input.bool(true, "Compute last confirmed bar only (perf)")
+lifecycleMaxScanBars        = input.int(420, "Lifecycle max scan bars", minval=50, maxval=5000)
 
 // ---------- Constants ----------
 DIR_BEAR                    = -1
@@ -903,7 +905,7 @@ f_update_zone_lifecycle(_safeLookback) =>
             bestBear = array.get(zBestBearEvidence, zi)
             bullishBias = bestBull >= bestBear
             barsSinceBirth = math.max(0, bar_index - birthIdx)
-            scanMaxOff = math.min(_safeLookback, barsSinceBirth)
+            scanMaxOff = math.min(math.min(_safeLookback, barsSinceBirth), lifecycleMaxScanBars)
 
             retests = 0
             breakHits = 0
@@ -1288,12 +1290,13 @@ f_render_debug_table() =>
         table.cell(t, 0, 9, "Nearest visible zone", text_color=color.white)
         table.cell(t, 1, 9, nearTxt, text_color=color.white)
 
-        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxStructEvents) + "/" + str.tostring(maxBaseEvents) + "/" + str.tostring(maxFoxianEvents) + "|" + str.tostring(maxEventsTotal) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " span<=" + str.tostring(zoneMergeMaxSpanPct * 100, "#.##") + "%/" + str.tostring(zoneMergeMaxSpanATR, "#.##")
+        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxStructEvents) + "/" + str.tostring(maxBaseEvents) + "/" + str.tostring(maxFoxianEvents) + "|" + str.tostring(maxEventsTotal) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " span<=" + str.tostring(zoneMergeMaxSpanPct * 100, "#.##") + "%/" + str.tostring(zoneMergeMaxSpanATR, "#.##") + " lifeScan=" + str.tostring(lifecycleMaxScanBars) + " lastOnly=" + (computeLastBarOnly ? "1" : "0")
         table.cell(t, 0, 10, "Config digest", text_color=color.white)
         table.cell(t, 1, 10, compactDebug ? cfg : cfg + " | baseW=" + str.tostring(baseWindowBars) + " baseATR=" + str.tostring(baseMaxATRSpan, "#.##") + " tScore=" + str.tostring(minTradeableScore, "#.##"), text_color=color.white)
 
 // ---------- Main ----------
-if barstate.isconfirmed
+runPipeline = computeLastBarOnly ? (barstate.islast and barstate.isconfirmed) : barstate.isconfirmed
+if runPipeline
     f_clear_events()
     f_clear_zones()
 
