@@ -729,6 +729,14 @@ f_stageA_foxian_events(_safeLookback) =>
                 f_set_last_foxian_diagnostics(persistenceScore, breakBeyondRangeScore)
                 lastFoxOff := off
 
+f_stageA_fallback_seed(_safeLookback) =>
+    if array.size(eType) == 0 and _safeLookback >= 20
+        win = math.min(_safeLookback, 240)
+        startOff = math.min(win - 1, bar_index)
+        seedTop = ta.highest(high, win)
+        seedBot = ta.lowest(low, win)
+        seedAtr = math.max(atr14Series[0], syminfo.mintick)
+        f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, DIR_NEUTRAL, time[startOff], time, bar_index[startOff], seedTop, seedBot, seedAtr, 45.0, 40.0, 0.0, 45.0, 0.0)
 f_recompute_zone_core(_zi) =>
     structTop = array.get(zStructTop, _zi)
     structBot = array.get(zStructBot, _zi)
@@ -1324,22 +1332,20 @@ f_render_debug_table() =>
         table.cell(t, 1, 10, compactDebug ? cfg : cfg + " | baseW=" + str.tostring(baseWindowBars) + " baseATR=" + str.tostring(baseMaxATRSpan, "#.##") + " tScore=" + str.tostring(minTradeableScore, "#.##"), text_color=color.white)
 
 // ---------- Main ----------
-runPipeline = barstate.isconfirmed or (computeLastBarOnly and barstate.islast)
-isTerminalBar = barstate.islast or barstate.islastconfirmedhistory
+runPipeline = computeLastBarOnly ? (bar_index == last_bar_index or barstate.islast or barstate.islastconfirmedhistory) : barstate.isconfirmed
 if runPipeline
     f_clear_events()
     f_clear_zones()
 
     minWarmup = math.max(baseWindowBars + 2, math.max(structurePivotLen * 2 + 2, foxianPreRangeBars + 2))
-    effectiveLookback = lookbackBars
-    if computeLastBarOnly
-        effectiveLookback := isTerminalBar ? math.min(lookbackBars, terminalLookbackBars) : 0
+    effectiveLookback = computeLastBarOnly ? math.min(lookbackBars, terminalLookbackBars) : lookbackBars
     safeLookback = math.min(effectiveLookback, math.max(0, bar_index - minWarmup))
 
     // Stage A
     f_stageA_structure_events(safeLookback)
     f_stageA_base_events(safeLookback)
     f_stageA_foxian_events(safeLookback)
+    f_stageA_fallback_seed(safeLookback)
     f_finalize_event_selection()
 
     // Stage B
