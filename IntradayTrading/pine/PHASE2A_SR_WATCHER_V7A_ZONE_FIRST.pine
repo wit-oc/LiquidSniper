@@ -240,7 +240,8 @@ f_stageA_structure_events(_safeLookback) =>
         int lastBosDnRefOff = na
         int lastStructEventOff = na
 
-        for off = _safeLookback to 0
+        maxOff = math.max(0, _safeLookback - 1)
+        for off = maxOff to 0
             atrOff = math.max(atrSeries[off], syminfo.mintick)
             phv = ph[off]
             plv = pl[off]
@@ -266,7 +267,7 @@ f_stageA_structure_events(_safeLookback) =>
                     lastStructEventOff := off
 
             cRange = math.max(high[off] - low[off], syminfo.mintick)
-            prevClose = off < bar_index ? close[off + 1] : na
+            prevClose = off < _safeLookback ? close[off + 1] : na
 
             bosUp = not na(validatedHigh) and close[off] > validatedHigh and ((close[off] - validatedHigh) / cRange) >= structureBreakMinFrac
             bosUpFresh = not structureRequireFreshCross or na(prevClose) or prevClose <= validatedHigh
@@ -307,57 +308,60 @@ f_stageA_structure_events(_safeLookback) =>
                 f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BULL, time[off], flipBullLow, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
 
 f_stageA_base_events(_safeLookback) =>
-    if _safeLookback >= 1
+    if _safeLookback >= baseWindowBars
         atrSeries = atr14Series
         highWin = baseHighWinSeries
         lowWin = baseLowWinSeries
         int lastShelfOff = na
         int lastBreakOff = na
 
-        for off = _safeLookback to 1
-            atrOff = math.max(atrSeries[off], syminfo.mintick)
-            baseTop = highWin[off]
-            baseBot = lowWin[off]
-            baseSpan = baseTop - baseBot
-            baseSpanATR = baseSpan / atrOff
+        maxOff = _safeLookback - (baseWindowBars - 1)
+        if maxOff >= 1
+            for off = maxOff to 1
+                atrOff = math.max(atrSeries[off], syminfo.mintick)
+                baseTop = highWin[off]
+                baseBot = lowWin[off]
+                baseSpan = baseTop - baseBot
+                baseSpanATR = baseSpan / atrOff
 
-            overlapCloseness = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
-            overlapOk = overlapCloseness >= baseMinOverlapFrac
+                overlapCloseness = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
+                overlapOk = overlapCloseness >= baseMinOverlapFrac
 
-            if overlapOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
-                baseQ = 100.0 * overlapCloseness
-                openOff = math.min(off + baseWindowBars - 1, bar_index)
-                f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, baseQ, 50.0, 0.0, baseQ, 0.0)
-                lastShelfOff := off
+                if overlapOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
+                    baseQ = 100.0 * overlapCloseness
+                    openOff = math.min(off + baseWindowBars - 1, _safeLookback)
+                    f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, baseQ, 50.0, 0.0, baseQ, 0.0)
+                    lastShelfOff := off
 
-            prevTop = off < bar_index ? highWin[off + 1] : baseTop
-            prevBot = off < bar_index ? lowWin[off + 1] : baseBot
-            upBreak = close[off] > prevTop and (close[off] - prevTop) / atrOff >= baseBreakMinATR
-            dnBreak = close[off] < prevBot and (prevBot - close[off]) / atrOff >= baseBreakMinATR
+                prevTop = off < _safeLookback ? highWin[off + 1] : baseTop
+                prevBot = off < _safeLookback ? lowWin[off + 1] : baseBot
+                upBreak = close[off] > prevTop and (close[off] - prevTop) / atrOff >= baseBreakMinATR
+                dnBreak = close[off] < prevBot and (prevBot - close[off]) / atrOff >= baseBreakMinATR
 
-            if (upBreak or dnBreak) and (na(lastBreakOff) or (lastBreakOff - off) >= baseEventMinGapBars)
-                dir = upBreak ? DIR_BULL : DIR_BEAR
-                breakMag = upBreak ? (close[off] - prevTop) / atrOff : (prevBot - close[off]) / atrOff
-                breakScore = 100.0 * f_clamp01(breakMag / 3.0)
-                openOff = math.min(off + baseWindowBars - 1, bar_index)
-                f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, breakScore, 55.0, breakScore, breakScore, 0.0)
-                lastBreakOff := off
+                if (upBreak or dnBreak) and (na(lastBreakOff) or (lastBreakOff - off) >= baseEventMinGapBars)
+                    dir = upBreak ? DIR_BULL : DIR_BEAR
+                    breakMag = upBreak ? (close[off] - prevTop) / atrOff : (prevBot - close[off]) / atrOff
+                    breakScore = 100.0 * f_clamp01(breakMag / 3.0)
+                    openOff = math.min(off + baseWindowBars - 1, _safeLookback)
+                    f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, breakScore, 55.0, breakScore, breakScore, 0.0)
+                    lastBreakOff := off
 
 f_stageA_foxian_events(_safeLookback) =>
-    if _safeLookback >= 1
+    if _safeLookback >= 2
         atrSeries = atr14Series
         highPre = foxHighPreSeries
         lowPre = foxLowPreSeries
         int lastFoxOff = na
 
-        for off = _safeLookback to 1
+        maxOff = _safeLookback - 1
+        for off = maxOff to 1
             atrOff = math.max(atrSeries[off], syminfo.mintick)
             barRangeATR = (high[off] - low[off]) / atrOff
             impulse = barRangeATR >= foxianMinImpulseATR
             if impulse and (na(lastFoxOff) or (lastFoxOff - off) >= foxianEventMinGapBars)
                 dir = close[off] >= open[off] ? DIR_BULL : DIR_BEAR
-                preTop = off < bar_index ? highPre[off + 1] : highPre[off]
-                preBot = off < bar_index ? lowPre[off + 1] : lowPre[off]
+                preTop = off < _safeLookback ? highPre[off + 1] : highPre[off]
+                preBot = off < _safeLookback ? lowPre[off + 1] : lowPre[off]
                 breakMag = dir == DIR_BULL ? math.max(0.0, (close[off] - preTop) / atrOff) : math.max(0.0, (preBot - close[off]) / atrOff)
                 launchScore = 100.0 * f_clamp01(math.max(barRangeATR, breakMag) / 4.0)
                 localQ = 100.0 * f_clamp01(barRangeATR / 3.0)
