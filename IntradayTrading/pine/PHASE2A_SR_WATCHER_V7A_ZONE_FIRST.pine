@@ -13,7 +13,10 @@ indicator("Phase2A S/R Watcher V7A Zone-First (Scaffold)", overlay=true, scale=s
 // ---------- Inputs ----------
 mode                        = input.string("MAP", "Mode", options=["MAP", "LIVE"])
 lookbackBars                = input.int(1200, "Lookback bars", minval=200, maxval=5000)
-maxEvents                   = input.int(320, "Max events", minval=50, maxval=1200)
+maxStructEvents             = input.int(160, "Max structure events", minval=20, maxval=1200)
+maxBaseEvents               = input.int(120, "Max base events", minval=20, maxval=1200)
+maxFoxianEvents             = input.int(80, "Max foxian events", minval=10, maxval=1200)
+maxEventsTotal              = input.int(360, "Max events total (0 = no cap)", minval=0, maxval=2400)
 maxZones                    = input.int(120, "Max provisional zones", minval=20, maxval=400)
 maxDisplayZones             = input.int(10, "Max displayed zones", minval=1, maxval=60)
 mergeTolPct                 = input.float(0.004, "Zone merge tolerance (% of price)", minval=0.0005, step=0.0005)
@@ -25,7 +28,7 @@ structureATRBandMult        = input.float(0.35, "Structure seed band ATR", minva
 structureBreakMinFrac       = input.float(0.15, "Structure BoS break min frac", minval=0.0, maxval=1.0, step=0.01)
 structureChochMinFrac       = input.float(0.15, "Structure CHoCH break min frac", minval=0.0, maxval=1.0, step=0.01)
 structureRequireFreshCross  = input.bool(true, "Structure BoS requires fresh cross")
-structureEmitProtected      = input.bool(true, "Structure emit protected events")
+structureEmitProtected      = input.bool(false, "Structure emit protected events")
 structureEventMinGapBars    = input.int(4, "Structure event min gap bars", minval=0, maxval=100)
 
 // Base detector (V7A minimal)
@@ -69,6 +72,10 @@ EVENT_BASE_SHELF            = 4
 EVENT_BASE_BREAKOUT         = 5
 EVENT_FOXIAN_LAUNCH         = 6
 
+EVENT_FAMILY_STRUCT         = 1
+EVENT_FAMILY_BASE           = 2
+EVENT_FAMILY_FOXIAN         = 3
+
 ZONE_CLASS_NONE             = 0
 ZONE_CLASS_STRUCTURAL       = 1
 ZONE_CLASS_TRADEABLE        = 2
@@ -100,6 +107,10 @@ var eLocalQ                 = array.new_float()
 var eLaunchScore            = array.new_float()
 var eBaseScore              = array.new_float()
 var eStructureScore         = array.new_float()
+var eAtrRef                 = array.new_float()
+var eCountStruct            = 0
+var eCountBase              = 0
+var eCountFoxian            = 0
 
 // ---------- Zone store ----------
 var zTop                    = array.new_float()
@@ -167,6 +178,10 @@ f_clear_events() =>
     array.clear(eLaunchScore)
     array.clear(eBaseScore)
     array.clear(eStructureScore)
+    array.clear(eAtrRef)
+    eCountStruct := 0
+    eCountBase := 0
+    eCountFoxian := 0
 
 f_clear_zones() =>
     array.clear(zTop)
@@ -190,8 +205,26 @@ f_clear_zones() =>
     array.clear(zClass)
     array.clear(zVisible)
 
-f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _evidence, _localQ, _launch, _base, _structure) =>
-    if array.size(eType) < maxEvents
+f_event_family(_etype) =>
+    _etype <= EVENT_STRUCT_PROTECTED ? EVENT_FAMILY_STRUCT : (_etype == EVENT_BASE_SHELF or _etype == EVENT_BASE_BREAKOUT ? EVENT_FAMILY_BASE : EVENT_FAMILY_FOXIAN)
+
+f_can_add_event(_etype) =>
+    fam = f_event_family(_etype)
+    famCapOk = fam == EVENT_FAMILY_STRUCT ? eCountStruct < maxStructEvents : (fam == EVENT_FAMILY_BASE ? eCountBase < maxBaseEvents : eCountFoxian < maxFoxianEvents)
+    totalCapOk = maxEventsTotal <= 0 or array.size(eType) < maxEventsTotal
+    famCapOk and totalCapOk
+
+f_note_event_added(_etype) =>
+    fam = f_event_family(_etype)
+    if fam == EVENT_FAMILY_STRUCT
+        eCountStruct += 1
+    else if fam == EVENT_FAMILY_BASE
+        eCountBase += 1
+    else
+        eCountFoxian += 1
+
+f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _atrRef, _evidence, _localQ, _launch, _base, _structure) =>
+    if f_can_add_event(_etype)
         top = math.max(_top, _bot)
         bot = math.min(_top, _bot)
         mid = (top + bot) * 0.5
@@ -207,6 +240,8 @@ f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _evidence, _localQ,
         array.push(eLaunchScore, _launch)
         array.push(eBaseScore, _base)
         array.push(eStructureScore, _structure)
+        array.push(eAtrRef, math.max(_atrRef, syminfo.mintick))
+        f_note_event_added(_etype)
 
 f_add_struct_level_event(_etype, _dir, _t, _level, _atr, _evidence, _localQ, _launch, _base, _structure) =>
     band = _atr * structureATRBandMult
@@ -215,7 +250,7 @@ f_add_struct_level_event(_etype, _dir, _t, _level, _atr, _evidence, _localQ, _la
     if _dir == DIR_NEUTRAL
         top := _level + band * 0.5
         bot := _level - band * 0.5
-    f_add_event(_etype, _dir, _t, _t, top, bot, _evidence, _localQ, _launch, _base, _structure)
+    f_add_event(_etype, _dir, _t, _t, top, bot, _atr, _evidence, _localQ, _launch, _base, _structure)
 
 f_stageA_structure_events(_safeLookback) =>
     if _safeLookback >= 2
@@ -253,7 +288,7 @@ f_stageA_structure_events(_safeLookback) =>
                     validatedHigh := phv
                     validatedHighOff := off
                 if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
-                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[off], phv, atrOff, 70.0, 50.0, 0.0, 0.0, 70.0)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[off], phv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
                     lastStructEventOff := off
 
             if not na(plv)
@@ -263,7 +298,7 @@ f_stageA_structure_events(_safeLookback) =>
                     validatedLow := plv
                     validatedLowOff := off
                 if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
-                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[off], plv, atrOff, 70.0, 50.0, 0.0, 0.0, 70.0)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[off], plv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
                     lastStructEventOff := off
 
             cRange = math.max(high[off] - low[off], syminfo.mintick)
@@ -330,7 +365,7 @@ f_stageA_base_events(_safeLookback) =>
                 if overlapOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
                     baseQ = 100.0 * overlapCloseness
                     openOff = math.min(off + baseWindowBars - 1, _safeLookback)
-                    f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, baseQ, 50.0, 0.0, baseQ, 0.0)
+                    f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, atrOff, baseQ, 50.0, 0.0, baseQ, 0.0)
                     lastShelfOff := off
 
                 prevTop = off < _safeLookback ? highWin[off + 1] : baseTop
@@ -343,7 +378,7 @@ f_stageA_base_events(_safeLookback) =>
                     breakMag = upBreak ? (close[off] - prevTop) / atrOff : (prevBot - close[off]) / atrOff
                     breakScore = 100.0 * f_clamp01(breakMag / 3.0)
                     openOff = math.min(off + baseWindowBars - 1, _safeLookback)
-                    f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, breakScore, 55.0, breakScore, breakScore, 0.0)
+                    f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, atrOff, breakScore, 55.0, breakScore, breakScore, 0.0)
                     lastBreakOff := off
 
 f_stageA_foxian_events(_safeLookback) =>
@@ -367,7 +402,7 @@ f_stageA_foxian_events(_safeLookback) =>
                 localQ = 100.0 * f_clamp01(barRangeATR / 3.0)
                 top = dir == DIR_BULL ? close[off] : high[off]
                 bot = dir == DIR_BULL ? low[off] : close[off]
-                f_add_event(EVENT_FOXIAN_LAUNCH, dir, time[off], time[off], top, bot, launchScore, localQ, launchScore, 0.0, 0.0)
+                f_add_event(EVENT_FOXIAN_LAUNCH, dir, time[off], time[off], top, bot, atrOff, launchScore, localQ, launchScore, 0.0, 0.0)
                 lastFoxOff := off
 
 f_build_zones_from_events() =>
@@ -625,7 +660,7 @@ f_render_debug_table() =>
         table.cell(t, 1, 0, mode + " | events=" + str.tostring(eCount) + " zones=" + str.tostring(array.size(zTop)), text_color=color.white)
 
         table.cell(t, 0, 1, "Events generated", text_color=color.white)
-        table.cell(t, 1, 1, "struct=" + str.tostring(structEvents) + " base=" + str.tostring(baseEvents) + " foxian=" + str.tostring(foxEvents), text_color=color.white)
+        table.cell(t, 1, 1, "struct=" + str.tostring(structEvents) + "/" + str.tostring(maxStructEvents) + " base=" + str.tostring(baseEvents) + "/" + str.tostring(maxBaseEvents) + " foxian=" + str.tostring(foxEvents) + "/" + str.tostring(maxFoxianEvents), text_color=color.white)
 
         avgSpanTxt = "-"
         if zCount > 0
@@ -647,7 +682,7 @@ f_render_debug_table() =>
         table.cell(t, 0, 5, "Nearest visible zone", text_color=color.white)
         table.cell(t, 1, 5, nearTxt, text_color=color.white)
 
-        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxEvents) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##")
+        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxStructEvents) + "/" + str.tostring(maxBaseEvents) + "/" + str.tostring(maxFoxianEvents) + "|" + str.tostring(maxEventsTotal) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##")
         table.cell(t, 0, 6, "Config digest", text_color=color.white)
         table.cell(t, 1, 6, compactDebug ? cfg : cfg + " | baseW=" + str.tostring(baseWindowBars) + " baseATR=" + str.tostring(baseMaxATRSpan, "#.##") + " tScore=" + str.tostring(minTradeableScore, "#.##"), text_color=color.white)
 
