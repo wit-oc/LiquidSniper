@@ -264,36 +264,105 @@ def profile_anchor_and_eligible(profile_id: str) -> tuple[str, tuple[str, ...]]:
     return eligible[0], eligible
 
 
-def nearest_sr_query(*, profile_id: str, side: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
+def _zone_fmt_with_distance(z: dict[str, Any] | None, *, distance_bps: float | None = None, entry: float | None = None) -> dict[str, Any] | None:
+    if not z:
+        return None
+
+    if distance_bps is None:
+        mid = _as_float(z.get("zone_mid"), entry if entry is not None else 0.0)
+        e = _as_float(entry, mid)
+        distance_bps = abs(e - mid) / max(abs(mid), 1e-9) * 10000.0
+
+    return {
+        "zone_id": z.get("zone_id"),
+        "tf": z.get("tf"),
+        "status": z.get("status"),
+        "bounds": {
+            "low": z.get("zone_low"),
+            "high": z.get("zone_high"),
+            "mid": z.get("zone_mid"),
+        },
+        "strength": z.get("strength_score"),
+        "touch_count": z.get("touch_count"),
+        "first_retest_status": z.get("first_retest_result"),
+        "distance_bps": round(float(distance_bps), 4),
+    }
+
+
+def nearest_sr_levels_v1(*, profile_id: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return nearest-4 S/R payload for verification UI and downstream services.
+
+    Selection:
+    - nearest + next support
+    - nearest + next resistance
+    Distance is edge-based, with overlapping zones scored as 0 bps.
+    """
+
     anchor_tf, eligible_tfs = profile_anchor_and_eligible(profile_id)
     allowed = [z for z in zones if z.get("status") == "confirmed" and str(z.get("tf")) in eligible_tfs]
 
-    supports = [z for z in allowed if _as_float(z.get("zone_high")) <= entry]
-    resistances = [z for z in allowed if _as_float(z.get("zone_low")) >= entry]
+    def _support_distance_bps(z: dict[str, Any]) -> float:
+        low = _as_float(z.get("zone_low"), entry)
+        high = _as_float(z.get("zone_high"), entry)
+        overlap = low <= entry <= high
+        if overlap:
+            return 0.0
+        if high <= entry:
+            return ((entry - high) / max(abs(entry), 1e-9)) * 10000.0
+        return 999999.0
 
-    def _dist(z: dict[str, Any]) -> float:
-        mid = _as_float(z.get("zone_mid"), entry)
-        return abs(entry - mid) / max(abs(mid), 1e-9) * 10000.0
+    def _resistance_distance_bps(z: dict[str, Any]) -> float:
+        low = _as_float(z.get("zone_low"), entry)
+        high = _as_float(z.get("zone_high"), entry)
+        overlap = low <= entry <= high
+        if overlap:
+            return 0.0
+        if low >= entry:
+            return ((low - entry) / max(abs(entry), 1e-9)) * 10000.0
+        return 999999.0
 
-    nearest_support = min(supports, key=_dist) if supports else None
-    nearest_resistance = min(resistances, key=_dist) if resistances else None
+    supports_ranked: list[tuple[float, float, dict[str, Any]]] = []
+    resistances_ranked: list[tuple[float, float, dict[str, Any]]] = []
+
+    for z in allowed:
+        strength = _as_float(z.get("strength_score"), 0.0)
+        d_sup = _support_distance_bps(z)
+        if d_sup < 999999.0:
+            supports_ranked.append((d_sup, -strength, z))
+
+        d_res = _resistance_distance_bps(z)
+        if d_res < 999999.0:
+            resistances_ranked.append((d_res, -strength, z))
+
+    supports_ranked.sort(key=lambda x: (x[0], x[1]))
+    resistances_ranked.sort(key=lambda x: (x[0], x[1]))
+
+    nearest_support = supports_ranked[0] if len(supports_ranked) >= 1 else None
+    next_support = supports_ranked[1] if len(supports_ranked) >= 2 else None
+    nearest_resistance = resistances_ranked[0] if len(resistances_ranked) >= 1 else None
+    next_resistance = resistances_ranked[1] if len(resistances_ranked) >= 2 else None
+
+    return {
+        "contract": "nearest_sr_v1",
+        "sr_anchor_tf": anchor_tf,
+        "sr_eligible_tfs": list(eligible_tfs),
+        "entry": float(entry),
+        "nearest_support": _zone_fmt_with_distance(nearest_support[2], distance_bps=nearest_support[0], entry=entry) if nearest_support else None,
+        "next_support": _zone_fmt_with_distance(next_support[2], distance_bps=next_support[0], entry=entry) if next_support else None,
+        "nearest_resistance": _zone_fmt_with_distance(nearest_resistance[2], distance_bps=nearest_resistance[0], entry=entry) if nearest_resistance else None,
+        "next_resistance": _zone_fmt_with_distance(next_resistance[2], distance_bps=next_resistance[0], entry=entry) if next_resistance else None,
+        "available_confirmed_zones": len(allowed),
+    }
+
+
+def nearest_sr_query(*, profile_id: str, side: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
+    nearest4 = nearest_sr_levels_v1(profile_id=profile_id, entry=entry, zones=zones)
+    nearest_support = nearest4.get("nearest_support")
+    nearest_resistance = nearest4.get("nearest_resistance")
 
     primary = nearest_support if side == "buy" else nearest_resistance
-    distance_bps = _dist(primary) if primary else 999999.0
-    first_retest_ok = bool(primary and primary.get("first_retest_result") in {"reject", "deviation"})
-
-    def _fmt(z: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not z:
-            return None
-        return {
-            "zone_id": z.get("zone_id"),
-            "tf": z.get("tf"),
-            "bounds": {"low": z.get("zone_low"), "high": z.get("zone_high"), "mid": z.get("zone_mid")},
-            "strength": z.get("strength_score"),
-            "touch_count": z.get("touch_count"),
-            "first_retest_status": z.get("first_retest_result"),
-            "distance_bps": round(_dist(z), 4),
-        }
+    distance_bps = float(primary.get("distance_bps")) if isinstance(primary, dict) else 999999.0
+    first_retest_ok = bool(primary and primary.get("first_retest_status") in {"reject", "deviation"})
 
     reasons: list[str] = []
     if primary is None:
@@ -302,10 +371,10 @@ def nearest_sr_query(*, profile_id: str, side: str, entry: float, zones: list[di
         reasons.append("SR_RETEST_NOT_ELIGIBLE")
 
     return {
-        "sr_anchor_tf": anchor_tf,
-        "sr_eligible_tfs": list(eligible_tfs),
-        "nearest_support": _fmt(nearest_support),
-        "nearest_resistance": _fmt(nearest_resistance),
+        "sr_anchor_tf": nearest4.get("sr_anchor_tf"),
+        "sr_eligible_tfs": nearest4.get("sr_eligible_tfs", []),
+        "nearest_support": nearest_support,
+        "nearest_resistance": nearest_resistance,
         "distance_bps": round(distance_bps, 4),
         "first_retest_eligible": first_retest_ok,
         "gate_eligible": not reasons,

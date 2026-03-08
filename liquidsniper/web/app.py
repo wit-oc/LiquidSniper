@@ -1,12 +1,16 @@
-"""Minimal diagnostic Streamlit UI for hybrid analysis decisions."""
+"""Streamlit UI for LiquidSniper diagnostics + SR verification."""
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from liquidsniper.core.db import init_db
+from liquidsniper.core.sr_engine_v2 import nearest_sr_levels_v1
 from liquidsniper.core.tv_artifacts import query_ui_artifact_links
 
 try:
@@ -160,37 +164,209 @@ def _render_card_detail(conn: sqlite3.Connection, cards: list[DiagnosticCard]) -
             st.markdown(f"- {timeframe}: _(missing)_")
 
 
-def run_app(db_path: str) -> None:
+def _query_sr_symbols(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute("SELECT DISTINCT symbol FROM sr_zones ORDER BY symbol;").fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def _query_sr_tfs(conn: sqlite3.Connection, symbol: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT tf FROM sr_zones WHERE symbol = ? ORDER BY tf;",
+        (symbol,),
+    ).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def _query_sr_zones(
+    conn: sqlite3.Connection,
+    *,
+    symbol: str,
+    tf: str,
+    status: str,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    params: list[Any] = [symbol]
+    sql = """
+        SELECT
+            zone_id,
+            symbol,
+            tf,
+            zone_low,
+            zone_high,
+            zone_mid,
+            status,
+            touch_count,
+            meaningful_touch_count,
+            first_retest_result,
+            strength_score,
+            reaction_score,
+            updated_ts
+        FROM sr_zones
+        WHERE symbol = ?
+    """
+
+    if tf != "ALL":
+        sql += " AND tf = ?"
+        params.append(tf)
+
+    if status != "all":
+        sql += " AND status = ?"
+        params.append(status)
+
+    sql += " ORDER BY COALESCE(strength_score, 0) DESC, updated_ts DESC LIMIT ?"
+    params.append(int(limit))
+
+    rows = conn.execute(sql, params).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "zone_id": r[0],
+                "symbol": r[1],
+                "tf": r[2],
+                "zone_low": float(r[3]),
+                "zone_high": float(r[4]),
+                "zone_mid": float(r[5]),
+                "status": r[6],
+                "touch_count": int(r[7] or 0),
+                "meaningful_touch_count": int(r[8] or 0),
+                "first_retest_result": r[9],
+                "strength_score": float(r[10] or 0.0),
+                "reaction_score": float(r[11] or 0.0),
+                "updated_ts": r[12],
+            }
+        )
+    return out
+
+
+def _load_sr_bootstrap_snapshot(artifact_root: str) -> dict[str, Any] | None:
+    path = Path(artifact_root) / "sr" / "bootstrap_snapshot.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _zone_summary_line(label: str, zone: dict[str, Any] | None) -> None:
+    st.markdown(f"**{label}**")
+    if not zone:
+        st.write("(none)")
+        return
+    bounds = zone.get("bounds") or {}
+    st.write(
+        {
+            "zone_id": zone.get("zone_id"),
+            "tf": zone.get("tf"),
+            "status": zone.get("status"),
+            "distance_bps": zone.get("distance_bps"),
+            "bounds": bounds,
+            "strength": zone.get("strength"),
+            "touch_count": zone.get("touch_count"),
+            "first_retest_status": zone.get("first_retest_status"),
+        }
+    )
+
+
+def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> None:
+    st.subheader("S/R Verification (Python source of truth)")
+
+    snapshot = _load_sr_bootstrap_snapshot(artifact_root)
+    if snapshot:
+        st.caption(f"Last bootstrap snapshot: {snapshot.get('generated_at', '-')}")
+
+    symbols = _query_sr_symbols(conn)
+    if not symbols:
+        st.warning("No SR zones found in DB yet. Run: `python -m liquidsniper.ops.sr_bootstrap`.")
+        return
+
+    col_a, col_b, col_c, col_d = st.columns([1.1, 1.0, 1.0, 1.0])
+    with col_a:
+        symbol = st.selectbox("Symbol", options=symbols, index=0)
+    with col_b:
+        profile = st.selectbox("Profile", options=["S", "I", "C"], index=1)
+    with col_c:
+        tf_options = ["ALL"] + _query_sr_tfs(conn, symbol)
+        tf = st.selectbox("TF filter", options=tf_options, index=0)
+    with col_d:
+        status = st.selectbox("Status", options=["confirmed", "all", "candidate", "broken", "retired"], index=0)
+
+    default_price = 0.0
+    if snapshot and isinstance(snapshot.get("symbols"), dict):
+        sym_payload = snapshot["symbols"].get(symbol)
+        if isinstance(sym_payload, dict):
+            default_price = float(sym_payload.get("last_price") or 0.0)
+
+    if default_price <= 0.0:
+        sample = conn.execute(
+            "SELECT zone_mid FROM sr_zones WHERE symbol = ? ORDER BY updated_ts DESC LIMIT 1;",
+            (symbol,),
+        ).fetchone()
+        default_price = float(sample[0]) if sample else 0.0
+
+    entry = st.number_input("Entry / current price", min_value=0.0, value=float(default_price), step=max(default_price * 0.001, 1.0))
+
+    zones = _query_sr_zones(conn, symbol=symbol, tf=tf, status=status, limit=1500)
+    st.caption(f"Loaded zones: {len(zones)}")
+    if not zones:
+        st.info("No zones matched current filters.")
+        return
+
+    nearest = nearest_sr_levels_v1(profile_id=profile, entry=float(entry), zones=zones)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        _zone_summary_line("Nearest support", nearest.get("nearest_support"))
+        _zone_summary_line("Next support", nearest.get("next_support"))
+    with c2:
+        _zone_summary_line("Nearest resistance", nearest.get("nearest_resistance"))
+        _zone_summary_line("Next resistance", nearest.get("next_resistance"))
+
+    with st.expander("nearest_sr_v1 payload", expanded=False):
+        st.json(nearest)
+
+    with st.expander("Historical zones", expanded=False):
+        st.dataframe(zones, use_container_width=True)
+
+
+def run_app(db_path: str, artifact_root: str) -> None:
     """Entry point used by Streamlit."""
-    st.set_page_config(page_title="LiquidSniper Diagnostic UI", layout="wide")
-    st.title("LiquidSniper · Diagnostic UI")
+    st.set_page_config(page_title="LiquidSniper SR Verification UI", layout="wide")
+    st.title("LiquidSniper · SR Verification UI")
 
     conn = init_db(db_path)
     try:
-        would_alert_only = st.sidebar.checkbox("Would-alert only", value=False)
-        min_final_score = st.sidebar.slider(
-            "Minimum final score",
-            min_value=0.0,
-            max_value=100.0,
-            value=0.0,
-            step=1.0,
-        )
-        status = st.sidebar.selectbox(
-            "Status",
-            options=["all", "publish_candidate", "watch_only", "reject"],
-            index=0,
-        )
+        tab_sr, tab_diag = st.tabs(["SR Verification", "Diagnostic Inbox"])
 
-        cards = query_diagnostic_cards(
-            conn,
-            would_alert_only=would_alert_only,
-            min_final_score=min_final_score,
-            status=status,
-        )
+        with tab_sr:
+            _render_sr_verification(conn, artifact_root)
 
-        _render_card_list(cards)
-        st.divider()
-        _render_card_detail(conn, cards)
+        with tab_diag:
+            would_alert_only = st.checkbox("Would-alert only", value=False)
+            min_final_score = st.slider(
+                "Minimum final score",
+                min_value=0.0,
+                max_value=100.0,
+                value=0.0,
+                step=1.0,
+            )
+            status = st.selectbox(
+                "Status",
+                options=["all", "publish_candidate", "watch_only", "reject"],
+                index=0,
+            )
+
+            cards = query_diagnostic_cards(
+                conn,
+                would_alert_only=would_alert_only,
+                min_final_score=min_final_score,
+                status=status,
+            )
+
+            _render_card_list(cards)
+            st.divider()
+            _render_card_detail(conn, cards)
     finally:
         conn.close()
 
@@ -200,7 +376,8 @@ def main() -> None:
         raise RuntimeError("Streamlit is required to run the diagnostic UI.")
 
     db_path = os.getenv("LIQUIDSNIPER_DB_PATH", "data/liquidsniper.sqlite")
-    run_app(db_path)
+    artifact_root = os.getenv("LS_ARTIFACT_ROOT", "data/artifacts")
+    run_app(db_path, artifact_root)
 
 
 if __name__ == "__main__":
