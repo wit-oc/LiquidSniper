@@ -65,7 +65,8 @@ tradeableZoneAlpha          = input.int(80, "Tradeable zone alpha", minval=0, ma
 // Debug
 showDebugTable              = input.bool(true, "Show debug table")
 compactDebug                = input.bool(true, "Compact debug")
-computeLastBarOnly          = input.bool(true, "Compute last confirmed bar only (perf)")
+computeLastBarOnly          = input.bool(true, "Compute terminal bar only (perf)")
+terminalLookbackBars        = input.int(900, "Terminal-bar lookback cap", minval=200, maxval=5000)
 lifecycleMaxScanBars        = input.int(420, "Lifecycle max scan bars", minval=50, maxval=5000)
 
 // ---------- Constants ----------
@@ -1318,18 +1319,22 @@ f_render_debug_table() =>
         table.cell(t, 0, 9, "Nearest visible zone", text_color=color.white)
         table.cell(t, 1, 9, nearTxt, text_color=color.white)
 
-        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxStructEvents) + "/" + str.tostring(maxBaseEvents) + "/" + str.tostring(maxFoxianEvents) + "|" + str.tostring(maxEventsTotal) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " span<=" + str.tostring(zoneMergeMaxSpanPct * 100, "#.##") + "%/" + str.tostring(zoneMergeMaxSpanATR, "#.##") + " lifeScan=" + str.tostring(lifecycleMaxScanBars) + " lastOnly=" + (computeLastBarOnly ? "1" : "0")
+        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxStructEvents) + "/" + str.tostring(maxBaseEvents) + "/" + str.tostring(maxFoxianEvents) + "|" + str.tostring(maxEventsTotal) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " span<=" + str.tostring(zoneMergeMaxSpanPct * 100, "#.##") + "%/" + str.tostring(zoneMergeMaxSpanATR, "#.##") + " tLKB=" + str.tostring(terminalLookbackBars) + " lifeScan=" + str.tostring(lifecycleMaxScanBars) + " lastOnly=" + (computeLastBarOnly ? "1" : "0")
         table.cell(t, 0, 10, "Config digest", text_color=color.white)
         table.cell(t, 1, 10, compactDebug ? cfg : cfg + " | baseW=" + str.tostring(baseWindowBars) + " baseATR=" + str.tostring(baseMaxATRSpan, "#.##") + " tScore=" + str.tostring(minTradeableScore, "#.##"), text_color=color.white)
 
 // ---------- Main ----------
-runPipeline = computeLastBarOnly ? (bar_index == last_bar_index) : barstate.isconfirmed
+runPipeline = barstate.isconfirmed or (computeLastBarOnly and barstate.islast)
+isTerminalBar = barstate.islast or barstate.islastconfirmedhistory
 if runPipeline
     f_clear_events()
     f_clear_zones()
 
     minWarmup = math.max(baseWindowBars + 2, math.max(structurePivotLen * 2 + 2, foxianPreRangeBars + 2))
-    safeLookback = math.min(lookbackBars, math.max(0, bar_index - minWarmup))
+    effectiveLookback = lookbackBars
+    if computeLastBarOnly
+        effectiveLookback := isTerminalBar ? math.min(lookbackBars, terminalLookbackBars) : 0
+    safeLookback = math.min(effectiveLookback, math.max(0, bar_index - minWarmup))
 
     // Stage A
     f_stageA_structure_events(safeLookback)
