@@ -542,8 +542,8 @@ f_render_zones() =>
                 mid = array.get(zMid, zi)
                 birth = array.get(zBirthTime, zi)
                 leftT = birth > 0 ? birth : time
-                fillColor = cls == ZONE_CLASS_TRADEABLE ? color.new(color.teal, tradeableZoneAlpha) : color.new(color.gray, structuralZoneAlpha)
-                borderColor = cls == ZONE_CLASS_TRADEABLE ? color.teal : color.silver
+                fillColor = cls == ZONE_CLASS_TRADEABLE ? color.new(color.blue, tradeableZoneAlpha) : color.new(color.blue, structuralZoneAlpha)
+                borderColor = color.blue
 
                 b = box.new(left=leftT, top=top, right=time, bottom=bot, xloc=xloc.bar_time, bgcolor=fillColor, border_color=borderColor)
                 array.push(zoneBoxes, b)
