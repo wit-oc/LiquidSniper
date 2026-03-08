@@ -1332,7 +1332,7 @@ f_render_debug_table() =>
         table.cell(t, 1, 10, compactDebug ? cfg : cfg + " | baseW=" + str.tostring(baseWindowBars) + " baseATR=" + str.tostring(baseMaxATRSpan, "#.##") + " tScore=" + str.tostring(minTradeableScore, "#.##"), text_color=color.white)
 
 // ---------- Main ----------
-runPipeline = computeLastBarOnly ? (bar_index == last_bar_index or barstate.islast or barstate.islastconfirmedhistory) : barstate.isconfirmed
+runPipeline = computeLastBarOnly ? (bar_index >= math.max(0, last_bar_index - 1)) : barstate.isconfirmed
 if runPipeline
     f_clear_events()
     f_clear_zones()
