@@ -353,6 +353,7 @@ f_finalize_events_for_family(_fam) =>
 
 f_finalize_event_selection() =>
     eCount = array.size(eType)
+    selectedTotal = 0
     if eCount > 0
         for ei = 0 to eCount - 1
             array.set(eSelected, ei, false)
@@ -361,11 +362,9 @@ f_finalize_event_selection() =>
         f_finalize_events_for_family(EVENT_FAMILY_BASE)
         f_finalize_events_for_family(EVENT_FAMILY_FOXIAN)
 
-        selectedTotal = 0
-        if eCount > 0
-            for ei = 0 to eCount - 1
-                if array.get(eSelected, ei)
-                    selectedTotal += 1
+        for ei = 0 to eCount - 1
+            if array.get(eSelected, ei)
+                selectedTotal += 1
 
         if maxEventsTotal > 0 and selectedTotal > maxEventsTotal
             preselected = array.copy(eSelected)
@@ -404,6 +403,13 @@ f_finalize_event_selection() =>
             array.set(eCountByFamily, EVENT_FAMILY_STRUCT, array.get(eSelectedByFamily, EVENT_FAMILY_STRUCT))
             array.set(eCountByFamily, EVENT_FAMILY_BASE, array.get(eSelectedByFamily, EVENT_FAMILY_BASE))
             array.set(eCountByFamily, EVENT_FAMILY_FOXIAN, array.get(eSelectedByFamily, EVENT_FAMILY_FOXIAN))
+
+        selectedTotal := 0
+        for ei = 0 to eCount - 1
+            if array.get(eSelected, ei)
+                selectedTotal += 1
+
+    selectedTotal
 
 f_add_event(_etype, _dir, _regimeId, _timeOpen, _timeClose, _openBarIndex, _top, _bot, _atrRef, _evidence, _localQ, _launch, _base, _structure) =>
     top = math.max(_top, _bot)
