@@ -21,6 +21,9 @@ maxZones                    = input.int(120, "Max provisional zones", minval=20,
 maxDisplayZones             = input.int(10, "Max displayed zones", minval=1, maxval=60)
 mergeTolPct                 = input.float(0.004, "Zone merge tolerance (% of price)", minval=0.0005, step=0.0005)
 mergeTolATR                 = input.float(0.60, "Zone merge tolerance ATR", minval=0.05, step=0.05)
+zoneMergeMaxSpanPct         = input.float(0.090, "Zone merge max span (% price)", minval=0.005, maxval=0.50, step=0.005)
+zoneMergeMaxSpanATR         = input.float(5.00, "Zone merge max span ATR", minval=0.5, maxval=20.0, step=0.1)
+zoneMergeRequireOverlapSB   = input.bool(true, "Zone merge requires overlap for struct/base")
 
 // Structure adapter (V7B-aligned scaffold)
 structurePivotLen           = input.int(3, "Structure pivot length", minval=2, maxval=12)
@@ -99,6 +102,7 @@ var eType                   = array.new_int()
 var eDir                    = array.new_int()
 var eTimeOpen               = array.new_int()
 var eTimeClose              = array.new_int()
+var eOpenBarIndex           = array.new_int()
 var eTop                    = array.new_float()
 var eBot                    = array.new_float()
 var eMid                    = array.new_float()
@@ -124,6 +128,8 @@ var zTop                    = array.new_float()
 var zBot                    = array.new_float()
 var zMid                    = array.new_float()
 var zBirthTime              = array.new_int()
+var zBirthBarIndex          = array.new_int()
+var zAtrRef                 = array.new_float()
 var zHasStruct              = array.new_bool()
 var zHasBase                = array.new_bool()
 var zHasFoxian              = array.new_bool()
@@ -145,6 +151,9 @@ var zVisible                = array.new_bool()
 
 var zoneBoxes               = array.new_box()
 var zoneMidLines            = array.new_line()
+var dbgMergeRejectSpanPct   = 0
+var dbgMergeRejectSpanATR   = 0
+var dbgMergeRejectOverlap   = 0
 
 f_clamp01(_v) =>
     math.max(0.0, math.min(1.0, _v))
@@ -179,6 +188,7 @@ f_clear_events() =>
     array.clear(eDir)
     array.clear(eTimeOpen)
     array.clear(eTimeClose)
+    array.clear(eOpenBarIndex)
     array.clear(eTop)
     array.clear(eBot)
     array.clear(eMid)
@@ -198,12 +208,17 @@ f_clear_events() =>
     eCountStruct := 0
     eCountBase := 0
     eCountFoxian := 0
+    dbgMergeRejectSpanPct := 0
+    dbgMergeRejectSpanATR := 0
+    dbgMergeRejectOverlap := 0
 
 f_clear_zones() =>
     array.clear(zTop)
     array.clear(zBot)
     array.clear(zMid)
     array.clear(zBirthTime)
+    array.clear(zBirthBarIndex)
+    array.clear(zAtrRef)
     array.clear(zHasStruct)
     array.clear(zHasBase)
     array.clear(zHasFoxian)
@@ -241,7 +256,7 @@ f_note_event_added(_etype) =>
     else
         eCountFoxian += 1
 
-f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _atrRef, _evidence, _localQ, _launch, _base, _structure) =>
+f_add_event(_etype, _dir, _timeOpen, _timeClose, _openBarIndex, _top, _bot, _atrRef, _evidence, _localQ, _launch, _base, _structure) =>
     if f_can_add_event(_etype)
         top = math.max(_top, _bot)
         bot = math.min(_top, _bot)
@@ -250,6 +265,7 @@ f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _atrRef, _evidence,
         array.push(eDir, _dir)
         array.push(eTimeOpen, _timeOpen)
         array.push(eTimeClose, _timeClose)
+        array.push(eOpenBarIndex, _openBarIndex)
         array.push(eTop, top)
         array.push(eBot, bot)
         array.push(eMid, mid)
@@ -268,14 +284,14 @@ f_add_event(_etype, _dir, _timeOpen, _timeClose, _top, _bot, _atrRef, _evidence,
         array.push(eFoxBreakRangeScore, 0.0)
         f_note_event_added(_etype)
 
-f_add_struct_level_event(_etype, _dir, _t, _level, _atr, _evidence, _localQ, _launch, _base, _structure) =>
+f_add_struct_level_event(_etype, _dir, _t, _barIdx, _level, _atr, _evidence, _localQ, _launch, _base, _structure) =>
     band = _atr * structureATRBandMult
     top = _dir == DIR_BULL ? (_level + band) : _level
     bot = _dir == DIR_BULL ? _level : (_level - band)
     if _dir == DIR_NEUTRAL
         top := _level + band * 0.5
         bot := _level - band * 0.5
-    f_add_event(_etype, _dir, _t, _t, top, bot, _atr, _evidence, _localQ, _launch, _base, _structure)
+    f_add_event(_etype, _dir, _t, _t, _barIdx, top, bot, _atr, _evidence, _localQ, _launch, _base, _structure)
 
 f_set_last_base_diagnostics(_baseOverlapCount, _baseTouchCountTop, _baseTouchCountBot, _baseCompressionScore, _baseBreakoutScore) =>
     last = array.size(eType) - 1
@@ -328,7 +344,7 @@ f_stageA_structure_events(_safeLookback) =>
                     validatedHigh := phv
                     validatedHighOff := off
                 if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
-                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[off], phv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, time[off], bar_index[off], phv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
                     lastStructEventOff := off
 
             if not na(plv)
@@ -338,7 +354,7 @@ f_stageA_structure_events(_safeLookback) =>
                     validatedLow := plv
                     validatedLowOff := off
                 if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
-                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[off], plv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BULL, time[off], bar_index[off], plv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
                     lastStructEventOff := off
 
             cRange = math.max(high[off] - low[off], syminfo.mintick)
@@ -354,7 +370,7 @@ f_stageA_structure_events(_safeLookback) =>
                 if not na(candLow)
                     protectedLow := candLow
                     protectedLowOff := candLowOff
-                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BULL, time[off], protectedLow, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
+                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BULL, time[off], bar_index[off], protectedLow, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
                     lastStructEventOff := off
 
             bosDn = not na(validatedLow) and close[off] < validatedLow and ((validatedLow - close[off]) / cRange) >= structureBreakMinFrac
@@ -367,20 +383,20 @@ f_stageA_structure_events(_safeLookback) =>
                 if not na(candHigh)
                     protectedHigh := candHigh
                     protectedHighOff := candHighOff
-                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BEAR, time[off], protectedHigh, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
+                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BEAR, time[off], bar_index[off], protectedHigh, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
                     lastStructEventOff := off
 
             chochDn = regime == DIR_BULL and not na(protectedLow) and close[off] < protectedLow and ((protectedLow - close[off]) / cRange) >= structureChochMinFrac
             if chochDn
                 regime := DIR_BEAR
                 flipBearHigh = na(protectedLowOff) ? high[off] : f_range_high(off, protectedLowOff)
-                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BEAR, time[off], flipBearHigh, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
+                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BEAR, time[off], bar_index[off], flipBearHigh, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
 
             chochUp = regime == DIR_BEAR and not na(protectedHigh) and close[off] > protectedHigh and ((close[off] - protectedHigh) / cRange) >= structureChochMinFrac
             if chochUp
                 regime := DIR_BULL
                 flipBullLow = na(protectedHighOff) ? low[off] : f_range_low(off, protectedHighOff)
-                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BULL, time[off], flipBullLow, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
+                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BULL, time[off], bar_index[off], flipBullLow, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
 
 f_stageA_base_events(_safeLookback) =>
     if _safeLookback >= baseWindowBars
@@ -429,7 +445,7 @@ f_stageA_base_events(_safeLookback) =>
 
                 if shelfOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
                     shelfQ = math.max(baseCompressionScore, 40.0)
-                    f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], baseTop, baseBot, atrOff, shelfQ, 52.0, 0.0, shelfQ, 0.0)
+                    f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, time[openOff], time[off], bar_index[openOff], baseTop, baseBot, atrOff, shelfQ, 52.0, 0.0, shelfQ, 0.0)
                     f_set_last_base_diagnostics(baseOverlapCount, baseTouchCountTop, baseTouchCountBot, baseCompressionScore, 0.0)
                     lastShelfOff := off
 
@@ -454,7 +470,7 @@ f_stageA_base_events(_safeLookback) =>
                     dir = upBreak ? DIR_BULL : DIR_BEAR
                     baseBreakoutScore = 100.0 * f_clamp01(maxBreakMag / 3.0)
                     breakScore = 100.0 * f_clamp01(0.60 * (maxBreakMag / 3.0) + 0.40 * (baseCompressionScore / 100.0))
-                    f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], baseTop, baseBot, atrOff, breakScore, 58.0, breakScore, breakScore, 0.0)
+                    f_add_event(EVENT_BASE_BREAKOUT, dir, time[openOff], time[off], bar_index[openOff], baseTop, baseBot, atrOff, breakScore, 58.0, breakScore, breakScore, 0.0)
                     f_set_last_base_diagnostics(baseOverlapCount, baseTouchCountTop, baseTouchCountBot, baseCompressionScore, baseBreakoutScore)
                     lastBreakOff := off
 
@@ -488,29 +504,28 @@ f_stageA_foxian_events(_safeLookback) =>
                 breakBeyondRangeScore = 100.0 * f_clamp01(breakMag / 2.5)
                 top = dir == DIR_BULL ? close[off] : high[off]
                 bot = dir == DIR_BULL ? low[off] : close[off]
-                f_add_event(EVENT_FOXIAN_LAUNCH, dir, time[off], time[off], top, bot, atrOff, launchScore, localQ, launchScore, 0.0, 0.0)
+                f_add_event(EVENT_FOXIAN_LAUNCH, dir, time[off], time[off], bar_index[off], top, bot, atrOff, launchScore, localQ, launchScore, 0.0, 0.0)
                 f_set_last_foxian_diagnostics(persistenceScore, breakBeyondRangeScore)
                 lastFoxOff := off
 
 f_build_zones_from_events() =>
-    atr = math.max(atr14Series, syminfo.mintick)
     eCount = array.size(eType)
 
     if eCount > 0
         for ei = 0 to eCount - 1
             etype = array.get(eType, ei)
             edir = array.get(eDir, ei)
+            eOpenIdx = array.get(eOpenBarIndex, ei)
             eTopV = array.get(eTop, ei)
             eBotV = array.get(eBot, ei)
             eMidV = array.get(eMid, ei)
+            eAtrV = array.get(eAtrRef, ei)
             eStruct = array.get(eStructureScore, ei)
             eBaseV = array.get(eBaseScore, ei)
             eLaunch = array.get(eLaunchScore, ei)
             eLocal = array.get(eLocalQ, ei)
             eFoxPersist = array.get(eFoxPersistenceScore, ei)
             eFoxBreak = array.get(eFoxBreakRangeScore, ei)
-
-            tolAbs = math.max(math.abs(eMidV) * mergeTolPct, atr * mergeTolATR)
 
             zCount = array.size(zTop)
             best = -1
@@ -521,11 +536,34 @@ f_build_zones_from_events() =>
                     zTopV = array.get(zTop, zi)
                     zBotV = array.get(zBot, zi)
                     zMidV = array.get(zMid, zi)
+                    zAtrV = array.get(zAtrRef, zi)
+                    mergeAtrRef = math.max(math.max(eAtrV, zAtrV), syminfo.mintick)
+                    tolAbs = math.max(math.abs(eMidV) * mergeTolPct, mergeAtrRef * mergeTolATR)
                     overlap = f_interval_overlap(eTopV, eBotV, zTopV, zBotV, tolAbs)
                     d = math.abs(eMidV - zMidV)
-                    if (overlap or d <= tolAbs) and d < bestDist
-                        best := zi
-                        bestDist := d
+                    requiresOverlap = zoneMergeRequireOverlapSB and etype <= EVENT_BASE_BREAKOUT
+                    canUseByDistance = overlap or d <= tolAbs
+                    if requiresOverlap and not overlap
+                        dbgMergeRejectOverlap += 1
+                        canUseByDistance := false
+
+                    if canUseByDistance
+                        spanTop = math.max(zTopV, eTopV)
+                        spanBot = math.min(zBotV, eBotV)
+                        span = math.max(spanTop - spanBot, syminfo.mintick)
+                        spanMid = (spanTop + spanBot) * 0.5
+                        spanPct = span / math.max(math.abs(spanMid), syminfo.mintick)
+                        spanATR = span / mergeAtrRef
+                        spanPctOk = spanPct <= zoneMergeMaxSpanPct
+                        spanATROk = spanATR <= zoneMergeMaxSpanATR
+                        if not spanPctOk
+                            dbgMergeRejectSpanPct += 1
+                        if not spanATROk
+                            dbgMergeRejectSpanATR += 1
+
+                        if spanPctOk and spanATROk and d < bestDist
+                            best := zi
+                            bestDist := d
 
             if best >= 0
                 oldTop = array.get(zTop, best)
@@ -536,10 +574,13 @@ f_build_zones_from_events() =>
                 oldCnt = array.get(zEventCount, best)
                 oldAvgQ = array.get(zAvgLocalQ, best)
                 newAvgQ = (oldAvgQ * oldCnt + eLocal) / math.max(oldCnt + 1, 1)
+                oldAtr = array.get(zAtrRef, best)
+                newAtr = (oldAtr * oldCnt + eAtrV) / math.max(oldCnt + 1, 1)
 
                 array.set(zTop, best, newTop)
                 array.set(zBot, best, newBot)
                 array.set(zMid, best, newMid)
+                array.set(zAtrRef, best, newAtr)
                 array.set(zEventCount, best, oldCnt + 1)
                 array.set(zAvgLocalQ, best, newAvgQ)
                 array.set(zBestLaunch, best, math.max(array.get(zBestLaunch, best), eLaunch))
@@ -560,6 +601,8 @@ f_build_zones_from_events() =>
                     array.push(zBot, eBotV)
                     array.push(zMid, eMidV)
                     array.push(zBirthTime, array.get(eTimeOpen, ei))
+                    array.push(zBirthBarIndex, eOpenIdx)
+                    array.push(zAtrRef, eAtrV)
                     array.push(zHasStruct, etype <= EVENT_STRUCT_PROTECTED)
                     array.push(zHasBase, etype == EVENT_BASE_SHELF or etype == EVENT_BASE_BREAKOUT)
                     array.push(zHasFoxian, etype == EVENT_FOXIAN_LAUNCH)
@@ -578,6 +621,47 @@ f_build_zones_from_events() =>
                     array.push(zDisplayScore, 0.0)
                     array.push(zClass, ZONE_CLASS_NONE)
                     array.push(zVisible, false)
+
+f_update_zone_lifecycle(_safeLookback) =>
+    zCount = array.size(zTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            zTopV = array.get(zTop, zi)
+            zBotV = array.get(zBot, zi)
+            birthIdx = array.get(zBirthBarIndex, zi)
+            bestBull = array.get(zBestBullEvidence, zi)
+            bestBear = array.get(zBestBearEvidence, zi)
+            bullishBias = bestBull >= bestBear
+            barsSinceBirth = math.max(0, bar_index - birthIdx)
+            scanMaxOff = math.min(_safeLookback, barsSinceBirth)
+
+            retests = 0
+            breakHits = 0
+            inTouch = false
+
+            if scanMaxOff > 0
+                for off = scanMaxOff to 0
+                    touched = high[off] >= zBotV and low[off] <= zTopV
+                    if touched and not inTouch
+                        retests += 1
+                    inTouch := touched
+
+                    atrOff = math.max(atr14Series[off], syminfo.mintick)
+                    broke = bullishBias ? close[off] < zBotV - atrOff * 0.20 : close[off] > zTopV + atrOff * 0.20
+                    if broke
+                        breakHits += 1
+
+            retests := math.max(retests - 1, 0)
+            st = ZONE_STATE_FRESH
+            if breakHits >= 1
+                st := ZONE_STATE_BROKEN
+            else if retests >= 4
+                st := ZONE_STATE_WEAKENING
+            else if retests >= 1
+                st := ZONE_STATE_ACTIVE
+
+            array.set(zRetestCount, zi, retests)
+            array.set(zState, zi, st)
 
 f_score_and_class_zones() =>
     zCount = array.size(zTop)
@@ -598,9 +682,11 @@ f_score_and_class_zones() =>
             bearEv = array.get(zBestBearEvidence, zi)
             flipScore = math.min(bullEv, bearEv)
             retests = array.get(zRetestCount, zi)
+            st = array.get(zState, zi)
             freshnessScore = math.max(0.0, 100.0 - retests * 20.0)
+            stateScore = st == ZONE_STATE_FRESH ? 100.0 : st == ZONE_STATE_ACTIVE ? 80.0 : st == ZONE_STATE_WEAKENING ? 45.0 : 10.0
 
-            zoneScore = 0.30 * structureScore + 0.25 * baseScore + 0.10 * launchScore + 0.10 * foxPersistenceScore + 0.10 * foxBreakRangeScore + 0.10 * flipScore + 0.05 * freshnessScore
+            zoneScore = 0.28 * structureScore + 0.24 * baseScore + 0.10 * launchScore + 0.10 * foxPersistenceScore + 0.10 * foxBreakRangeScore + 0.08 * flipScore + 0.05 * freshnessScore + 0.05 * stateScore
             displayScore = zoneScore - math.min(retests, 4) * 1.0
 
             array.set(zZoneScore, zi, zoneScore)
@@ -610,17 +696,15 @@ f_score_and_class_zones() =>
             tradeScorePass = zoneScore >= minTradeableScore
             tradeWidthPass = zWidthPct <= maxTradeableWidthPct
             tradeRetestPass = retests <= maxTradeableRetests
+            tradeStatePass = st == ZONE_STATE_FRESH or st == ZONE_STATE_ACTIVE
 
             cls = ZONE_CLASS_NONE
             if structuralPass
                 cls := ZONE_CLASS_STRUCTURAL
 
-            if structuralPass and tradeScorePass and tradeWidthPass and tradeRetestPass
+            if structuralPass and tradeScorePass and tradeWidthPass and tradeRetestPass and tradeStatePass
                 cls := ZONE_CLASS_TRADEABLE
-
-            st = retests == 0 ? ZONE_STATE_FRESH : retests < 3 ? ZONE_STATE_ACTIVE : retests < 6 ? ZONE_STATE_WEAKENING : ZONE_STATE_BROKEN
             array.set(zClass, zi, cls)
-            array.set(zState, zi, st)
             array.set(zVisible, zi, false)
 
 f_select_visible_zones() =>
@@ -797,7 +881,10 @@ if barstate.isconfirmed
     // Stage B
     f_build_zones_from_events()
 
-    // Stage C + D
+    // Stage C
+    f_update_zone_lifecycle(safeLookback)
+
+    // Stage D
     f_score_and_class_zones()
 
     // Stage E
