@@ -1,5 +1,5 @@
 //@version=5
-indicator("Phase2A S/R Watcher V7A Zone-First (Scaffold)", overlay=true, scale=scale.right, format=format.price, max_bars_back=8000, max_boxes_count=250, max_labels_count=250, max_lines_count=250)
+indicator("Phase2A S/R Watcher V7A Zone-First (Scaffold)", overlay=true, scale=scale.right, format=format.price, max_bars_back=5000, max_boxes_count=250, max_labels_count=250, max_lines_count=250)
 
 // =====================================================
 // V7A Zone-First Scaffold
