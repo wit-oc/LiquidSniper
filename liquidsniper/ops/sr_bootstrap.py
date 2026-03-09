@@ -100,11 +100,12 @@ def _write_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
     _write_json(status_path, payload)
 
 
-def _zone_rank_key(z: dict[str, Any]) -> tuple[float, int, float]:
+def _zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float]:
+    # Prefer high composite strength + strong reaction, then lower over-testing density.
     return (
         float(z.get("strength_score") or 0.0),
-        int(z.get("meaningful_touch_count") or 0),
         float(z.get("reaction_score") or 0.0),
+        -float(z.get("meaningful_touch_count") or 0.0),
     )
 
 

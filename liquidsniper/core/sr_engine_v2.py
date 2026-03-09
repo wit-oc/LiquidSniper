@@ -37,24 +37,37 @@ def _log_norm(value: float, cap: float) -> float:
     return _clamp01(math.log1p(safe_v) / math.log1p(safe_cap))
 
 
-def _zone_scores(*, meaningful_touch_count: int, pivot_count: int, max_reaction_atr: float, first_retest_result: str | None) -> tuple[float, float]:
-    """Return (strength_score, reaction_score) with diminishing returns.
+def _zone_scores(
+    *,
+    meaningful_touch_count: int,
+    pivot_count: int,
+    max_reaction_atr: float,
+    first_retest_result: str | None,
+    zone_width_bps: float,
+) -> tuple[float, float]:
+    """Return (strength_score, reaction_score) with anti-overfire behavior.
 
-    Keeps scores interpretable (0..100) and avoids instant saturation from
-    high touch counts on long histories.
+    Design goals:
+    - avoid saturation from very high touch counts,
+    - reward strong reaction behavior,
+    - penalize over-tested (spent) and overly-wide zones.
     """
 
-    touch_component = 42.0 * _log_norm(float(meaningful_touch_count), 60.0)
-    pivot_component = 23.0 * _log_norm(float(pivot_count), 18.0)
-    reaction_component = 25.0 * _clamp01(float(max_reaction_atr) / 2.5)
+    touch_component = 34.0 * _log_norm(float(meaningful_touch_count), 50.0)
+    pivot_component = 18.0 * _log_norm(float(pivot_count), 18.0)
+    reaction_component = 30.0 * _clamp01(float(max_reaction_atr) / 2.5)
 
     retest_component = 0.0
     if first_retest_result == "reject":
-        retest_component = 10.0
+        retest_component = 12.0
     elif first_retest_result == "deviation":
         retest_component = 7.0
 
-    strength = _clamp01((touch_component + pivot_component + reaction_component + retest_component) / 100.0) * 100.0
+    spent_penalty = 18.0 * _clamp01((float(meaningful_touch_count) - 14.0) / 40.0)
+    width_penalty = 12.0 * _clamp01((float(zone_width_bps) - 300.0) / 220.0)
+
+    strength_raw = 20.0 + touch_component + pivot_component + reaction_component + retest_component - spent_penalty - width_penalty
+    strength = _clamp01(strength_raw / 100.0) * 100.0
     reaction = _clamp01(float(max_reaction_atr) / 3.0) * 100.0
     return round(strength, 4), round(reaction, 4)
 
@@ -288,11 +301,16 @@ def build_zones_for_tf(
         zone_id = f"{symbol}:{tf}:{idx}:{round(z['zone_mid'], 4)}"
         reaction_samples = sorted(float(x.get("reaction_magnitude_atr") or 0.0) for x in t)
         reaction_ref_atr = _quantile(reaction_samples, 0.8) if reaction_samples else 0.0
+        zone_mid = float(z.get("zone_mid") or 0.0)
+        zone_low = float(z.get("zone_low") or 0.0)
+        zone_high = float(z.get("zone_high") or 0.0)
+        zone_width_bps = ((zone_high - zone_low) / max(abs(zone_mid), 1e-9)) * 10000.0 if zone_mid > 0 else 0.0
         strength_score, reaction_score = _zone_scores(
             meaningful_touch_count=int(z.get("meaningful_touch_count") or 0),
             pivot_count=int(z.get("pivot_count") or 0),
             max_reaction_atr=float(reaction_ref_atr),
             first_retest_result=z.get("first_retest_result") if isinstance(z.get("first_retest_result"), str) else None,
+            zone_width_bps=float(zone_width_bps),
         )
         z.update(
             {
