@@ -27,8 +27,29 @@ DEFAULT_SYMBOL_TF_FILES: dict[str, dict[str, str]] = {
 }
 
 DEFAULT_TF_LOOKBACK = {
-    "1D": 800,
+    "1D": 0,   # 0 => all available history (no decay)
     "4H": 800,
+}
+
+DEFAULT_TF_TUNING: dict[str, dict[str, Any]] = {
+    # Daily major-mode: sparse, high-significance structural anchors.
+    "1D": {
+        "cluster_eps": 1.25,
+        "reaction_atr_min": 0.60,
+        "min_meaningful_touches": 5,
+        "min_zone_separation_bps": 250.0,
+        "max_zones": 12,
+        "require_first_retest_quality": True,
+    },
+    # 4H operational context: denser than 1D but still controlled.
+    "4H": {
+        "cluster_eps": 1.10,
+        "reaction_atr_min": 0.45,
+        "min_meaningful_touches": 4,
+        "min_zone_separation_bps": 120.0,
+        "max_zones": 20,
+        "require_first_retest_quality": False,
+    },
 }
 
 
@@ -111,12 +132,23 @@ def run_bootstrap(
     artifact_root: str,
     symbols: list[str],
     profile_id: str = "I",
+    # Operational (4H / default) tuning
     cluster_eps: float = 1.10,
     reaction_atr_min: float = 0.45,
     min_meaningful_touches: int = 4,
     min_zone_separation_bps: float = 120.0,
+    # Daily major-mode tuning (no decay)
+    daily_major_mode: bool = True,
+    daily_cluster_eps: float = 1.25,
+    daily_reaction_atr_min: float = 0.60,
+    daily_min_meaningful_touches: int = 5,
+    daily_min_zone_separation_bps: float = 250.0,
+    daily_max_zones: int = 12,
+    daily_require_first_retest_quality: bool = True,
+    # Global caps/lookbacks
     max_zones_per_symbol: int = 32,
-    lookback_1d: int = 800,
+    max_zones_4h: int = 20,
+    lookback_1d: int = 0,
     lookback_4h: int = 800,
 ) -> dict[str, Any]:
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -132,7 +164,15 @@ def run_bootstrap(
             "reaction_atr_min": reaction_atr_min,
             "min_meaningful_touches": min_meaningful_touches,
             "min_zone_separation_bps": min_zone_separation_bps,
+            "daily_major_mode": daily_major_mode,
+            "daily_cluster_eps": daily_cluster_eps,
+            "daily_reaction_atr_min": daily_reaction_atr_min,
+            "daily_min_meaningful_touches": daily_min_meaningful_touches,
+            "daily_min_zone_separation_bps": daily_min_zone_separation_bps,
+            "daily_max_zones": daily_max_zones,
+            "daily_require_first_retest_quality": daily_require_first_retest_quality,
             "max_zones_per_symbol": max_zones_per_symbol,
+            "max_zones_4h": max_zones_4h,
             "lookback_1d": lookback_1d,
             "lookback_4h": lookback_4h,
         },
@@ -153,6 +193,8 @@ def run_bootstrap(
 
         symbol_zones_raw: list[dict[str, Any]] = []
         symbol_touches_raw: list[dict[str, Any]] = []
+        symbol_zones: list[dict[str, Any]] = []
+        symbol_touches: list[dict[str, Any]] = []
         tf_stats: dict[str, Any] = {}
         last_price: float | None = None
 
@@ -169,37 +211,78 @@ def run_bootstrap(
                     "candles_total": len(candles_all),
                     "candles_used": 0,
                     "zones_raw": 0,
+                    "zones_kept": 0,
                     "touches_raw": 0,
+                    "touches_kept": 0,
                 }
                 continue
 
-            zones, touches = build_zones_for_tf(
+            if tf == "1D" and daily_major_mode:
+                tf_cluster_eps = daily_cluster_eps
+                tf_reaction_atr_min = daily_reaction_atr_min
+                tf_min_meaningful_touches = daily_min_meaningful_touches
+                tf_min_sep_bps = daily_min_zone_separation_bps
+                tf_max_zones = daily_max_zones
+                tf_require_first_retest_quality = daily_require_first_retest_quality
+            else:
+                tf_cluster_eps = cluster_eps
+                tf_reaction_atr_min = reaction_atr_min
+                tf_min_meaningful_touches = min_meaningful_touches
+                tf_min_sep_bps = min_zone_separation_bps
+                tf_max_zones = max_zones_4h if tf == "4H" else max_zones_per_symbol
+                tf_require_first_retest_quality = False
+
+            zones_tf_raw, touches_tf_raw = build_zones_for_tf(
                 symbol,
                 tf,
                 candles,
-                cluster_eps=cluster_eps,
-                reaction_atr_min=reaction_atr_min,
-                min_meaningful_touches=min_meaningful_touches,
+                cluster_eps=tf_cluster_eps,
+                reaction_atr_min=tf_reaction_atr_min,
+                min_meaningful_touches=tf_min_meaningful_touches,
             )
-            symbol_zones_raw.extend(zones)
-            symbol_touches_raw.extend(touches)
+
+            if tf_require_first_retest_quality:
+                allowed_retest = {"reject", "deviation"}
+                zones_tf_prefilter = [
+                    z for z in zones_tf_raw
+                    if z.get("status") == "confirmed" and str(z.get("first_retest_result") or "") in allowed_retest
+                ]
+            else:
+                zones_tf_prefilter = [z for z in zones_tf_raw if z.get("status") == "confirmed"]
+
+            zones_tf_kept = _collapse_zones_by_distance(
+                zones_tf_prefilter,
+                min_zone_separation_bps=tf_min_sep_bps,
+                max_zones_per_symbol=tf_max_zones,
+            )
+            kept_ids_tf = {str(z.get("zone_id")) for z in zones_tf_kept}
+            touches_tf_kept = [t for t in touches_tf_raw if str(t.get("zone_id")) in kept_ids_tf]
+
+            symbol_zones_raw.extend(zones_tf_raw)
+            symbol_touches_raw.extend(touches_tf_raw)
+            symbol_zones.extend(zones_tf_kept)
+            symbol_touches.extend(touches_tf_kept)
+
             tf_stats[tf] = {
                 "candles_total": len(candles_all),
                 "candles_used": len(candles),
-                "zones_raw": len(zones),
-                "touches_raw": len(touches),
+                "zones_raw": len(zones_tf_raw),
+                "zones_prefilter": len(zones_tf_prefilter),
+                "zones_kept": len(zones_tf_kept),
+                "touches_raw": len(touches_tf_raw),
+                "touches_kept": len(touches_tf_kept),
                 "source_csv": str(csv_path),
                 "last_close_time": candles[-1]["close_time"],
+                "tf_tuning": {
+                    "cluster_eps": tf_cluster_eps,
+                    "reaction_atr_min": tf_reaction_atr_min,
+                    "min_meaningful_touches": tf_min_meaningful_touches,
+                    "min_zone_separation_bps": tf_min_sep_bps,
+                    "max_zones": tf_max_zones,
+                    "require_first_retest_quality": tf_require_first_retest_quality,
+                },
             }
             last_price = float(candles[-1]["close"])
-
-        symbol_zones = _collapse_zones_by_distance(
-            symbol_zones_raw,
-            min_zone_separation_bps=min_zone_separation_bps,
-            max_zones_per_symbol=max_zones_per_symbol,
-        )
-        kept_zone_ids = {str(z.get("zone_id")) for z in symbol_zones}
-        symbol_touches = [t for t in symbol_touches_raw if str(t.get("zone_id")) in kept_zone_ids]
 
         all_zones.extend(symbol_zones)
         all_touches.extend(symbol_touches)
@@ -244,12 +327,27 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact-root", default="data/artifacts", help="Artifact root directory")
     parser.add_argument("--symbols", default="BTCUSDT,ETHUSDT", help="Comma-separated symbols")
     parser.add_argument("--profile", default="I", choices=["S", "I", "C"], help="Nearest SR profile")
+
+    # Operational (4H/default) knobs
     parser.add_argument("--cluster-eps", type=float, default=1.10, help="ATR-normalized cluster epsilon")
     parser.add_argument("--reaction-atr-min", type=float, default=0.45, help="Min ATR reaction for meaningful touch")
     parser.add_argument("--min-meaningful-touches", type=int, default=4, help="Min meaningful touches for confirmed zone")
     parser.add_argument("--min-zone-separation-bps", type=float, default=120.0, help="Min separation between kept zones")
     parser.add_argument("--max-zones-per-symbol", type=int, default=32, help="Max zones retained per symbol after collapse")
-    parser.add_argument("--lookback-1d", type=int, default=800, help="1D candles used in bootstrap")
+    parser.add_argument("--max-zones-4h", type=int, default=20, help="Max zones retained for 4H after collapse")
+
+    # Daily major-mode knobs
+    parser.add_argument("--daily-major-mode", action="store_true", default=True, help="Enable strict daily major-mode filtering")
+    parser.add_argument("--no-daily-major-mode", action="store_false", dest="daily_major_mode", help="Disable strict daily major-mode filtering")
+    parser.add_argument("--daily-cluster-eps", type=float, default=1.25, help="1D ATR-normalized cluster epsilon")
+    parser.add_argument("--daily-reaction-atr-min", type=float, default=0.60, help="1D min ATR reaction for meaningful touch")
+    parser.add_argument("--daily-min-meaningful-touches", type=int, default=5, help="1D min meaningful touches")
+    parser.add_argument("--daily-min-zone-separation-bps", type=float, default=250.0, help="1D minimum separation between kept zones")
+    parser.add_argument("--daily-max-zones", type=int, default=12, help="1D max retained major zones")
+    parser.add_argument("--daily-require-first-retest-quality", action="store_true", default=True, help="Require 1D first retest to be reject/deviation")
+    parser.add_argument("--no-daily-require-first-retest-quality", action="store_false", dest="daily_require_first_retest_quality", help="Do not require quality first retest for 1D")
+
+    parser.add_argument("--lookback-1d", type=int, default=0, help="1D candles used in bootstrap (0=all available)")
     parser.add_argument("--lookback-4h", type=int, default=800, help="4H candles used in bootstrap")
     return parser.parse_args()
 
@@ -266,7 +364,15 @@ def main() -> None:
         reaction_atr_min=float(args.reaction_atr_min),
         min_meaningful_touches=int(args.min_meaningful_touches),
         min_zone_separation_bps=float(args.min_zone_separation_bps),
+        daily_major_mode=bool(args.daily_major_mode),
+        daily_cluster_eps=float(args.daily_cluster_eps),
+        daily_reaction_atr_min=float(args.daily_reaction_atr_min),
+        daily_min_meaningful_touches=int(args.daily_min_meaningful_touches),
+        daily_min_zone_separation_bps=float(args.daily_min_zone_separation_bps),
+        daily_max_zones=int(args.daily_max_zones),
+        daily_require_first_retest_quality=bool(args.daily_require_first_retest_quality),
         max_zones_per_symbol=int(args.max_zones_per_symbol),
+        max_zones_4h=int(args.max_zones_4h),
         lookback_1d=int(args.lookback_1d),
         lookback_4h=int(args.lookback_4h),
     )
