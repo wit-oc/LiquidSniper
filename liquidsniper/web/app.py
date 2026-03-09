@@ -249,6 +249,16 @@ def _load_sr_bootstrap_snapshot(artifact_root: str) -> dict[str, Any] | None:
         return None
 
 
+def _load_sr_run_status(artifact_root: str) -> dict[str, Any] | None:
+    path = Path(artifact_root) / "sr" / "run_status.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
 def _zone_summary_line(label: str, zone: dict[str, Any] | None) -> None:
     st.markdown(f"**{label}**")
     if not zone:
@@ -272,13 +282,24 @@ def _zone_summary_line(label: str, zone: dict[str, Any] | None) -> None:
 def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> None:
     st.subheader("S/R Verification (Python source of truth)")
 
+    run_status = _load_sr_run_status(artifact_root)
+    if run_status:
+        state = str(run_status.get("state", "unknown"))
+        run_id = run_status.get("run_id", "-")
+        if state == "failed":
+            st.error(f"SR bootstrap status: {state} (run_id={run_id}) · {run_status.get('error', '')}")
+        elif state == "running":
+            st.warning(f"SR bootstrap status: {state} (run_id={run_id})")
+        else:
+            st.caption(f"SR bootstrap status: {state} (run_id={run_id})")
+
     snapshot = _load_sr_bootstrap_snapshot(artifact_root)
     if snapshot:
         st.caption(f"Last bootstrap snapshot: {snapshot.get('generated_at', '-')}")
 
     symbols = _query_sr_symbols(conn)
     if not symbols:
-        st.warning("No SR zones found in DB yet. Run: `python -m liquidsniper.ops.sr_bootstrap`.")
+        st.warning("No SR zones found in DB yet. Run: `python -m liquidsniper.ops.sr_bootstrap`." )
         return
 
     col_a, col_b, col_c, col_d = st.columns([1.1, 1.0, 1.0, 1.0])

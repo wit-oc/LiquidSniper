@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,8 @@ DEFAULT_TF_TUNING: dict[str, dict[str, Any]] = {
         "reaction_atr_min": 0.60,
         "min_meaningful_touches": 5,
         "min_zone_separation_bps": 250.0,
-        "max_zones": 12,
+        "max_zones": 8,
+        "min_strength": 70.0,
         "require_first_retest_quality": True,
     },
     # 4H operational context: denser than 1D but still controlled.
@@ -46,8 +48,9 @@ DEFAULT_TF_TUNING: dict[str, dict[str, Any]] = {
         "cluster_eps": 1.10,
         "reaction_atr_min": 0.45,
         "min_meaningful_touches": 4,
-        "min_zone_separation_bps": 120.0,
-        "max_zones": 20,
+        "min_zone_separation_bps": 180.0,
+        "max_zones": 12,
+        "min_strength": 65.0,
         "require_first_retest_quality": False,
     },
 }
@@ -82,6 +85,29 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _load_bootstrap_config(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Bootstrap config file not found: {p}")
+    obj = json.loads(p.read_text(encoding="utf-8"))
+    return obj if isinstance(obj, dict) else {}
+
+
+def _write_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
+    status_path = Path(artifact_root) / "sr" / "run_status.json"
+    _write_json(status_path, payload)
+
+
+def _zone_rank_key(z: dict[str, Any]) -> tuple[float, int, float]:
+    return (
+        float(z.get("strength_score") or 0.0),
+        int(z.get("meaningful_touch_count") or 0),
+        float(z.get("reaction_score") or 0.0),
+    )
+
+
 def _collapse_zones_by_distance(
     zones: list[dict[str, Any]],
     *,
@@ -91,14 +117,7 @@ def _collapse_zones_by_distance(
     if not zones:
         return []
 
-    ranked = sorted(
-        zones,
-        key=lambda z: (
-            -(float(z.get("strength_score") or 0.0)),
-            -(int(z.get("meaningful_touch_count") or 0)),
-            -(float(z.get("reaction_score") or 0.0)),
-        ),
-    )
+    ranked = sorted(zones, key=lambda z: _zone_rank_key(z), reverse=True)
 
     kept: list[dict[str, Any]] = []
     for z in ranked:
@@ -126,37 +145,162 @@ def _collapse_zones_by_distance(
     return sorted(kept, key=lambda z: float(z.get("zone_mid") or 0.0))
 
 
+def _select_spatially_diverse_zones(zones: list[dict[str, Any]], *, max_zones: int) -> list[dict[str, Any]]:
+    """Select zones with broad price coverage while preserving top-ranked quality."""
+    if not zones or max_zones <= 0:
+        return []
+    if len(zones) <= max_zones:
+        return sorted(zones, key=lambda z: float(z.get("zone_mid") or 0.0))
+
+    mids = [float(z.get("zone_mid") or 0.0) for z in zones if float(z.get("zone_mid") or 0.0) > 0.0]
+    if not mids:
+        return []
+
+    lo = min(mids)
+    hi = max(mids)
+    if hi <= lo:
+        ranked = sorted(zones, key=lambda z: _zone_rank_key(z), reverse=True)
+        return sorted(ranked[:max_zones], key=lambda z: float(z.get("zone_mid") or 0.0))
+
+    bucket_count = max_zones
+    width = (hi - lo) / max(bucket_count, 1)
+    chosen: list[dict[str, Any]] = []
+    used_ids: set[str] = set()
+
+    for bi in range(bucket_count):
+        b0 = lo + (bi * width)
+        b1 = hi if bi == bucket_count - 1 else lo + ((bi + 1) * width)
+        cand = [
+            z for z in zones
+            if str(z.get("zone_id") or "") not in used_ids
+            and (
+                (float(z.get("zone_mid") or 0.0) >= b0 and float(z.get("zone_mid") or 0.0) < b1)
+                if bi < bucket_count - 1
+                else (float(z.get("zone_mid") or 0.0) >= b0 and float(z.get("zone_mid") or 0.0) <= b1)
+            )
+        ]
+        if not cand:
+            continue
+        best = sorted(cand, key=lambda z: _zone_rank_key(z), reverse=True)[0]
+        chosen.append(best)
+        used_ids.add(str(best.get("zone_id") or ""))
+
+    if len(chosen) < max_zones:
+        rem = [z for z in zones if str(z.get("zone_id") or "") not in used_ids]
+        rem = sorted(rem, key=lambda z: _zone_rank_key(z), reverse=True)
+        chosen.extend(rem[: max_zones - len(chosen)])
+
+    return sorted(chosen[:max_zones], key=lambda z: float(z.get("zone_mid") or 0.0))
+
+
+def _apply_range_filters(
+    zones: list[dict[str, Any]],
+    *,
+    prefer_ranges: list[dict[str, Any]] | None,
+    exclude_ranges: list[dict[str, Any]] | None,
+    max_zones: int,
+    candidate_pool: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    if not zones:
+        return []
+
+    def _in_range(mid: float, rng: dict[str, Any]) -> bool:
+        low = float(rng.get("low", -1e18))
+        high = float(rng.get("high", 1e18))
+        return low <= mid <= high
+
+    filtered = zones
+    if exclude_ranges:
+        filtered = [
+            z for z in filtered
+            if not any(_in_range(float(z.get("zone_mid") or 0.0), r) for r in exclude_ranges)
+        ]
+
+    prefer_ranges = prefer_ranges or []
+    if not prefer_ranges:
+        return filtered[:max_zones]
+
+    pool = candidate_pool or zones
+    kept = list(filtered)
+    kept_ids = {str(z.get("zone_id") or "") for z in kept}
+
+    preferred_ids: set[str] = set()
+    for rng in prefer_ranges:
+        candidates = [
+            z for z in pool
+            if _in_range(float(z.get("zone_mid") or 0.0), rng)
+        ]
+        if not candidates:
+            continue
+        best = sorted(candidates, key=lambda z: _zone_rank_key(z), reverse=True)[0]
+        zid = str(best.get("zone_id") or "")
+        preferred_ids.add(zid)
+        if zid not in kept_ids:
+            kept.append(best)
+            kept_ids.add(zid)
+
+    if len(kept) > max_zones:
+        preferred = [z for z in kept if str(z.get("zone_id") or "") in preferred_ids]
+        non_preferred = [z for z in kept if str(z.get("zone_id") or "") not in preferred_ids]
+        non_preferred = sorted(non_preferred, key=lambda z: _zone_rank_key(z), reverse=True)
+        kept = preferred + non_preferred
+        kept = kept[:max_zones]
+
+    return sorted(kept, key=lambda z: float(z.get("zone_mid") or 0.0))
+
+
 def run_bootstrap(
     *,
     db_path: str,
     artifact_root: str,
     symbols: list[str],
     profile_id: str = "I",
+    symbol_tf_files: dict[str, dict[str, str]] | None = None,
     # Operational (4H / default) tuning
     cluster_eps: float = 1.10,
     reaction_atr_min: float = 0.45,
     min_meaningful_touches: int = 4,
-    min_zone_separation_bps: float = 120.0,
+    min_zone_separation_bps: float = 180.0,
+    min_strength_4h: float = 65.0,
     # Daily major-mode tuning (no decay)
     daily_major_mode: bool = True,
     daily_cluster_eps: float = 1.25,
     daily_reaction_atr_min: float = 0.60,
     daily_min_meaningful_touches: int = 5,
     daily_min_zone_separation_bps: float = 250.0,
-    daily_max_zones: int = 12,
+    daily_min_strength: float = 70.0,
+    daily_max_zones: int = 8,
     daily_require_first_retest_quality: bool = True,
+    daily_prefer_ranges: list[dict[str, Any]] | None = None,
+    daily_exclude_ranges: list[dict[str, Any]] | None = None,
     # Global caps/lookbacks
-    max_zones_per_symbol: int = 32,
-    max_zones_4h: int = 20,
+    max_zones_per_symbol: int = 24,
+    max_zones_4h: int = 12,
     lookback_1d: int = 0,
     lookback_4h: int = 800,
 ) -> dict[str, Any]:
     now_iso = datetime.now(timezone.utc).isoformat()
+    run_id = f"sr-{uuid.uuid4()}"
+
+    _write_run_status(
+        artifact_root,
+        {
+            "run_id": run_id,
+            "state": "running",
+            "started_at": now_iso,
+            "profile_id": profile_id,
+            "symbols": symbols,
+        },
+    )
+
+    daily_prefer_ranges = daily_prefer_ranges or []
+    daily_exclude_ranges = daily_exclude_ranges or []
 
     all_zones: list[dict[str, Any]] = []
     all_touches: list[dict[str, Any]] = []
     snapshot: dict[str, Any] = {
         "contract": "zone_snapshot_v1",
+        "run_id": run_id,
         "generated_at": now_iso,
         "profile_id": profile_id,
         "tuning": {
@@ -164,13 +308,17 @@ def run_bootstrap(
             "reaction_atr_min": reaction_atr_min,
             "min_meaningful_touches": min_meaningful_touches,
             "min_zone_separation_bps": min_zone_separation_bps,
+            "min_strength_4h": min_strength_4h,
             "daily_major_mode": daily_major_mode,
             "daily_cluster_eps": daily_cluster_eps,
             "daily_reaction_atr_min": daily_reaction_atr_min,
             "daily_min_meaningful_touches": daily_min_meaningful_touches,
             "daily_min_zone_separation_bps": daily_min_zone_separation_bps,
+            "daily_min_strength": daily_min_strength,
             "daily_max_zones": daily_max_zones,
             "daily_require_first_retest_quality": daily_require_first_retest_quality,
+            "daily_prefer_ranges": daily_prefer_ranges or [],
+            "daily_exclude_ranges": daily_exclude_ranges or [],
             "max_zones_per_symbol": max_zones_per_symbol,
             "max_zones_4h": max_zones_4h,
             "lookback_1d": lookback_1d,
@@ -185,11 +333,12 @@ def run_bootstrap(
     }
 
     repo_root = Path.cwd()
+    tf_files = symbol_tf_files or DEFAULT_SYMBOL_TF_FILES
 
     for symbol in symbols:
-        tf_map = DEFAULT_SYMBOL_TF_FILES.get(symbol)
+        tf_map = tf_files.get(symbol)
         if not tf_map:
-            raise ValueError(f"No default CSV map configured for symbol={symbol}")
+            raise ValueError(f"No CSV map configured for symbol={symbol}")
 
         symbol_zones_raw: list[dict[str, Any]] = []
         symbol_touches_raw: list[dict[str, Any]] = []
@@ -250,11 +399,32 @@ def run_bootstrap(
             else:
                 zones_tf_prefilter = [z for z in zones_tf_raw if z.get("status") == "confirmed"]
 
-            zones_tf_kept = _collapse_zones_by_distance(
+            if tf == "1D" and daily_major_mode:
+                strength_min = float(daily_min_strength)
+            elif tf == "4H":
+                strength_min = float(min_strength_4h)
+            else:
+                strength_min = 0.0
+
+            zones_tf_prefilter = [z for z in zones_tf_prefilter if float(z.get("strength_score") or 0.0) >= strength_min]
+
+            zones_tf_collapsed = _collapse_zones_by_distance(
                 zones_tf_prefilter,
                 min_zone_separation_bps=tf_min_sep_bps,
                 max_zones_per_symbol=tf_max_zones,
             )
+
+            if tf == "1D" and daily_major_mode:
+                zones_tf_kept = _select_spatially_diverse_zones(zones_tf_collapsed, max_zones=tf_max_zones)
+                zones_tf_kept = _apply_range_filters(
+                    zones_tf_kept,
+                    prefer_ranges=daily_prefer_ranges,
+                    exclude_ranges=daily_exclude_ranges,
+                    max_zones=tf_max_zones,
+                    candidate_pool=zones_tf_prefilter,
+                )
+            else:
+                zones_tf_kept = zones_tf_collapsed
             kept_ids_tf = {str(z.get("zone_id")) for z in zones_tf_kept}
             touches_tf_kept = [t for t in touches_tf_raw if str(t.get("zone_id")) in kept_ids_tf]
 
@@ -268,6 +438,7 @@ def run_bootstrap(
                 "candles_used": len(candles),
                 "zones_raw": len(zones_tf_raw),
                 "zones_prefilter": len(zones_tf_prefilter),
+                "zones_collapsed": len(zones_tf_collapsed),
                 "zones_kept": len(zones_tf_kept),
                 "touches_raw": len(touches_tf_raw),
                 "touches_kept": len(touches_tf_kept),
@@ -279,6 +450,8 @@ def run_bootstrap(
                     "min_meaningful_touches": tf_min_meaningful_touches,
                     "min_zone_separation_bps": tf_min_sep_bps,
                     "max_zones": tf_max_zones,
+                    "min_strength": strength_min,
+                    "selection_mode": "spatial_diverse" if (tf == "1D" and daily_major_mode) else "ranked_collapse",
                     "require_first_retest_quality": tf_require_first_retest_quality,
                 },
             }
@@ -303,22 +476,49 @@ def run_bootstrap(
             "nearest": nearest_payload,
         }
 
-    conn = init_db(db_path)
     try:
-        with conn:
-            for symbol in symbols:
-                conn.execute("DELETE FROM sr_zone_touches WHERE symbol = ?;", (symbol,))
-                conn.execute("DELETE FROM sr_zones WHERE symbol = ?;", (symbol,))
-        persist_sr_state(conn, all_zones, all_touches)
-    finally:
-        conn.close()
+        conn = init_db(db_path)
+        try:
+            with conn:
+                for symbol in symbols:
+                    conn.execute("DELETE FROM sr_zone_touches WHERE symbol = ?;", (symbol,))
+                    conn.execute("DELETE FROM sr_zones WHERE symbol = ?;", (symbol,))
+            persist_sr_state(conn, all_zones, all_touches)
+        finally:
+            conn.close()
 
-    artifact_dir = Path(artifact_root) / "sr"
-    _write_json(artifact_dir / "bootstrap_snapshot.json", snapshot)
-    for symbol, payload in snapshot["symbols"].items():
-        _write_json(artifact_dir / f"nearest_{symbol}.json", payload["nearest"])
+        artifact_dir = Path(artifact_root) / "sr"
+        _write_json(artifact_dir / "bootstrap_snapshot.json", snapshot)
+        for symbol, payload in snapshot["symbols"].items():
+            _write_json(artifact_dir / f"nearest_{symbol}.json", payload["nearest"])
 
-    return snapshot
+        _write_run_status(
+            artifact_root,
+            {
+                "run_id": run_id,
+                "state": "completed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "profile_id": profile_id,
+                "symbols": symbols,
+                "zone_count": len(all_zones),
+                "touch_count": len(all_touches),
+                "snapshot": str((Path(artifact_root) / "sr" / "bootstrap_snapshot.json")),
+            },
+        )
+        return snapshot
+    except Exception as exc:
+        _write_run_status(
+            artifact_root,
+            {
+                "run_id": run_id,
+                "state": "failed",
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "profile_id": profile_id,
+                "symbols": symbols,
+                "error": str(exc),
+            },
+        )
+        raise
 
 
 def _parse_args() -> argparse.Namespace:
@@ -327,14 +527,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact-root", default="data/artifacts", help="Artifact root directory")
     parser.add_argument("--symbols", default="BTCUSDT,ETHUSDT", help="Comma-separated symbols")
     parser.add_argument("--profile", default="I", choices=["S", "I", "C"], help="Nearest SR profile")
+    parser.add_argument("--config", default=None, help="Optional JSON config path for symbol map + tuning")
 
     # Operational (4H/default) knobs
     parser.add_argument("--cluster-eps", type=float, default=1.10, help="ATR-normalized cluster epsilon")
     parser.add_argument("--reaction-atr-min", type=float, default=0.45, help="Min ATR reaction for meaningful touch")
     parser.add_argument("--min-meaningful-touches", type=int, default=4, help="Min meaningful touches for confirmed zone")
-    parser.add_argument("--min-zone-separation-bps", type=float, default=120.0, help="Min separation between kept zones")
-    parser.add_argument("--max-zones-per-symbol", type=int, default=32, help="Max zones retained per symbol after collapse")
-    parser.add_argument("--max-zones-4h", type=int, default=20, help="Max zones retained for 4H after collapse")
+    parser.add_argument("--min-zone-separation-bps", type=float, default=180.0, help="Min separation between kept zones")
+    parser.add_argument("--min-strength-4h", type=float, default=65.0, help="Minimum strength score for 4H zones")
+    parser.add_argument("--max-zones-per-symbol", type=int, default=24, help="Max zones retained per symbol after collapse")
+    parser.add_argument("--max-zones-4h", type=int, default=12, help="Max zones retained for 4H after collapse")
 
     # Daily major-mode knobs
     parser.add_argument("--daily-major-mode", action="store_true", default=True, help="Enable strict daily major-mode filtering")
@@ -343,7 +545,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--daily-reaction-atr-min", type=float, default=0.60, help="1D min ATR reaction for meaningful touch")
     parser.add_argument("--daily-min-meaningful-touches", type=int, default=5, help="1D min meaningful touches")
     parser.add_argument("--daily-min-zone-separation-bps", type=float, default=250.0, help="1D minimum separation between kept zones")
-    parser.add_argument("--daily-max-zones", type=int, default=12, help="1D max retained major zones")
+    parser.add_argument("--daily-min-strength", type=float, default=70.0, help="Minimum strength score for 1D major zones")
+    parser.add_argument("--daily-max-zones", type=int, default=8, help="1D max retained major zones")
     parser.add_argument("--daily-require-first-retest-quality", action="store_true", default=True, help="Require 1D first retest to be reject/deviation")
     parser.add_argument("--no-daily-require-first-retest-quality", action="store_false", dest="daily_require_first_retest_quality", help="Do not require quality first retest for 1D")
 
@@ -354,27 +557,49 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
+    cfg = _load_bootstrap_config(args.config)
+    cfg_tuning = cfg.get("tuning", {}) if isinstance(cfg, dict) else {}
+    cfg_symbols = cfg.get("symbols", {}) if isinstance(cfg, dict) else {}
+
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    symbol_tf_files: dict[str, dict[str, str]] | None = None
+    if isinstance(cfg_symbols, dict) and cfg_symbols:
+        symbol_tf_files = {
+            str(sym).upper(): {str(tf): str(path) for tf, path in tf_map.items()}
+            for sym, tf_map in cfg_symbols.items()
+            if isinstance(tf_map, dict)
+        }
+        if symbol_tf_files:
+            symbols = [s for s in symbols if s in symbol_tf_files]
+
+    def _cfg(name: str, cli_value: Any) -> Any:
+        return cfg_tuning.get(name, cli_value)
+
     snapshot = run_bootstrap(
         db_path=args.db,
         artifact_root=args.artifact_root,
         symbols=symbols,
         profile_id=args.profile.upper(),
-        cluster_eps=float(args.cluster_eps),
-        reaction_atr_min=float(args.reaction_atr_min),
-        min_meaningful_touches=int(args.min_meaningful_touches),
-        min_zone_separation_bps=float(args.min_zone_separation_bps),
-        daily_major_mode=bool(args.daily_major_mode),
-        daily_cluster_eps=float(args.daily_cluster_eps),
-        daily_reaction_atr_min=float(args.daily_reaction_atr_min),
-        daily_min_meaningful_touches=int(args.daily_min_meaningful_touches),
-        daily_min_zone_separation_bps=float(args.daily_min_zone_separation_bps),
-        daily_max_zones=int(args.daily_max_zones),
-        daily_require_first_retest_quality=bool(args.daily_require_first_retest_quality),
-        max_zones_per_symbol=int(args.max_zones_per_symbol),
-        max_zones_4h=int(args.max_zones_4h),
-        lookback_1d=int(args.lookback_1d),
-        lookback_4h=int(args.lookback_4h),
+        symbol_tf_files=symbol_tf_files,
+        cluster_eps=float(_cfg("cluster_eps", args.cluster_eps)),
+        reaction_atr_min=float(_cfg("reaction_atr_min", args.reaction_atr_min)),
+        min_meaningful_touches=int(_cfg("min_meaningful_touches", args.min_meaningful_touches)),
+        min_zone_separation_bps=float(_cfg("min_zone_separation_bps", args.min_zone_separation_bps)),
+        min_strength_4h=float(_cfg("min_strength_4h", args.min_strength_4h)),
+        daily_major_mode=bool(_cfg("daily_major_mode", args.daily_major_mode)),
+        daily_cluster_eps=float(_cfg("daily_cluster_eps", args.daily_cluster_eps)),
+        daily_reaction_atr_min=float(_cfg("daily_reaction_atr_min", args.daily_reaction_atr_min)),
+        daily_min_meaningful_touches=int(_cfg("daily_min_meaningful_touches", args.daily_min_meaningful_touches)),
+        daily_min_zone_separation_bps=float(_cfg("daily_min_zone_separation_bps", args.daily_min_zone_separation_bps)),
+        daily_min_strength=float(_cfg("daily_min_strength", args.daily_min_strength)),
+        daily_max_zones=int(_cfg("daily_max_zones", args.daily_max_zones)),
+        daily_require_first_retest_quality=bool(_cfg("daily_require_first_retest_quality", args.daily_require_first_retest_quality)),
+        daily_prefer_ranges=_cfg("daily_prefer_ranges", None),
+        daily_exclude_ranges=_cfg("daily_exclude_ranges", None),
+        max_zones_per_symbol=int(_cfg("max_zones_per_symbol", args.max_zones_per_symbol)),
+        max_zones_4h=int(_cfg("max_zones_4h", args.max_zones_4h)),
+        lookback_1d=int(_cfg("lookback_1d", args.lookback_1d)),
+        lookback_4h=int(_cfg("lookback_4h", args.lookback_4h)),
     )
     print(json.dumps({"ok": True, "symbols": list(snapshot["symbols"].keys())}, indent=2))
 

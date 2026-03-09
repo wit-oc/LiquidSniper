@@ -1,0 +1,45 @@
+{
+  "symbols": {
+    "BTCUSDT": {
+      "1D": "IntradayTrading/data/btc_1d_blofin_derived_from_1h_2022_to_now.csv",
+      "4H": "IntradayTrading/data/btc_4h_blofin_derived_from_1h_2022_to_now.csv"
+    },
+    "ETHUSDT": {
+      "1D": "IntradayTrading/data/eth_1d_blofin_derived_from_1h_2022_to_now.csv",
+      "4H": "IntradayTrading/data/eth_4h_blofin_derived_from_1h_2022_to_now.csv"
+    }
+  },
+  "tuning": {
+    "daily_major_mode": true,
+    "daily_cluster_eps": 1.10,
+    "daily_reaction_atr_min": 0.6,
+    "daily_min_meaningful_touches": 5,
+    "daily_min_zone_separation_bps": 250.0,
+    "daily_min_strength": 70.0,
+    "daily_max_zones": 8,
+    "daily_require_first_retest_quality": true,
+    "daily_prefer_ranges": [
+      {"low": 40000, "high": 44000, "label": "bias_preferred"},
+      {"low": 58000, "high": 60000, "label": "bias_preferred"},
+      {"low": 85000, "high": 89000, "label": "bias_preferred"},
+      {"low": 108000, "high": 109500, "label": "bias_preferred"},
+      {"low": 116000, "high": 118000, "label": "bias_preferred"}
+    ],
+    "daily_exclude_ranges": [
+      {"low": 64000, "high": 66000, "label": "bias_exclude"},
+      {"low": 79000, "high": 81000, "label": "bias_exclude"},
+      {"low": 103000, "high": 105000, "label": "bias_exclude"}
+    ],
+
+    "cluster_eps": 1.1,
+    "reaction_atr_min": 0.45,
+    "min_meaningful_touches": 4,
+    "min_zone_separation_bps": 180.0,
+    "min_strength_4h": 65.0,
+    "max_zones_4h": 12,
+    "max_zones_per_symbol": 24,
+
+    "lookback_1d": 0,
+    "lookback_4h": 800
+  }
+}

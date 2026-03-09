@@ -20,6 +20,8 @@ services:
       - BTCUSDT,ETHUSDT
       - --profile
       - I
+      - --config
+      - /app/liquidsniper/config/sr_bootstrap.default.json
     volumes:
       - liquidsniper_data:/data
       - ./IntradayTrading/data:/app/IntradayTrading/data:ro
