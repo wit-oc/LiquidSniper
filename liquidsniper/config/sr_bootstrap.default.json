@@ -18,18 +18,6 @@
     "daily_min_strength": 70.0,
     "daily_max_zones": 8,
     "daily_require_first_retest_quality": true,
-    "daily_prefer_ranges": [
-      {"low": 40000, "high": 44000, "label": "bias_preferred"},
-      {"low": 58000, "high": 60000, "label": "bias_preferred"},
-      {"low": 85000, "high": 89000, "label": "bias_preferred"},
-      {"low": 108000, "high": 109500, "label": "bias_preferred"},
-      {"low": 116000, "high": 118000, "label": "bias_preferred"}
-    ],
-    "daily_exclude_ranges": [
-      {"low": 64000, "high": 66000, "label": "bias_exclude"},
-      {"low": 79000, "high": 81000, "label": "bias_exclude"},
-      {"low": 103000, "high": 105000, "label": "bias_exclude"}
-    ],
 
     "cluster_eps": 1.1,
     "reaction_atr_min": 0.45,

@@ -193,62 +193,6 @@ def _select_spatially_diverse_zones(zones: list[dict[str, Any]], *, max_zones: i
     return sorted(chosen[:max_zones], key=lambda z: float(z.get("zone_mid") or 0.0))
 
 
-def _apply_range_filters(
-    zones: list[dict[str, Any]],
-    *,
-    prefer_ranges: list[dict[str, Any]] | None,
-    exclude_ranges: list[dict[str, Any]] | None,
-    max_zones: int,
-    candidate_pool: list[dict[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    if not zones:
-        return []
-
-    def _in_range(mid: float, rng: dict[str, Any]) -> bool:
-        low = float(rng.get("low", -1e18))
-        high = float(rng.get("high", 1e18))
-        return low <= mid <= high
-
-    filtered = zones
-    if exclude_ranges:
-        filtered = [
-            z for z in filtered
-            if not any(_in_range(float(z.get("zone_mid") or 0.0), r) for r in exclude_ranges)
-        ]
-
-    prefer_ranges = prefer_ranges or []
-    if not prefer_ranges:
-        return filtered[:max_zones]
-
-    pool = candidate_pool or zones
-    kept = list(filtered)
-    kept_ids = {str(z.get("zone_id") or "") for z in kept}
-
-    preferred_ids: set[str] = set()
-    for rng in prefer_ranges:
-        candidates = [
-            z for z in pool
-            if _in_range(float(z.get("zone_mid") or 0.0), rng)
-        ]
-        if not candidates:
-            continue
-        best = sorted(candidates, key=lambda z: _zone_rank_key(z), reverse=True)[0]
-        zid = str(best.get("zone_id") or "")
-        preferred_ids.add(zid)
-        if zid not in kept_ids:
-            kept.append(best)
-            kept_ids.add(zid)
-
-    if len(kept) > max_zones:
-        preferred = [z for z in kept if str(z.get("zone_id") or "") in preferred_ids]
-        non_preferred = [z for z in kept if str(z.get("zone_id") or "") not in preferred_ids]
-        non_preferred = sorted(non_preferred, key=lambda z: _zone_rank_key(z), reverse=True)
-        kept = preferred + non_preferred
-        kept = kept[:max_zones]
-
-    return sorted(kept, key=lambda z: float(z.get("zone_mid") or 0.0))
-
-
 def run_bootstrap(
     *,
     db_path: str,
@@ -271,8 +215,6 @@ def run_bootstrap(
     daily_min_strength: float = 70.0,
     daily_max_zones: int = 8,
     daily_require_first_retest_quality: bool = True,
-    daily_prefer_ranges: list[dict[str, Any]] | None = None,
-    daily_exclude_ranges: list[dict[str, Any]] | None = None,
     # Global caps/lookbacks
     max_zones_per_symbol: int = 24,
     max_zones_4h: int = 12,
@@ -292,9 +234,6 @@ def run_bootstrap(
             "symbols": symbols,
         },
     )
-
-    daily_prefer_ranges = daily_prefer_ranges or []
-    daily_exclude_ranges = daily_exclude_ranges or []
 
     all_zones: list[dict[str, Any]] = []
     all_touches: list[dict[str, Any]] = []
@@ -317,8 +256,6 @@ def run_bootstrap(
             "daily_min_strength": daily_min_strength,
             "daily_max_zones": daily_max_zones,
             "daily_require_first_retest_quality": daily_require_first_retest_quality,
-            "daily_prefer_ranges": daily_prefer_ranges or [],
-            "daily_exclude_ranges": daily_exclude_ranges or [],
             "max_zones_per_symbol": max_zones_per_symbol,
             "max_zones_4h": max_zones_4h,
             "lookback_1d": lookback_1d,
@@ -416,13 +353,6 @@ def run_bootstrap(
 
             if tf == "1D" and daily_major_mode:
                 zones_tf_kept = _select_spatially_diverse_zones(zones_tf_collapsed, max_zones=tf_max_zones)
-                zones_tf_kept = _apply_range_filters(
-                    zones_tf_kept,
-                    prefer_ranges=daily_prefer_ranges,
-                    exclude_ranges=daily_exclude_ranges,
-                    max_zones=tf_max_zones,
-                    candidate_pool=zones_tf_prefilter,
-                )
             else:
                 zones_tf_kept = zones_tf_collapsed
             kept_ids_tf = {str(z.get("zone_id")) for z in zones_tf_kept}
@@ -594,8 +524,6 @@ def main() -> None:
         daily_min_strength=float(_cfg("daily_min_strength", args.daily_min_strength)),
         daily_max_zones=int(_cfg("daily_max_zones", args.daily_max_zones)),
         daily_require_first_retest_quality=bool(_cfg("daily_require_first_retest_quality", args.daily_require_first_retest_quality)),
-        daily_prefer_ranges=_cfg("daily_prefer_ranges", None),
-        daily_exclude_ranges=_cfg("daily_exclude_ranges", None),
         max_zones_per_symbol=int(_cfg("max_zones_per_symbol", args.max_zones_per_symbol)),
         max_zones_4h=int(_cfg("max_zones_4h", args.max_zones_4h)),
         lookback_1d=int(_cfg("lookback_1d", args.lookback_1d)),
