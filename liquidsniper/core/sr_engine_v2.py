@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 
@@ -24,6 +25,38 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def _log_norm(value: float, cap: float) -> float:
+    safe_v = max(0.0, float(value))
+    safe_cap = max(1.0, float(cap))
+    return _clamp01(math.log1p(safe_v) / math.log1p(safe_cap))
+
+
+def _zone_scores(*, meaningful_touch_count: int, pivot_count: int, max_reaction_atr: float, first_retest_result: str | None) -> tuple[float, float]:
+    """Return (strength_score, reaction_score) with diminishing returns.
+
+    Keeps scores interpretable (0..100) and avoids instant saturation from
+    high touch counts on long histories.
+    """
+
+    touch_component = 42.0 * _log_norm(float(meaningful_touch_count), 60.0)
+    pivot_component = 23.0 * _log_norm(float(pivot_count), 18.0)
+    reaction_component = 25.0 * _clamp01(float(max_reaction_atr) / 2.5)
+
+    retest_component = 0.0
+    if first_retest_result == "reject":
+        retest_component = 10.0
+    elif first_retest_result == "deviation":
+        retest_component = 7.0
+
+    strength = _clamp01((touch_component + pivot_component + reaction_component + retest_component) / 100.0) * 100.0
+    reaction = _clamp01(float(max_reaction_atr) / 3.0) * 100.0
+    return round(strength, 4), round(reaction, 4)
 
 
 def atr(candles: list[dict[str, Any]], period: int = 14) -> float:
@@ -253,13 +286,21 @@ def build_zones_for_tf(
             min_meaningful_touches=min_meaningful_touches,
         )
         zone_id = f"{symbol}:{tf}:{idx}:{round(z['zone_mid'], 4)}"
+        reaction_samples = sorted(float(x.get("reaction_magnitude_atr") or 0.0) for x in t)
+        reaction_ref_atr = _quantile(reaction_samples, 0.8) if reaction_samples else 0.0
+        strength_score, reaction_score = _zone_scores(
+            meaningful_touch_count=int(z.get("meaningful_touch_count") or 0),
+            pivot_count=int(z.get("pivot_count") or 0),
+            max_reaction_atr=float(reaction_ref_atr),
+            first_retest_result=z.get("first_retest_result") if isinstance(z.get("first_retest_result"), str) else None,
+        )
         z.update(
             {
                 "zone_id": zone_id,
                 "symbol": symbol,
                 "tf": tf,
-                "strength_score": round(min(100.0, z["meaningful_touch_count"] * 20.0 + z["pivot_count"] * 5.0), 4),
-                "reaction_score": round(min(100.0, max((x.get("reaction_magnitude_atr") or 0.0) for x in t) * 25.0 if t else 0.0), 4),
+                "strength_score": strength_score,
+                "reaction_score": reaction_score,
                 "source_version": "sr_engine_v2",
             }
         )
