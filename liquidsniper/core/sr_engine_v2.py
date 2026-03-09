@@ -329,6 +329,9 @@ def build_zones_for_tf(
                 "reaction_score": reaction_score,
                 "reaction_efficiency_score": reaction_efficiency_score,
                 "spent_zone_penalty": spent_zone_penalty,
+                "retest_weight": 1.0,
+                "selection_score": strength_score,
+                "zone_width_bps": round(zone_width_bps, 4),
                 "source_version": "sr_engine_v2",
             }
         )
@@ -368,8 +371,17 @@ def _zone_fmt_with_distance(z: dict[str, Any] | None, *, distance_bps: float | N
         },
         "strength": z.get("strength_score"),
         "touch_count": z.get("touch_count"),
+        "meaningful_touch_count": z.get("meaningful_touch_count"),
         "first_retest_status": z.get("first_retest_result"),
         "distance_bps": round(float(distance_bps), 4),
+        "diagnostics": {
+            "reaction_score": z.get("reaction_score"),
+            "reaction_efficiency_score": z.get("reaction_efficiency_score"),
+            "spent_zone_penalty": z.get("spent_zone_penalty"),
+            "retest_weight": z.get("retest_weight"),
+            "selection_score": z.get("selection_score"),
+            "zone_width_bps": z.get("zone_width_bps"),
+        },
     }
 
 
@@ -483,8 +495,10 @@ def persist_sr_state(conn: Any, zones: list[dict[str, Any]], touches: list[dict[
                 INSERT INTO sr_zones(
                     zone_id, symbol, tf, zone_low, zone_high, zone_mid, status,
                     touch_count, meaningful_touch_count, first_retest_pending, first_retest_ts,
-                    first_retest_result, strength_score, reaction_score, created_ts, updated_ts, source_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+                    first_retest_result, strength_score, reaction_score,
+                    reaction_efficiency_score, spent_zone_penalty, retest_weight, selection_score, zone_width_bps,
+                    created_ts, updated_ts, source_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
                 ON CONFLICT(zone_id) DO UPDATE SET
                     zone_low=excluded.zone_low,
                     zone_high=excluded.zone_high,
@@ -497,13 +511,20 @@ def persist_sr_state(conn: Any, zones: list[dict[str, Any]], touches: list[dict[
                     first_retest_result=excluded.first_retest_result,
                     strength_score=excluded.strength_score,
                     reaction_score=excluded.reaction_score,
+                    reaction_efficiency_score=excluded.reaction_efficiency_score,
+                    spent_zone_penalty=excluded.spent_zone_penalty,
+                    retest_weight=excluded.retest_weight,
+                    selection_score=excluded.selection_score,
+                    zone_width_bps=excluded.zone_width_bps,
                     updated_ts=datetime('now'),
                     source_version=excluded.source_version;
                 """,
                 (
                     z.get("zone_id"), z.get("symbol"), z.get("tf"), z.get("zone_low"), z.get("zone_high"), z.get("zone_mid"), z.get("status"),
                     int(z.get("touch_count") or 0), int(z.get("meaningful_touch_count") or 0), int(z.get("first_retest_pending") or 0), z.get("first_retest_ts"),
-                    z.get("first_retest_result"), z.get("strength_score"), z.get("reaction_score"), z.get("source_version"),
+                    z.get("first_retest_result"), z.get("strength_score"), z.get("reaction_score"),
+                    z.get("reaction_efficiency_score"), z.get("spent_zone_penalty"), z.get("retest_weight"), z.get("selection_score"), z.get("zone_width_bps"),
+                    z.get("source_version"),
                 ),
             )
 

@@ -200,6 +200,11 @@ def _query_sr_zones(
             first_retest_result,
             strength_score,
             reaction_score,
+            reaction_efficiency_score,
+            spent_zone_penalty,
+            retest_weight,
+            selection_score,
+            zone_width_bps,
             updated_ts
         FROM sr_zones
         WHERE symbol = ?
@@ -213,7 +218,7 @@ def _query_sr_zones(
         sql += " AND status = ?"
         params.append(status)
 
-    sql += " ORDER BY COALESCE(strength_score, 0) DESC, updated_ts DESC LIMIT ?"
+    sql += " ORDER BY COALESCE(selection_score, strength_score, 0) DESC, updated_ts DESC LIMIT ?"
     params.append(int(limit))
 
     rows = conn.execute(sql, params).fetchall()
@@ -233,7 +238,12 @@ def _query_sr_zones(
                 "first_retest_result": r[9],
                 "strength_score": float(r[10] or 0.0),
                 "reaction_score": float(r[11] or 0.0),
-                "updated_ts": r[12],
+                "reaction_efficiency_score": float(r[12] or 0.0),
+                "spent_zone_penalty": float(r[13] or 0.0),
+                "retest_weight": float(r[14] or 0.0),
+                "selection_score": float(r[15] or 0.0),
+                "zone_width_bps": float(r[16] or 0.0),
+                "updated_ts": r[17],
             }
         )
     return out
@@ -274,7 +284,9 @@ def _zone_summary_line(label: str, zone: dict[str, Any] | None) -> None:
             "bounds": bounds,
             "strength": zone.get("strength"),
             "touch_count": zone.get("touch_count"),
+            "meaningful_touch_count": zone.get("meaningful_touch_count"),
             "first_retest_status": zone.get("first_retest_status"),
+            "diagnostics": zone.get("diagnostics"),
         }
     )
 
