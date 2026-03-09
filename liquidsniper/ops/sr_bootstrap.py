@@ -100,11 +100,12 @@ def _write_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
     _write_json(status_path, payload)
 
 
-def _zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float]:
-    # Prefer high composite strength + strong reaction, then lower over-testing density.
+def _zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float, float]:
+    # Prefer high selection score, then reaction quality and efficiency, and finally fewer repetitive interactions.
     return (
-        float(z.get("strength_score") or 0.0),
+        float(z.get("selection_score") or z.get("strength_score") or 0.0),
         float(z.get("reaction_score") or 0.0),
+        float(z.get("reaction_efficiency_score") or 0.0),
         -float(z.get("meaningful_touch_count") or 0.0),
     )
 
@@ -192,6 +193,76 @@ def _select_spatially_diverse_zones(zones: list[dict[str, Any]], *, max_zones: i
         chosen.extend(rem[: max_zones - len(chosen)])
 
     return sorted(chosen[:max_zones], key=lambda z: float(z.get("zone_mid") or 0.0))
+
+def _daily_retest_weight(first_retest_result: str | None, *, strict_mode: bool) -> float:
+    result = str(first_retest_result or "").lower()
+    if result == "reject":
+        return 1.0
+    if result == "deviation":
+        return 0.9
+    if result == "accept":
+        return 0.68 if strict_mode else 0.82
+    if result in {"", "none"}:
+        return 0.78 if strict_mode else 0.88
+    return 0.8
+
+
+def _apply_daily_soft_retest_weights(zones: list[dict[str, Any]], *, strict_mode: bool) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for z in zones:
+        zz = dict(z)
+        weight = _daily_retest_weight(zz.get("first_retest_result"), strict_mode=strict_mode)
+        strength = float(zz.get("strength_score") or 0.0)
+        reaction = float(zz.get("reaction_score") or 0.0)
+        efficiency = float(zz.get("reaction_efficiency_score") or 0.0)
+        zz["retest_weight"] = round(weight, 4)
+        zz["selection_score"] = round((strength * weight) + (0.1 * reaction) + (0.05 * efficiency), 4)
+        out.append(zz)
+    return out
+
+
+def _select_daily_local_band_representatives(
+    zones: list[dict[str, Any]],
+    *,
+    max_zones: int,
+    min_zone_separation_bps: float,
+) -> list[dict[str, Any]]:
+    if not zones or max_zones <= 0:
+        return []
+
+    ordered = sorted(
+        [z for z in zones if float(z.get("zone_mid") or 0.0) > 0.0],
+        key=lambda z: float(z.get("zone_mid") or 0.0),
+    )
+    if not ordered:
+        return []
+
+    band_span_bps = max(float(min_zone_separation_bps) * 2.4, 1000.0)
+    bands: list[list[dict[str, Any]]] = [[ordered[0]]]
+
+    for z in ordered[1:]:
+        cur_mid = float(z.get("zone_mid") or 0.0)
+        last_band = bands[-1]
+        center = sum(float(x.get("zone_mid") or 0.0) for x in last_band) / len(last_band)
+        dist_bps = abs(cur_mid - center) / max(abs(center), 1e-9) * 10000.0
+        if dist_bps <= band_span_bps:
+            last_band.append(z)
+        else:
+            bands.append([z])
+
+    selected: list[dict[str, Any]] = []
+    for band in bands:
+        ranked = sorted(band, key=lambda z: _zone_rank_key(z), reverse=True)
+        keep_n = 1
+        if len(band) >= 4:
+            keep_n = 2
+        if len(band) >= 7:
+            keep_n = 3
+        selected.extend(ranked[:keep_n])
+
+    selected = sorted(selected, key=lambda z: _zone_rank_key(z), reverse=True)[:max_zones]
+    return sorted(selected, key=lambda z: float(z.get("zone_mid") or 0.0))
+
 
 
 def run_bootstrap(
@@ -328,33 +399,38 @@ def run_bootstrap(
                 min_meaningful_touches=tf_min_meaningful_touches,
             )
 
-            if tf_require_first_retest_quality:
-                allowed_retest = {"reject", "deviation"}
-                zones_tf_prefilter = [
-                    z for z in zones_tf_raw
-                    if z.get("status") == "confirmed" and str(z.get("first_retest_result") or "") in allowed_retest
-                ]
-            else:
-                zones_tf_prefilter = [z for z in zones_tf_raw if z.get("status") == "confirmed"]
+            zones_tf_confirmed = [z for z in zones_tf_raw if z.get("status") == "confirmed"]
 
             if tf == "1D" and daily_major_mode:
+                zones_tf_scored = _apply_daily_soft_retest_weights(
+                    zones_tf_confirmed,
+                    strict_mode=tf_require_first_retest_quality,
+                )
                 strength_min = float(daily_min_strength)
-            elif tf == "4H":
-                strength_min = float(min_strength_4h)
             else:
-                strength_min = 0.0
+                zones_tf_scored = zones_tf_confirmed
+                strength_min = float(min_strength_4h) if tf == "4H" else 0.0
 
-            zones_tf_prefilter = [z for z in zones_tf_prefilter if float(z.get("strength_score") or 0.0) >= strength_min]
-
-            zones_tf_collapsed = _collapse_zones_by_distance(
-                zones_tf_prefilter,
-                min_zone_separation_bps=tf_min_sep_bps,
-                max_zones_per_symbol=tf_max_zones,
-            )
+            zones_tf_prefilter = [z for z in zones_tf_scored if float(z.get("strength_score") or 0.0) >= strength_min]
 
             if tf == "1D" and daily_major_mode:
+                zones_tf_band = _select_daily_local_band_representatives(
+                    zones_tf_prefilter,
+                    max_zones=max(tf_max_zones * 2, tf_max_zones),
+                    min_zone_separation_bps=tf_min_sep_bps,
+                )
+                zones_tf_collapsed = _collapse_zones_by_distance(
+                    zones_tf_band,
+                    min_zone_separation_bps=tf_min_sep_bps,
+                    max_zones_per_symbol=tf_max_zones,
+                )
                 zones_tf_kept = _select_spatially_diverse_zones(zones_tf_collapsed, max_zones=tf_max_zones)
             else:
+                zones_tf_collapsed = _collapse_zones_by_distance(
+                    zones_tf_prefilter,
+                    min_zone_separation_bps=tf_min_sep_bps,
+                    max_zones_per_symbol=tf_max_zones,
+                )
                 zones_tf_kept = zones_tf_collapsed
             kept_ids_tf = {str(z.get("zone_id")) for z in zones_tf_kept}
             touches_tf_kept = [t for t in touches_tf_raw if str(t.get("zone_id")) in kept_ids_tf]
@@ -382,7 +458,7 @@ def run_bootstrap(
                     "min_zone_separation_bps": tf_min_sep_bps,
                     "max_zones": tf_max_zones,
                     "min_strength": strength_min,
-                    "selection_mode": "spatial_diverse" if (tf == "1D" and daily_major_mode) else "ranked_collapse",
+                    "selection_mode": "daily_band_arbitrated" if (tf == "1D" and daily_major_mode) else "ranked_collapse",
                     "require_first_retest_quality": tf_require_first_retest_quality,
                 },
             }

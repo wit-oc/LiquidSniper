@@ -40,11 +40,12 @@ def _log_norm(value: float, cap: float) -> float:
 def _zone_scores(
     *,
     meaningful_touch_count: int,
+    touch_count: int,
     pivot_count: int,
     max_reaction_atr: float,
     first_retest_result: str | None,
     zone_width_bps: float,
-) -> tuple[float, float]:
+) -> tuple[float, float, float, float]:
     """Return (strength_score, reaction_score) with anti-overfire behavior.
 
     Design goals:
@@ -53,9 +54,14 @@ def _zone_scores(
     - penalize over-tested (spent) and overly-wide zones.
     """
 
-    touch_component = 34.0 * _log_norm(float(meaningful_touch_count), 50.0)
+    touch_component = 24.0 * _log_norm(float(meaningful_touch_count), 40.0)
     pivot_component = 18.0 * _log_norm(float(pivot_count), 18.0)
-    reaction_component = 30.0 * _clamp01(float(max_reaction_atr) / 2.5)
+    reaction_component = 34.0 * _clamp01(float(max_reaction_atr) / 2.5)
+
+    touch_load = max(float(meaningful_touch_count), float(touch_count), 1.0)
+    efficiency_ratio = float(max_reaction_atr) / max(math.log1p(touch_load), 1e-9)
+    reaction_efficiency = _clamp01(efficiency_ratio / 0.95)
+    efficiency_component = 12.0 * reaction_efficiency
 
     retest_component = 0.0
     if first_retest_result == "reject":
@@ -63,13 +69,14 @@ def _zone_scores(
     elif first_retest_result == "deviation":
         retest_component = 7.0
 
-    spent_penalty = 18.0 * _clamp01((float(meaningful_touch_count) - 14.0) / 40.0)
+    touch_excess = _clamp01((touch_load - 12.0) / 40.0)
+    spent_zone_penalty = 24.0 * touch_excess * (1.0 - reaction_efficiency)
     width_penalty = 12.0 * _clamp01((float(zone_width_bps) - 300.0) / 220.0)
 
-    strength_raw = 20.0 + touch_component + pivot_component + reaction_component + retest_component - spent_penalty - width_penalty
+    strength_raw = 18.0 + touch_component + pivot_component + reaction_component + efficiency_component + retest_component - spent_zone_penalty - width_penalty
     strength = _clamp01(strength_raw / 100.0) * 100.0
     reaction = _clamp01(float(max_reaction_atr) / 3.0) * 100.0
-    return round(strength, 4), round(reaction, 4)
+    return round(strength, 4), round(reaction, 4), round(reaction_efficiency * 100.0, 4), round(spent_zone_penalty, 4)
 
 
 def atr(candles: list[dict[str, Any]], period: int = 14) -> float:
@@ -305,8 +312,9 @@ def build_zones_for_tf(
         zone_low = float(z.get("zone_low") or 0.0)
         zone_high = float(z.get("zone_high") or 0.0)
         zone_width_bps = ((zone_high - zone_low) / max(abs(zone_mid), 1e-9)) * 10000.0 if zone_mid > 0 else 0.0
-        strength_score, reaction_score = _zone_scores(
+        strength_score, reaction_score, reaction_efficiency_score, spent_zone_penalty = _zone_scores(
             meaningful_touch_count=int(z.get("meaningful_touch_count") or 0),
+            touch_count=int(z.get("touch_count") or 0),
             pivot_count=int(z.get("pivot_count") or 0),
             max_reaction_atr=float(reaction_ref_atr),
             first_retest_result=z.get("first_retest_result") if isinstance(z.get("first_retest_result"), str) else None,
@@ -319,6 +327,8 @@ def build_zones_for_tf(
                 "tf": tf,
                 "strength_score": strength_score,
                 "reaction_score": reaction_score,
+                "reaction_efficiency_score": reaction_efficiency_score,
+                "spent_zone_penalty": spent_zone_penalty,
                 "source_version": "sr_engine_v2",
             }
         )

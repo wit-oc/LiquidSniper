@@ -21,6 +21,8 @@ def test_build_zones_for_tf_generates_zone_and_touches():
     assert all(z["symbol"] == "BTCUSDT" for z in zones)
     assert all(z["tf"] == "4H" for z in zones)
     assert all("status" in z for z in zones)
+    assert all("reaction_efficiency_score" in z for z in zones)
+    assert all("spent_zone_penalty" in z for z in zones)
     assert touches
 
 
