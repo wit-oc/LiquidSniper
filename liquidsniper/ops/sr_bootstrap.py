@@ -101,13 +101,13 @@ def _write_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
 
 
 def _zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
-    # Prefer post-arbitration selection score, then launch/carry quality, then structural respect,
-    # and finally fewer repetitive interactions and narrower zones.
+    # Prefer post-arbitration selection score, then reaction efficiency, then structural respect,
+    # with carry as a supporting signal rather than the dominant tie-breaker.
     return (
         float(z.get("selection_score") or z.get("strength_score") or 0.0),
-        float(z.get("carry_score") or 0.0),
-        float(z.get("body_respect_score") or 0.0),
         float(z.get("reaction_efficiency_score") or 0.0),
+        float(z.get("body_respect_score") or 0.0),
+        float(z.get("carry_score") or 0.0),
         -float(z.get("meaningful_touch_count") or 0.0),
         -float(z.get("zone_width_bps") or 0.0),
     )
@@ -230,7 +230,7 @@ def _apply_daily_soft_retest_weights(zones: list[dict[str, Any]], *, strict_mode
         carry = float(zz.get("carry_score") or 0.0)
         body_respect = float(zz.get("body_respect_score") or 0.0)
         zz["retest_weight"] = round(weight, 4)
-        zz["selection_score"] = round((strength * weight) + (0.08 * reaction) + (0.10 * efficiency) + (0.12 * carry) + (0.08 * body_respect), 4)
+        zz["selection_score"] = round((strength * weight) + (0.08 * reaction) + (0.16 * efficiency) + (0.06 * carry) + (0.10 * body_respect), 4)
         out.append(zz)
     return out
 

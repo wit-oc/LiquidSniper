@@ -56,16 +56,19 @@ def _zone_scores(
     - penalize over-tested (spent), overly-wide, and chop-heavy zones.
     """
 
-    touch_component = 20.0 * _log_norm(float(meaningful_touch_count), 40.0)
-    pivot_component = 16.0 * _log_norm(float(pivot_count), 18.0)
-    reaction_component = 28.0 * _clamp01(float(max_reaction_atr) / 2.5)
-    carry_component = 16.0 * _clamp01(float(carry_score) / 100.0)
-    body_component = 10.0 * _clamp01(float(body_respect_score) / 100.0)
+    carry_norm = _clamp01(float(carry_score) / 100.0)
+    body_norm = _clamp01(float(body_respect_score) / 100.0)
+
+    touch_component = 18.0 * _log_norm(float(meaningful_touch_count), 40.0)
+    pivot_component = 15.0 * _log_norm(float(pivot_count), 18.0)
+    reaction_component = 30.0 * _clamp01(float(max_reaction_atr) / 2.5)
+    carry_component = 9.0 * carry_norm
+    body_component = 12.0 * body_norm
 
     touch_load = max(float(meaningful_touch_count), float(touch_count), 1.0)
-    efficiency_ratio = (0.65 * float(max_reaction_atr) + 0.35 * ((float(carry_score) / 100.0) * 3.0)) / max(math.log1p(touch_load), 1e-9)
+    efficiency_ratio = (0.8 * float(max_reaction_atr) + 0.2 * (carry_norm * 3.0)) / max(math.log1p(touch_load), 1e-9)
     reaction_efficiency = _clamp01(efficiency_ratio / 0.95)
-    efficiency_component = 12.0 * reaction_efficiency
+    efficiency_component = 16.0 * reaction_efficiency
 
     retest_component = 0.0
     if first_retest_result == "reject":
@@ -73,12 +76,12 @@ def _zone_scores(
     elif first_retest_result == "deviation":
         retest_component = 7.0
 
-    touch_excess = _clamp01((touch_load - 10.0) / 34.0)
-    spent_zone_penalty = 28.0 * touch_excess * (1.0 - (0.55 * reaction_efficiency + 0.45 * _clamp01(float(carry_score) / 100.0)))
+    touch_excess = _clamp01((touch_load - 10.0) / 32.0)
+    spent_zone_penalty = 30.0 * touch_excess * (1.0 - (0.7 * reaction_efficiency + 0.2 * carry_norm + 0.1 * body_norm))
     width_penalty = 12.0 * _clamp01((float(zone_width_bps) - 300.0) / 220.0)
-    chop_penalty = 10.0 * _clamp01((55.0 - float(body_respect_score)) / 55.0)
+    chop_penalty = 12.0 * _clamp01((55.0 - float(body_respect_score)) / 55.0)
 
-    strength_raw = 16.0 + touch_component + pivot_component + reaction_component + carry_component + body_component + efficiency_component + retest_component - spent_zone_penalty - width_penalty - chop_penalty
+    strength_raw = 14.0 + touch_component + pivot_component + reaction_component + carry_component + body_component + efficiency_component + retest_component - spent_zone_penalty - width_penalty - chop_penalty
     strength = _clamp01(strength_raw / 100.0) * 100.0
     reaction = _clamp01(float(max_reaction_atr) / 3.0) * 100.0
     return round(strength, 4), round(reaction, 4), round(reaction_efficiency * 100.0, 4), round(spent_zone_penalty, 4)
@@ -297,8 +300,10 @@ def evaluate_zone_lifecycle(
     close_inside_rate = close_inside_count / meaningful_denom if meaningful_count else 0.0
     directional_close_rate = directional_close_count / meaningful_denom if meaningful_count else 0.0
     counter_close_rate = counter_close_count / meaningful_denom if meaningful_count else 0.0
-    carry_score = _clamp01((carry_ref - (0.35 * adverse_ref)) / 3.0) * 100.0
-    body_respect_raw = 0.25 + (0.35 * body_overlap_rate) + (0.45 * directional_close_rate) - (0.45 * close_inside_rate) - (0.70 * counter_close_rate) - (0.20 * wick_only_rate)
+    net_carry = max(0.0, carry_ref - (0.65 * adverse_ref))
+    carry_dominance = _clamp01((carry_ref - adverse_ref) / max(carry_ref, 1e-9)) if carry_ref > 0 else 0.0
+    carry_score = _clamp01((0.7 * _log_norm(net_carry, 8.0)) + (0.3 * carry_dominance)) * 100.0
+    body_respect_raw = 0.22 + (0.38 * body_overlap_rate) + (0.48 * directional_close_rate) - (0.42 * close_inside_rate) - (0.72 * counter_close_rate) - (0.22 * wick_only_rate)
     body_respect_score = _clamp01(body_respect_raw) * 100.0
 
     out = dict(zone)
