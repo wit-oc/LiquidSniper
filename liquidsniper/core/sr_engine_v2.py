@@ -43,23 +43,27 @@ def _zone_scores(
     touch_count: int,
     pivot_count: int,
     max_reaction_atr: float,
+    carry_score: float,
+    body_respect_score: float,
     first_retest_result: str | None,
     zone_width_bps: float,
 ) -> tuple[float, float, float, float]:
-    """Return (strength_score, reaction_score) with anti-overfire behavior.
+    """Return (strength_score, reaction_score, reaction_efficiency_score, spent_zone_penalty).
 
     Design goals:
     - avoid saturation from very high touch counts,
-    - reward strong reaction behavior,
-    - penalize over-tested (spent) and overly-wide zones.
+    - reward strong reaction behavior and follow-through,
+    - penalize over-tested (spent), overly-wide, and chop-heavy zones.
     """
 
-    touch_component = 24.0 * _log_norm(float(meaningful_touch_count), 40.0)
-    pivot_component = 18.0 * _log_norm(float(pivot_count), 18.0)
-    reaction_component = 34.0 * _clamp01(float(max_reaction_atr) / 2.5)
+    touch_component = 20.0 * _log_norm(float(meaningful_touch_count), 40.0)
+    pivot_component = 16.0 * _log_norm(float(pivot_count), 18.0)
+    reaction_component = 28.0 * _clamp01(float(max_reaction_atr) / 2.5)
+    carry_component = 16.0 * _clamp01(float(carry_score) / 100.0)
+    body_component = 10.0 * _clamp01(float(body_respect_score) / 100.0)
 
     touch_load = max(float(meaningful_touch_count), float(touch_count), 1.0)
-    efficiency_ratio = float(max_reaction_atr) / max(math.log1p(touch_load), 1e-9)
+    efficiency_ratio = (0.65 * float(max_reaction_atr) + 0.35 * ((float(carry_score) / 100.0) * 3.0)) / max(math.log1p(touch_load), 1e-9)
     reaction_efficiency = _clamp01(efficiency_ratio / 0.95)
     efficiency_component = 12.0 * reaction_efficiency
 
@@ -69,11 +73,12 @@ def _zone_scores(
     elif first_retest_result == "deviation":
         retest_component = 7.0
 
-    touch_excess = _clamp01((touch_load - 12.0) / 40.0)
-    spent_zone_penalty = 24.0 * touch_excess * (1.0 - reaction_efficiency)
+    touch_excess = _clamp01((touch_load - 10.0) / 34.0)
+    spent_zone_penalty = 28.0 * touch_excess * (1.0 - (0.55 * reaction_efficiency + 0.45 * _clamp01(float(carry_score) / 100.0)))
     width_penalty = 12.0 * _clamp01((float(zone_width_bps) - 300.0) / 220.0)
+    chop_penalty = 10.0 * _clamp01((55.0 - float(body_respect_score)) / 55.0)
 
-    strength_raw = 18.0 + touch_component + pivot_component + reaction_component + efficiency_component + retest_component - spent_zone_penalty - width_penalty
+    strength_raw = 16.0 + touch_component + pivot_component + reaction_component + carry_component + body_component + efficiency_component + retest_component - spent_zone_penalty - width_penalty - chop_penalty
     strength = _clamp01(strength_raw / 100.0) * 100.0
     reaction = _clamp01(float(max_reaction_atr) / 3.0) * 100.0
     return round(strength, 4), round(reaction, 4), round(reaction_efficiency * 100.0, 4), round(spent_zone_penalty, 4)
@@ -169,17 +174,24 @@ def cluster_pivots(
     return zones
 
 
-def _is_meaningful_touch(candles: list[dict[str, Any]], i: int, zone_low: float, zone_high: float, reaction_atr_min: float, atr_value: float) -> tuple[bool, str, float]:
+def _is_meaningful_touch(
+    candles: list[dict[str, Any]],
+    i: int,
+    zone_low: float,
+    zone_high: float,
+    reaction_atr_min: float,
+    atr_value: float,
+) -> tuple[bool, str, float, float, float]:
     row = candles[i]
     low = _as_float(row.get("low"))
     high = _as_float(row.get("high"))
     if high < zone_low or low > zone_high:
-        return (False, "none", 0.0)
+        return (False, "none", 0.0, 0.0, 0.0)
 
     close = _as_float(row.get("close"))
     future = candles[i + 1 : i + 4]
     if not future:
-        return (False, "none", 0.0)
+        return (False, "none", 0.0, 0.0, 0.0)
 
     max_up = max(_as_float(x.get("high")) - close for x in future)
     max_dn = max(close - _as_float(x.get("low")) for x in future)
@@ -192,7 +204,26 @@ def _is_meaningful_touch(candles: list[dict[str, Any]], i: int, zone_low: float,
         reaction_type = "reject_down"
     else:
         reaction_type = "flat"
-    return (meaningful, reaction_type, reaction_atr)
+
+    carry_window = candles[i + 1 : i + 8]
+    if carry_window:
+        carry_up = max(_as_float(x.get("high")) - close for x in carry_window)
+        carry_dn = max(close - _as_float(x.get("low")) for x in carry_window)
+    else:
+        carry_up = max_up
+        carry_dn = max_dn
+
+    if reaction_type == "reject_up":
+        carry_atr = carry_up / max(atr_value, 1e-9)
+        adverse_atr = carry_dn / max(atr_value, 1e-9)
+    elif reaction_type == "reject_down":
+        carry_atr = carry_dn / max(atr_value, 1e-9)
+        adverse_atr = carry_up / max(atr_value, 1e-9)
+    else:
+        carry_atr = reaction_atr
+        adverse_atr = reaction_atr
+
+    return (meaningful, reaction_type, reaction_atr, carry_atr, adverse_atr)
 
 
 def evaluate_zone_lifecycle(
@@ -209,28 +240,77 @@ def evaluate_zone_lifecycle(
     meaningful_count = 0
     confirmed_idx: int | None = None
 
+    carry_samples: list[float] = []
+    adverse_samples: list[float] = []
+    body_overlap_count = 0
+    wick_only_count = 0
+    close_inside_count = 0
+    directional_close_count = 0
+    counter_close_count = 0
+
     for i, row in enumerate(candles):
-        meaningful, reaction_type, reaction_atr = _is_meaningful_touch(candles, i, low, high, reaction_atr_min, atr_value)
+        meaningful, reaction_type, reaction_atr, carry_atr, adverse_atr = _is_meaningful_touch(candles, i, low, high, reaction_atr_min, atr_value)
         if reaction_type == "none":
             continue
         ts = str(row.get("close_time") or row.get("candle_ts") or row.get("ts") or "")
+        row_open = _as_float(row.get("open"))
+        row_close = _as_float(row.get("close"))
+        body_low = min(row_open, row_close)
+        body_high = max(row_open, row_close)
+        body_overlap = not (body_high < low or body_low > high)
+        close_inside = low <= row_close <= high
+        directional_close = (reaction_type == "reject_up" and row_close >= high) or (reaction_type == "reject_down" and row_close <= low)
+        counter_close = (reaction_type == "reject_up" and row_close <= low) or (reaction_type == "reject_down" and row_close >= high)
         touches.append(
             {
                 "candle_ts": ts,
                 "touch_type": "intersect",
                 "reaction_type": reaction_type,
                 "reaction_magnitude_atr": round(reaction_atr, 6),
+                "carry_magnitude_atr": round(carry_atr, 6),
+                "adverse_magnitude_atr": round(adverse_atr, 6),
+                "body_overlap": 1 if body_overlap else 0,
+                "wick_only": 0 if body_overlap else 1,
+                "close_inside": 1 if close_inside else 0,
+                "directional_close": 1 if directional_close else 0,
+                "counter_close": 1 if counter_close else 0,
                 "is_meaningful": 1 if meaningful else 0,
             }
         )
         if meaningful:
             meaningful_count += 1
+            carry_samples.append(float(carry_atr))
+            adverse_samples.append(float(adverse_atr))
+            body_overlap_count += 1 if body_overlap else 0
+            wick_only_count += 0 if body_overlap else 1
+            close_inside_count += 1 if close_inside else 0
+            directional_close_count += 1 if directional_close else 0
+            counter_close_count += 1 if counter_close else 0
             if meaningful_count >= min_meaningful_touches and confirmed_idx is None:
                 confirmed_idx = i
+
+    carry_ref = _quantile(sorted(carry_samples), 0.8) if carry_samples else 0.0
+    adverse_ref = _quantile(sorted(adverse_samples), 0.8) if adverse_samples else 0.0
+    meaningful_denom = max(float(meaningful_count), 1.0)
+    body_overlap_rate = body_overlap_count / meaningful_denom if meaningful_count else 0.0
+    wick_only_rate = wick_only_count / meaningful_denom if meaningful_count else 0.0
+    close_inside_rate = close_inside_count / meaningful_denom if meaningful_count else 0.0
+    directional_close_rate = directional_close_count / meaningful_denom if meaningful_count else 0.0
+    counter_close_rate = counter_close_count / meaningful_denom if meaningful_count else 0.0
+    carry_score = _clamp01((carry_ref - (0.35 * adverse_ref)) / 3.0) * 100.0
+    body_respect_raw = 0.25 + (0.35 * body_overlap_rate) + (0.45 * directional_close_rate) - (0.45 * close_inside_rate) - (0.70 * counter_close_rate) - (0.20 * wick_only_rate)
+    body_respect_score = _clamp01(body_respect_raw) * 100.0
 
     out = dict(zone)
     out["touch_count"] = len(touches)
     out["meaningful_touch_count"] = meaningful_count
+    out["carry_score"] = round(carry_score, 4)
+    out["body_respect_score"] = round(body_respect_score, 4)
+    out["close_inside_rate"] = round(close_inside_rate, 4)
+    out["body_overlap_rate"] = round(body_overlap_rate, 4)
+    out["wick_only_rate"] = round(wick_only_rate, 4)
+    out["directional_close_rate"] = round(directional_close_rate, 4)
+    out["counter_close_rate"] = round(counter_close_rate, 4)
     out["status"] = "confirmed" if meaningful_count >= min_meaningful_touches else "candidate"
     out["first_retest_pending"] = 1 if out["status"] == "confirmed" else 0
     out["first_retest_ts"] = None
@@ -312,11 +392,15 @@ def build_zones_for_tf(
         zone_low = float(z.get("zone_low") or 0.0)
         zone_high = float(z.get("zone_high") or 0.0)
         zone_width_bps = ((zone_high - zone_low) / max(abs(zone_mid), 1e-9)) * 10000.0 if zone_mid > 0 else 0.0
+        carry_score = float(z.get("carry_score") or 0.0)
+        body_respect_score = float(z.get("body_respect_score") or 0.0)
         strength_score, reaction_score, reaction_efficiency_score, spent_zone_penalty = _zone_scores(
             meaningful_touch_count=int(z.get("meaningful_touch_count") or 0),
             touch_count=int(z.get("touch_count") or 0),
             pivot_count=int(z.get("pivot_count") or 0),
             max_reaction_atr=float(reaction_ref_atr),
+            carry_score=carry_score,
+            body_respect_score=body_respect_score,
             first_retest_result=z.get("first_retest_result") if isinstance(z.get("first_retest_result"), str) else None,
             zone_width_bps=float(zone_width_bps),
         )
@@ -332,6 +416,8 @@ def build_zones_for_tf(
                 "retest_weight": 1.0,
                 "selection_score": strength_score,
                 "zone_width_bps": round(zone_width_bps, 4),
+                "carry_score": round(carry_score, 4),
+                "body_respect_score": round(body_respect_score, 4),
                 "source_version": "sr_engine_v2",
             }
         )
@@ -377,10 +463,17 @@ def _zone_fmt_with_distance(z: dict[str, Any] | None, *, distance_bps: float | N
         "diagnostics": {
             "reaction_score": z.get("reaction_score"),
             "reaction_efficiency_score": z.get("reaction_efficiency_score"),
+            "carry_score": z.get("carry_score"),
+            "body_respect_score": z.get("body_respect_score"),
             "spent_zone_penalty": z.get("spent_zone_penalty"),
             "retest_weight": z.get("retest_weight"),
             "selection_score": z.get("selection_score"),
             "zone_width_bps": z.get("zone_width_bps"),
+            "close_inside_rate": z.get("close_inside_rate"),
+            "body_overlap_rate": z.get("body_overlap_rate"),
+            "wick_only_rate": z.get("wick_only_rate"),
+            "directional_close_rate": z.get("directional_close_rate"),
+            "counter_close_rate": z.get("counter_close_rate"),
         },
     }
 
@@ -497,8 +590,10 @@ def persist_sr_state(conn: Any, zones: list[dict[str, Any]], touches: list[dict[
                     touch_count, meaningful_touch_count, first_retest_pending, first_retest_ts,
                     first_retest_result, strength_score, reaction_score,
                     reaction_efficiency_score, spent_zone_penalty, retest_weight, selection_score, zone_width_bps,
+                    carry_score, body_respect_score, close_inside_rate, body_overlap_rate, wick_only_rate,
+                    directional_close_rate, counter_close_rate,
                     created_ts, updated_ts, source_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
                 ON CONFLICT(zone_id) DO UPDATE SET
                     zone_low=excluded.zone_low,
                     zone_high=excluded.zone_high,
@@ -516,6 +611,13 @@ def persist_sr_state(conn: Any, zones: list[dict[str, Any]], touches: list[dict[
                     retest_weight=excluded.retest_weight,
                     selection_score=excluded.selection_score,
                     zone_width_bps=excluded.zone_width_bps,
+                    carry_score=excluded.carry_score,
+                    body_respect_score=excluded.body_respect_score,
+                    close_inside_rate=excluded.close_inside_rate,
+                    body_overlap_rate=excluded.body_overlap_rate,
+                    wick_only_rate=excluded.wick_only_rate,
+                    directional_close_rate=excluded.directional_close_rate,
+                    counter_close_rate=excluded.counter_close_rate,
                     updated_ts=datetime('now'),
                     source_version=excluded.source_version;
                 """,
@@ -524,6 +626,8 @@ def persist_sr_state(conn: Any, zones: list[dict[str, Any]], touches: list[dict[
                     int(z.get("touch_count") or 0), int(z.get("meaningful_touch_count") or 0), int(z.get("first_retest_pending") or 0), z.get("first_retest_ts"),
                     z.get("first_retest_result"), z.get("strength_score"), z.get("reaction_score"),
                     z.get("reaction_efficiency_score"), z.get("spent_zone_penalty"), z.get("retest_weight"), z.get("selection_score"), z.get("zone_width_bps"),
+                    z.get("carry_score"), z.get("body_respect_score"), z.get("close_inside_rate"), z.get("body_overlap_rate"), z.get("wick_only_rate"),
+                    z.get("directional_close_rate"), z.get("counter_close_rate"),
                     z.get("source_version"),
                 ),
             )

@@ -100,13 +100,16 @@ def _write_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
     _write_json(status_path, payload)
 
 
-def _zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float, float]:
-    # Prefer high selection score, then reaction quality and efficiency, and finally fewer repetitive interactions.
+def _zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
+    # Prefer post-arbitration selection score, then launch/carry quality, then structural respect,
+    # and finally fewer repetitive interactions and narrower zones.
     return (
         float(z.get("selection_score") or z.get("strength_score") or 0.0),
-        float(z.get("reaction_score") or 0.0),
+        float(z.get("carry_score") or 0.0),
+        float(z.get("body_respect_score") or 0.0),
         float(z.get("reaction_efficiency_score") or 0.0),
         -float(z.get("meaningful_touch_count") or 0.0),
+        -float(z.get("zone_width_bps") or 0.0),
     )
 
 
@@ -194,29 +197,40 @@ def _select_spatially_diverse_zones(zones: list[dict[str, Any]], *, max_zones: i
 
     return sorted(chosen[:max_zones], key=lambda z: float(z.get("zone_mid") or 0.0))
 
-def _daily_retest_weight(first_retest_result: str | None, *, strict_mode: bool) -> float:
-    result = str(first_retest_result or "").lower()
+def _daily_retest_weight(z: dict[str, Any], *, strict_mode: bool) -> float:
+    result = str(z.get("first_retest_result") or "").lower()
+    carry = float(z.get("carry_score") or 0.0) / 100.0
+    body = float(z.get("body_respect_score") or 0.0) / 100.0
+    close_through = float(z.get("counter_close_rate") or 0.0)
+    close_inside = float(z.get("close_inside_rate") or 0.0)
+
     if result == "reject":
-        return 1.0
-    if result == "deviation":
-        return 0.9
-    if result == "accept":
-        return 0.68 if strict_mode else 0.82
-    if result in {"", "none"}:
-        return 0.78 if strict_mode else 0.88
-    return 0.8
+        base = 1.0
+    elif result == "deviation":
+        base = 0.92
+    elif result == "accept":
+        base = 0.80 if strict_mode else 0.86
+    elif result in {"", "none"}:
+        base = 0.82 if strict_mode else 0.88
+    else:
+        base = 0.84
+
+    dynamic = (0.05 * carry) + (0.04 * body) - (0.06 * close_through) - (0.03 * close_inside)
+    return max(0.6, min(1.0, base + dynamic))
 
 
 def _apply_daily_soft_retest_weights(zones: list[dict[str, Any]], *, strict_mode: bool) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for z in zones:
         zz = dict(z)
-        weight = _daily_retest_weight(zz.get("first_retest_result"), strict_mode=strict_mode)
+        weight = _daily_retest_weight(zz, strict_mode=strict_mode)
         strength = float(zz.get("strength_score") or 0.0)
         reaction = float(zz.get("reaction_score") or 0.0)
         efficiency = float(zz.get("reaction_efficiency_score") or 0.0)
+        carry = float(zz.get("carry_score") or 0.0)
+        body_respect = float(zz.get("body_respect_score") or 0.0)
         zz["retest_weight"] = round(weight, 4)
-        zz["selection_score"] = round((strength * weight) + (0.1 * reaction) + (0.05 * efficiency), 4)
+        zz["selection_score"] = round((strength * weight) + (0.08 * reaction) + (0.10 * efficiency) + (0.12 * carry) + (0.08 * body_respect), 4)
         out.append(zz)
     return out
 
@@ -237,7 +251,7 @@ def _select_daily_local_band_representatives(
     if not ordered:
         return []
 
-    band_span_bps = max(float(min_zone_separation_bps) * 2.4, 1000.0)
+    band_span_bps = max(float(min_zone_separation_bps) * 2.6, 1100.0)
     bands: list[list[dict[str, Any]]] = [[ordered[0]]]
 
     for z in ordered[1:]:
@@ -253,12 +267,31 @@ def _select_daily_local_band_representatives(
     selected: list[dict[str, Any]] = []
     for band in bands:
         ranked = sorted(band, key=lambda z: _zone_rank_key(z), reverse=True)
-        keep_n = 1
-        if len(band) >= 4:
-            keep_n = 2
-        if len(band) >= 7:
-            keep_n = 3
-        selected.extend(ranked[:keep_n])
+        top = ranked[0]
+        selected.append(top)
+
+        if len(ranked) < 2:
+            continue
+
+        top_mid = float(top.get("zone_mid") or 0.0)
+        top_score = float(top.get("selection_score") or top.get("strength_score") or 0.0)
+
+        def _second_candidate_value(z: dict[str, Any]) -> float:
+            mid = float(z.get("zone_mid") or 0.0)
+            dist_bps = abs(mid - top_mid) / max(abs(top_mid), 1e-9) * 10000.0
+            score = float(z.get("selection_score") or z.get("strength_score") or 0.0)
+            return (0.75 * score) + (0.25 * dist_bps)
+
+        second = sorted(ranked[1:], key=_second_candidate_value, reverse=True)[0]
+        second_mid = float(second.get("zone_mid") or 0.0)
+        second_score = float(second.get("selection_score") or second.get("strength_score") or 0.0)
+        second_dist_bps = abs(second_mid - top_mid) / max(abs(top_mid), 1e-9) * 10000.0
+
+        if (
+            second_score >= (top_score * 0.87)
+            and second_dist_bps >= max(float(min_zone_separation_bps) * 1.9, 700.0)
+        ):
+            selected.append(second)
 
     selected = sorted(selected, key=lambda z: _zone_rank_key(z), reverse=True)[:max_zones]
     return sorted(selected, key=lambda z: float(z.get("zone_mid") or 0.0))

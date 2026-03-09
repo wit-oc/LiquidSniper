@@ -102,6 +102,13 @@ def test_sr_zone_diagnostic_columns_exist_after_migrations(tmp_path: Path) -> No
         "retest_weight",
         "selection_score",
         "zone_width_bps",
+        "carry_score",
+        "body_respect_score",
+        "close_inside_rate",
+        "body_overlap_rate",
+        "wick_only_rate",
+        "directional_close_rate",
+        "counter_close_rate",
     ]:
         assert expected in cols
 

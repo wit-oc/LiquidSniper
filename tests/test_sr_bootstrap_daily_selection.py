@@ -13,6 +13,10 @@ def _zone(mid: float, *, zone_id: str, selection_score: float, strength: float =
         "strength_score": strength,
         "reaction_score": 70.0,
         "reaction_efficiency_score": 60.0,
+        "carry_score": 55.0,
+        "body_respect_score": 60.0,
+        "close_inside_rate": 0.2,
+        "counter_close_rate": 0.05,
         "meaningful_touch_count": 10,
         "selection_score": selection_score,
         "first_retest_result": retest,
@@ -30,8 +34,8 @@ def test_daily_soft_retest_weights_penalize_accept_without_binary_kill() -> None
     by_id = {z["zone_id"]: z for z in scored}
 
     assert by_id["z-reject"]["retest_weight"] == 1.0
-    assert by_id["z-deviation"]["retest_weight"] == 0.9
-    assert by_id["z-accept"]["retest_weight"] == 0.68
+    assert by_id["z-deviation"]["retest_weight"] > by_id["z-accept"]["retest_weight"]
+    assert by_id["z-accept"]["retest_weight"] > 0.8
     assert by_id["z-reject"]["selection_score"] > by_id["z-deviation"]["selection_score"] > by_id["z-accept"]["selection_score"]
 
 

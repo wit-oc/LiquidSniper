@@ -205,6 +205,13 @@ def _query_sr_zones(
             retest_weight,
             selection_score,
             zone_width_bps,
+            carry_score,
+            body_respect_score,
+            close_inside_rate,
+            body_overlap_rate,
+            wick_only_rate,
+            directional_close_rate,
+            counter_close_rate,
             updated_ts
         FROM sr_zones
         WHERE symbol = ?
@@ -243,7 +250,14 @@ def _query_sr_zones(
                 "retest_weight": float(r[14] or 0.0),
                 "selection_score": float(r[15] or 0.0),
                 "zone_width_bps": float(r[16] or 0.0),
-                "updated_ts": r[17],
+                "carry_score": float(r[17] or 0.0),
+                "body_respect_score": float(r[18] or 0.0),
+                "close_inside_rate": float(r[19] or 0.0),
+                "body_overlap_rate": float(r[20] or 0.0),
+                "wick_only_rate": float(r[21] or 0.0),
+                "directional_close_rate": float(r[22] or 0.0),
+                "counter_close_rate": float(r[23] or 0.0),
+                "updated_ts": r[24],
             }
         )
     return out
