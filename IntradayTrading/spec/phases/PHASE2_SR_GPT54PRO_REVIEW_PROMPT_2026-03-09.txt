@@ -1,0 +1,32 @@
+Review the Phase 2 Python S/R engine in this repo at branch `phase2-v7-zone-first-20260307` (head `c8c8780`).
+
+Start with these files:
+- `IntradayTrading/spec/phases/PHASE2_SR_GPT54PRO_REVIEW_PACKET_2026-03-09.md`
+- `data/artifacts/sr/gpt54pro_review_snapshot_2026-03-09.json`
+- `liquidsniper/core/sr_engine_v2.py`
+- `liquidsniper/ops/sr_bootstrap.py`
+- `liquidsniper/web/app.py`
+- `liquidsniper/config/sr_bootstrap.default.json`
+
+Context:
+- Python is the source of truth for support/resistance majors.
+- No operator-bias mode.
+- No symbol-specific hardcoding.
+- Daily majors use all available history with no global aging decay.
+- 4H is operational context.
+- Goal is to generalize across 100s of pairs.
+
+Please focus on the remaining rule/architecture gaps, especially:
+1. why dense bands still keep too many nearby survivors,
+2. how to distinguish true major shelves from over-tested chop levels,
+3. how to adjudicate bands like `98k / 104k / 108k / 115k` without hand-tuning,
+4. whether carry/body/retest weighting is the right abstraction or should be redesigned.
+
+Use BTC as a failure-mode example only, not an answer key.
+Use ETH as a blind sanity case.
+
+Please return:
+- your diagnosis of the current design,
+- the top generic changes you would make,
+- anything structurally missing from the architecture,
+- and whether this is the right path or should be refactored before more tuning.
