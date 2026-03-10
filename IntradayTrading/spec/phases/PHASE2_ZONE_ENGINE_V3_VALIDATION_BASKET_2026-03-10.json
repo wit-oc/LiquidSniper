@@ -1,0 +1,92 @@
+{
+  "generated_at_utc": "2026-03-10T15:48:32Z",
+  "purpose": "Blind validation basket for zone_engine_v3 development",
+  "source": "coingecko-market-cap",
+  "rules": {
+    "top_n": 15,
+    "exclude_stables": true,
+    "quote": "USDT",
+    "use_for": [
+      "BTC/ETH sanity",
+      "blind multi-pair regression",
+      "avoid chart-by-chart whack-a-mole"
+    ]
+  },
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "name": "Bitcoin",
+      "market_cap_rank": 1
+    },
+    {
+      "symbol": "ETHUSDT",
+      "name": "Ethereum",
+      "market_cap_rank": 2
+    },
+    {
+      "symbol": "BNBUSDT",
+      "name": "BNB",
+      "market_cap_rank": 4
+    },
+    {
+      "symbol": "XRPUSDT",
+      "name": "XRP",
+      "market_cap_rank": 5
+    },
+    {
+      "symbol": "SOLUSDT",
+      "name": "Solana",
+      "market_cap_rank": 7
+    },
+    {
+      "symbol": "TRXUSDT",
+      "name": "TRON",
+      "market_cap_rank": 8
+    },
+    {
+      "symbol": "FIGR_HELOCUSDT",
+      "name": "Figure Heloc",
+      "market_cap_rank": 9
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "name": "Dogecoin",
+      "market_cap_rank": 10
+    },
+    {
+      "symbol": "WBTUSDT",
+      "name": "WhiteBIT Coin",
+      "market_cap_rank": 11
+    },
+    {
+      "symbol": "ADAUSDT",
+      "name": "Cardano",
+      "market_cap_rank": 13
+    },
+    {
+      "symbol": "BCHUSDT",
+      "name": "Bitcoin Cash",
+      "market_cap_rank": 14
+    },
+    {
+      "symbol": "LEOUSDT",
+      "name": "LEO Token",
+      "market_cap_rank": 15
+    },
+    {
+      "symbol": "HYPEUSDT",
+      "name": "Hyperliquid",
+      "market_cap_rank": 16
+    },
+    {
+      "symbol": "LINKUSDT",
+      "name": "Chainlink",
+      "market_cap_rank": 17
+    },
+    {
+      "symbol": "XMRUSDT",
+      "name": "Monero",
+      "market_cap_rank": 18
+    }
+  ]
+}
