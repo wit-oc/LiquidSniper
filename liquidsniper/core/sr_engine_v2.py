@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
+from liquidsniper.core.zone_primitives import local_atr
+
 
 TF_PRIORITY = {"1H": 1, "4H": 2, "1D": 3, "1W": 4}
 PROFILE_ELIGIBILITY = {
@@ -88,18 +90,12 @@ def _zone_scores(
 
 
 def atr(candles: list[dict[str, Any]], period: int = 14) -> float:
-    if len(candles) < 3:
-        return 0.0
-    trs: list[float] = []
-    prev_close = _as_float(candles[0].get("close"), 0.0)
-    for row in candles[1:]:
-        high = _as_float(row.get("high"), prev_close)
-        low = _as_float(row.get("low"), prev_close)
-        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-        trs.append(max(0.0, tr))
-        prev_close = _as_float(row.get("close"), prev_close)
-    tail = trs[-period:] if len(trs) >= period else trs
-    return (sum(tail) / len(tail)) if tail else 0.0
+    """Backward-compatible ATR adapter.
+
+    sr_engine_v2 is now treated as the reaction-family baseline feeding zone_engine_v3,
+    so the shared ATR primitive lives in zone_primitives.local_atr.
+    """
+    return local_atr(candles, period=period)
 
 
 def extract_pivots(candles: list[dict[str, Any]], *, k: int = 3) -> list[Pivot]:
@@ -423,7 +419,8 @@ def build_zones_for_tf(
                 "zone_width_bps": round(zone_width_bps, 4),
                 "carry_score": round(carry_score, 4),
                 "body_respect_score": round(body_respect_score, 4),
-                "source_version": "sr_engine_v2",
+                "source_family": "reaction_family",
+                "source_version": "sr_engine_v2_reaction_family",
             }
         )
         for j, touch in enumerate(t, start=1):
