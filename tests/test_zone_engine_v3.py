@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from liquidsniper.core.zone_engine_v3 import (
     V3B_CONTRACT,
+    V3D_CONTRACT,
     merge_candidate_zones,
     nearest_four_levels,
     score_zone,
@@ -83,6 +84,13 @@ def test_merge_candidate_zones_merges_nearby_cross_family_candidates_and_tracks_
     assert merged[0]["merge_family_count"] == 3
     assert len(merged[0]["merged_from_zone_ids"]) == 3
     assert merged[0]["family_confluence_bonus"] == 8.0
+    arbitration = merged[0]["arbitration_diagnostics"]
+    assert arbitration["engine_contract"] == V3D_CONTRACT
+    assert arbitration["kept_zone_id"] == "z2"
+    assert arbitration["cluster_size"] == 3
+    assert arbitration["score_components"]["final_selection_score"] == merged[0]["selection_score"]
+    assert arbitration["candidates"][0]["kept"] is True
+    assert arbitration["candidates"][1]["kept_reason"] == "clustered_under_stronger_candidate"
 
 
 def test_select_daily_majors_uses_selector_layer_contract():

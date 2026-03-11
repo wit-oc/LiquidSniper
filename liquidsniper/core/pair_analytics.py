@@ -8,8 +8,8 @@ from IntradayTrading.engine.htf_phase1 import run_phase1_htf_structure
 
 from liquidsniper.core.zone_engine_v3 import nearest_four_levels
 
-PAIR_ANALYTICS_CONTRACT = "pair_analytics_v1"
-STRUCTURE_DIAGNOSTIC_CONTRACT = "market_structure_diagnostic_v1"
+PAIR_ANALYTICS_CONTRACT = "pair_analytics_v2"
+STRUCTURE_DIAGNOSTIC_CONTRACT = "market_structure_diagnostic_v2"
 
 
 def _as_float(value: Any) -> float | None:
@@ -26,9 +26,12 @@ def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, 
         return None
     bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
     diagnostics = zone.get("diagnostics") if isinstance(zone.get("diagnostics"), dict) else {}
+    arbitration = zone.get("arbitration_diagnostics") if isinstance(zone.get("arbitration_diagnostics"), dict) else diagnostics.get("arbitration_diagnostics")
     low = bounds.get("low", zone.get("zone_low"))
     mid = bounds.get("mid", zone.get("zone_mid"))
     high = bounds.get("high", zone.get("zone_high"))
+    source_family = zone.get("source_family") or diagnostics.get("source_family")
+    candidate_families = diagnostics.get("candidate_families") or zone.get("candidate_sources") or ([] if source_family is None else [source_family])
     price_anchor = zone.get("price_anchor") if isinstance(zone.get("price_anchor"), dict) else diagnostics.get("price_anchor")
     return {
         "zone_id": zone.get("zone_id"),
@@ -46,8 +49,9 @@ def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, 
         "touch_count": zone.get("touch_count"),
         "meaningful_touch_count": zone.get("meaningful_touch_count"),
         "first_retest_status": zone.get("first_retest_status") or zone.get("first_retest_result"),
-        "source_family": zone.get("source_family") or diagnostics.get("source_family"),
-        "candidate_families": diagnostics.get("candidate_families") or zone.get("candidate_sources") or [],
+        "source_family": source_family,
+        "candidate_families": candidate_families,
+        "family_badges": [badge for badge in [source_family, *candidate_families] if badge],
         "price_anchor": price_anchor or {
             "kind": "zone_mid",
             "zone_mid": mid,
@@ -55,6 +59,7 @@ def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, 
             "zone_high": high,
             "entry": zone.get("entry"),
         },
+        "arbitration": arbitration,
         "diagnostics": diagnostics,
     }
 
@@ -127,8 +132,27 @@ def build_pair_analytics_snapshot(
     entry: float,
     zones: list[dict[str, Any]],
     candles_by_tf: dict[str, list[dict[str, Any]]] | None = None,
+    timeframe_availability: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     nearest = nearest_four_levels(profile_id=profile_id, entry=entry, zones=zones)
+    zone_by_id = {str(z.get("zone_id") or ""): z for z in zones}
+
+    def _hydrate_nearest(zone: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not zone:
+            return None
+        source = zone_by_id.get(str(zone.get("zone_id") or ""), {})
+        merged = dict(source)
+        merged.update(zone)
+        if not isinstance(merged.get("price_anchor"), dict) and isinstance(source.get("price_anchor"), dict):
+            merged["price_anchor"] = source.get("price_anchor")
+        if merged.get("source_family") is None and source.get("source_family") is not None:
+            merged["source_family"] = source.get("source_family")
+        if not merged.get("candidate_sources") and source.get("candidate_sources") is not None:
+            merged["candidate_sources"] = source.get("candidate_sources")
+        if not isinstance(merged.get("arbitration_diagnostics"), dict) and source.get("arbitration_diagnostics") is not None:
+            merged["arbitration_diagnostics"] = source.get("arbitration_diagnostics")
+        return merged
+
     majors = sorted(
         [z for z in zones if str(z.get("tf") or "").upper() == "1D"],
         key=lambda z: float(z.get("selection_score") or z.get("strength_score") or 0.0),
@@ -140,8 +164,17 @@ def build_pair_analytics_snapshot(
         reverse=True,
     )
     structure_by_tf: dict[str, Any] = {}
+    availability = {str(tf).upper(): dict(payload) for tf, payload in (timeframe_availability or {}).items()}
     for tf, candles in (candles_by_tf or {}).items():
-        structure_by_tf[str(tf).upper()] = build_market_structure_diagnostic(candles=candles, tf=str(tf).upper())
+        tf_key = str(tf).upper()
+        structure_by_tf[tf_key] = build_market_structure_diagnostic(candles=candles, tf=tf_key)
+        availability.setdefault(tf_key, {})
+        availability[tf_key].update({
+            "timeframe": tf_key,
+            "status": "ready",
+            "candle_count": len(candles),
+            "diagnostic_contract": STRUCTURE_DIAGNOSTIC_CONTRACT,
+        })
 
     return {
         "contract": PAIR_ANALYTICS_CONTRACT,
@@ -151,10 +184,10 @@ def build_pair_analytics_snapshot(
         "sr": {
             "nearest_four": nearest,
             "nearest_levels": {
-                "nearest_support": summarize_zone_for_pair_analytics(nearest.get("nearest_support")),
-                "next_support": summarize_zone_for_pair_analytics(nearest.get("next_support")),
-                "nearest_resistance": summarize_zone_for_pair_analytics(nearest.get("nearest_resistance")),
-                "next_resistance": summarize_zone_for_pair_analytics(nearest.get("next_resistance")),
+                "nearest_support": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("nearest_support"))),
+                "next_support": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("next_support"))),
+                "nearest_resistance": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("nearest_resistance"))),
+                "next_resistance": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("next_resistance"))),
             },
             "majors": [summarize_zone_for_pair_analytics(z) for z in majors[:8]],
             "operational": [summarize_zone_for_pair_analytics(z) for z in operational[:8]],
@@ -163,6 +196,7 @@ def build_pair_analytics_snapshot(
             "contract": STRUCTURE_DIAGNOSTIC_CONTRACT,
             "timeframes": structure_by_tf,
             "available_timeframes": sorted(structure_by_tf.keys()),
+            "availability": [availability[key] for key in sorted(availability.keys())],
         },
     }
 

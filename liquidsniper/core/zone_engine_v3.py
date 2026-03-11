@@ -9,6 +9,7 @@ from liquidsniper.core.zone_selectors import nearest_four_levels, select_daily_m
 
 V3A_CONTRACT = "zone_engine_v3a"
 V3B_CONTRACT = "zone_engine_v3b"
+V3D_CONTRACT = "zone_engine_v3d"
 
 
 def _zone_bounds(zone: dict[str, Any]) -> tuple[float, float, float]:
@@ -181,29 +182,76 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
 
     merged: list[dict[str, Any]] = []
     for cluster in clusters:
-        best = dict(cluster[0])
+        ranked_cluster = sorted(
+            cluster,
+            key=lambda z: (
+                float(z.get("selection_score") or z.get("strength_score") or 0.0),
+                float(z.get("reaction_efficiency_score") or 0.0),
+                float(z.get("carry_score") or 0.0),
+            ),
+            reverse=True,
+        )
+        best = dict(ranked_cluster[0])
         families = sorted({str(z.get("candidate_family") or z.get("source_family") or "unknown") for z in cluster})
         lows, highs, mids = zip(*[_zone_bounds(z) for z in cluster])
+        arbitration_rows: list[dict[str, Any]] = []
+        for idx, candidate in enumerate(ranked_cluster):
+            candidate_low, candidate_high, candidate_mid = _zone_bounds(candidate)
+            family = str(candidate.get("candidate_family") or candidate.get("source_family") or "unknown")
+            base_score = float(candidate.get("selection_score") or candidate.get("strength_score") or 0.0)
+            arbitration_rows.append(
+                {
+                    "zone_id": str(candidate.get("zone_id") or candidate.get("candidate_id") or ""),
+                    "family": family,
+                    "source_family": candidate.get("source_family"),
+                    "tf": candidate.get("tf"),
+                    "status": candidate.get("status"),
+                    "mid": round(candidate_mid, 8),
+                    "low": round(candidate_low, 8),
+                    "high": round(candidate_high, 8),
+                    "base_score": round(base_score, 4),
+                    "strength_score": round(float(candidate.get("strength_score") or 0.0), 4),
+                    "reaction_efficiency_score": round(float(candidate.get("reaction_efficiency_score") or 0.0), 4),
+                    "carry_score": round(float(candidate.get("carry_score") or 0.0), 4),
+                    "kept": idx == 0,
+                    "kept_reason": "top_ranked_in_cluster" if idx == 0 else "clustered_under_stronger_candidate",
+                }
+            )
+        family_bonus = max(0, len(families) - 1) * 4.0
         best["zone_low"] = round(min(lows), 8)
         best["zone_high"] = round(max(highs), 8)
         best["zone_mid"] = round(sum(mids) / len(mids), 8)
         best["candidate_sources"] = families
-        best["merged_from_zone_ids"] = [str(z.get("zone_id") or z.get("candidate_id") or "") for z in cluster]
+        best["merged_from_zone_ids"] = [row["zone_id"] for row in arbitration_rows]
         best["merge_family_count"] = len(families)
         best["merge_candidate_count"] = len(cluster)
         best["source_family"] = best.get("source_family") or (families[0] if families else None)
         best["strength_score"] = round(max(float(z.get("strength_score") or 0.0) for z in cluster), 4)
         best["selection_score"] = round(
             max(float(z.get("selection_score") or z.get("strength_score") or 0.0) for z in cluster)
-            + max(0, len(families) - 1) * 4.0,
+            + family_bonus,
             4,
         )
-        best["family_confluence_bonus"] = round(max(0, len(families) - 1) * 4.0, 4)
+        best["family_confluence_bonus"] = round(family_bonus, 4)
         best["price_anchor"] = {
             "kind": "merged_zone_mid",
             "zone_mid": best["zone_mid"],
             "zone_low": best["zone_low"],
             "zone_high": best["zone_high"],
+        }
+        best["arbitration_diagnostics"] = {
+            "engine_contract": V3D_CONTRACT,
+            "cluster_size": len(cluster),
+            "families": families,
+            "kept_zone_id": arbitration_rows[0]["zone_id"] if arbitration_rows else None,
+            "kept_source_family": best.get("source_family"),
+            "family_confluence_bonus": round(family_bonus, 4),
+            "score_components": {
+                "winner_base_score": arbitration_rows[0]["base_score"] if arbitration_rows else 0.0,
+                "family_confluence_bonus": round(family_bonus, 4),
+                "final_selection_score": best["selection_score"],
+            },
+            "candidates": arbitration_rows,
         }
         merged.append(best)
     return merged
@@ -255,6 +303,7 @@ def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: fl
 __all__ = [
     "V3A_CONTRACT",
     "V3B_CONTRACT",
+    "V3D_CONTRACT",
     "local_atr",
     "side_aware_interaction",
     "zone_candidates_from_structure",

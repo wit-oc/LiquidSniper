@@ -284,9 +284,22 @@ def _load_sr_run_status(artifact_root: str) -> dict[str, Any] | None:
         return None
 
 
+def _normalize_structure_tf_key(tf: str) -> str:
+    normalized = str(tf or "").strip().upper()
+    if normalized in {"1D", "D", "DAILY"}:
+        return "1d"
+    if normalized in {"4H", "H4"}:
+        return "4h"
+    if normalized in {"1H", "H1"}:
+        return "1h"
+    if normalized in {"15M", "M15"}:
+        return "15m"
+    return normalized.lower()
+
+
 def _find_market_structure_csv(symbol: str, tf: str) -> Path | None:
     asset = "".join(ch for ch in symbol.split("USDT")[0].lower() if ch.isalnum())
-    tf_key = tf.lower().replace("d", "1d") if tf.upper() == "1D" else tf.lower().replace("h", "4h") if tf.upper() == "4H" else tf.lower()
+    tf_key = _normalize_structure_tf_key(tf)
     data_dir = Path(__file__).resolve().parents[2] / "IntradayTrading" / "data"
     if not data_dir.exists() or not asset:
         return None
@@ -294,44 +307,130 @@ def _find_market_structure_csv(symbol: str, tf: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _format_zone_badges(zone: dict[str, Any] | None) -> str:
+    if not zone:
+        return ""
+    badges: list[str] = []
+    kind = str(zone.get("kind") or zone.get("zone_kind") or "").strip()
+    tf = str(zone.get("tf") or "").strip()
+    source = str(zone.get("source_family") or "").strip()
+    families = [str(item).strip() for item in (zone.get("candidate_families") or []) if str(item).strip()]
+    if kind:
+        badges.append(kind.upper())
+    if tf:
+        badges.append(tf.upper())
+    if source:
+        badges.append(f"SRC:{source}")
+    for family in families:
+        tag = f"FAM:{family}"
+        if tag not in badges:
+            badges.append(tag)
+    return " ".join(f"[{badge}]" for badge in badges)
+
+
+def _format_anchor_summary(zone: dict[str, Any] | None) -> str:
+    if not zone:
+        return "n/a"
+    anchor = zone.get("price_anchor") if isinstance(zone.get("price_anchor"), dict) else {}
+    kind = str(anchor.get("kind") or "zone_mid")
+    zone_mid = anchor.get("zone_mid")
+    if zone_mid is not None:
+        return f"{kind} @ {float(zone_mid):,.4f}"
+    return kind
+
+
+def _format_zone_summary(zone: dict[str, Any] | None) -> str:
+    if not zone:
+        return "(none)"
+    bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
+    low = bounds.get("low")
+    mid = bounds.get("mid")
+    high = bounds.get("high")
+    distance = zone.get("distance_bps")
+    selection = zone.get("selection_score")
+    retest = zone.get("first_retest_status") or "n/a"
+    touches = zone.get("meaningful_touch_count") if zone.get("meaningful_touch_count") is not None else zone.get("touch_count")
+    span = f"{float(low):,.4f} -> {float(high):,.4f}" if low is not None and high is not None else "n/a"
+    mid_text = f"{float(mid):,.4f}" if mid is not None else "n/a"
+    pieces = [
+        f"mid {mid_text}",
+        f"band {span}",
+        f"dist {float(distance):.1f}bps" if distance is not None else "dist n/a",
+        f"sel {float(selection):.1f}" if selection is not None else "sel n/a",
+        f"retest {retest}",
+        f"touches {touches if touches is not None else 'n/a'}",
+        f"anchor {_format_anchor_summary(zone)}",
+    ]
+    return " · ".join(pieces)
+
+
+def _format_arbitration_summary(zone: dict[str, Any] | None) -> str:
+    if not zone:
+        return ""
+    arbitration = zone.get("arbitration") if isinstance(zone.get("arbitration"), dict) else {}
+    if not arbitration:
+        return ""
+    score = arbitration.get("score_components") if isinstance(arbitration.get("score_components"), dict) else {}
+    families = ", ".join(str(item) for item in arbitration.get("families") or []) or "n/a"
+    return (
+        f"kept={arbitration.get('kept_zone_id') or zone.get('zone_id')} · "
+        f"cluster={arbitration.get('cluster_size', 0)} · "
+        f"families={families} · "
+        f"base={float(score.get('winner_base_score') or 0.0):.1f} + "
+        f"bonus={float(score.get('family_confluence_bonus') or 0.0):.1f} => "
+        f"final={float(score.get('final_selection_score') or 0.0):.1f}"
+    )
+
+
+def _render_zone_block(label: str, zone: dict[str, Any] | None) -> None:
+    st.markdown(f"**{label}**")
+    if not zone:
+        st.write("(none)")
+        return
+    st.caption(_format_zone_badges(zone))
+    st.write(_format_zone_summary(zone))
+    arbitration_summary = _format_arbitration_summary(zone)
+    if arbitration_summary:
+        st.caption(f"Arbitration: {arbitration_summary}")
+
+
 def _build_ui_pair_analytics(symbol: str, profile: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
+    requested_tfs = ("1H", "4H", "1D")
     candles_by_tf: dict[str, list[dict[str, Any]]] = {}
-    for tf in ("1D", "4H"):
+    availability: dict[str, dict[str, Any]] = {}
+    for tf in requested_tfs:
         path = _find_market_structure_csv(symbol, tf)
         if path is None:
+            availability[tf] = {
+                "timeframe": tf,
+                "status": "missing_source",
+                "reason": "no matching candle csv found",
+            }
             continue
         try:
-            candles_by_tf[tf] = load_candles_from_csv(path, limit=600)
-        except Exception:
+            candles = load_candles_from_csv(path, limit=600)
+        except Exception as exc:
+            availability[tf] = {
+                "timeframe": tf,
+                "status": "load_failed",
+                "reason": str(exc),
+                "path": str(path),
+            }
             continue
+        candles_by_tf[tf] = candles
+        availability[tf] = {
+            "timeframe": tf,
+            "status": "ready",
+            "path": str(path),
+            "candle_count": len(candles),
+        }
     return build_pair_analytics_snapshot(
         symbol=symbol,
         profile_id=profile,
         entry=float(entry),
         zones=zones,
         candles_by_tf=candles_by_tf,
-    )
-
-
-def _zone_summary_line(label: str, zone: dict[str, Any] | None) -> None:
-    st.markdown(f"**{label}**")
-    if not zone:
-        st.write("(none)")
-        return
-    bounds = zone.get("bounds") or {}
-    st.write(
-        {
-            "zone_id": zone.get("zone_id"),
-            "tf": zone.get("tf"),
-            "status": zone.get("status"),
-            "distance_bps": zone.get("distance_bps"),
-            "bounds": bounds,
-            "strength": zone.get("strength"),
-            "touch_count": zone.get("touch_count"),
-            "meaningful_touch_count": zone.get("meaningful_touch_count"),
-            "first_retest_status": zone.get("first_retest_status"),
-            "diagnostics": zone.get("diagnostics"),
-        }
+        timeframe_availability=availability,
     )
 
 
@@ -392,37 +491,58 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
 
     nearest = nearest_sr_levels_v1(profile_id=profile, entry=float(entry), zones=zones)
 
+    analytics = _build_ui_pair_analytics(symbol=symbol, profile=profile, entry=float(entry), zones=zones)
+    sr_levels = analytics.get("sr", {}).get("nearest_levels", {})
+
+    st.markdown("**Nearest / next ladder**")
     c1, c2 = st.columns(2)
     with c1:
-        _zone_summary_line("Nearest support", nearest.get("nearest_support"))
-        _zone_summary_line("Next support", nearest.get("next_support"))
+        _render_zone_block("Nearest support", sr_levels.get("nearest_support"))
+        _render_zone_block("Next support", sr_levels.get("next_support"))
     with c2:
-        _zone_summary_line("Nearest resistance", nearest.get("nearest_resistance"))
-        _zone_summary_line("Next resistance", nearest.get("next_resistance"))
+        _render_zone_block("Nearest resistance", sr_levels.get("nearest_resistance"))
+        _render_zone_block("Next resistance", sr_levels.get("next_resistance"))
+
+    st.markdown("**Majors vs operational**")
+    majors = analytics.get("sr", {}).get("majors", [])
+    operational = analytics.get("sr", {}).get("operational", [])
+    left, right = st.columns(2)
+    with left:
+        st.caption("Daily / major levels")
+        for zone in majors[:4]:
+            st.caption(_format_zone_badges(zone))
+            st.write(_format_zone_summary(zone))
+    with right:
+        st.caption("Operational / closer-in levels")
+        for zone in operational[:4]:
+            st.caption(_format_zone_badges(zone))
+            st.write(_format_zone_summary(zone))
 
     with st.expander("nearest_sr_v1 payload", expanded=False):
         st.json(nearest)
 
-    analytics = _build_ui_pair_analytics(symbol=symbol, profile=profile, entry=float(entry), zones=zones)
-    with st.expander("Per-pair analytics contract", expanded=True):
+    with st.expander("Per-pair analytics contract", expanded=False):
         st.json(analytics)
 
-    structure = analytics.get("market_structure", {}).get("timeframes", {})
-    if structure:
-        st.markdown("**Market structure diagnostics**")
-        cols = st.columns(max(1, len(structure)))
-        for idx, (tf_name, payload) in enumerate(sorted(structure.items())):
-            with cols[idx]:
-                st.markdown(f"**{tf_name}**")
+    availability_rows = analytics.get("market_structure", {}).get("availability", [])
+    if availability_rows:
+        st.markdown("**Market structure coverage**")
+        for row in availability_rows:
+            tf_name = row.get("timeframe") or "?"
+            status_label = row.get("status") or "unknown"
+            if status_label == "ready":
+                payload = analytics.get("market_structure", {}).get("timeframes", {}).get(str(tf_name).upper(), {})
                 st.write(
-                    {
-                        "trend": payload.get("trend"),
-                        "confidence": payload.get("confidence"),
-                        "last_transition_reason": payload.get("last_transition_reason"),
-                        "active_choch_level": payload.get("active_choch_level"),
-                        "event_counts": payload.get("event_counts"),
-                    }
+                    f"{tf_name}: {status_label} · candles {row.get('candle_count', 0)} · "
+                    f"trend {payload.get('trend') or 'n/a'} · conf {payload.get('confidence') or 'n/a'} · "
+                    f"reason {payload.get('last_transition_reason') or 'n/a'}"
                 )
+                st.caption(
+                    f"CHOCH {payload.get('active_choch_level') or 'n/a'} · "
+                    f"events {payload.get('event_counts') or {}}"
+                )
+            else:
+                st.write(f"{tf_name}: {status_label} · {row.get('reason') or row.get('path') or 'unavailable'}")
 
     with st.expander("Historical zones", expanded=False):
         st.dataframe(zones, use_container_width=True)

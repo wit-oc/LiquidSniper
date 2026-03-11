@@ -30,6 +30,16 @@ def _zone(zone_id: str, mid: float, *, tf: str, kind: str = "support", family: s
         "candidate_sources": [family],
         "source_family": family,
         "price_anchor": {"kind": "merged_zone_mid", "zone_mid": mid},
+        "arbitration_diagnostics": {
+            "kept_zone_id": zone_id,
+            "cluster_size": 1,
+            "families": [family],
+            "score_components": {
+                "winner_base_score": 85.0,
+                "family_confluence_bonus": 0.0,
+                "final_selection_score": 85.0,
+            },
+        },
     }
 
 
@@ -89,6 +99,9 @@ def test_build_pair_analytics_snapshot_combines_sr_and_structure_contracts():
         entry=100.0,
         zones=zones,
         candles_by_tf=candles_by_tf,
+        timeframe_availability={
+            "1H": {"timeframe": "1H", "status": "missing_source", "reason": "no matching candle csv found"},
+        },
     )
     assert payload["contract"] == PAIR_ANALYTICS_CONTRACT
     nearest_support = payload["sr"]["nearest_levels"]["nearest_support"]
@@ -98,6 +111,12 @@ def test_build_pair_analytics_snapshot_combines_sr_and_structure_contracts():
     assert nearest_support["selection_score"] == 85.0
     assert nearest_support["first_retest_status"] == "reject"
     assert nearest_support["price_anchor"]["zone_mid"] == 99.0
+    assert "base" in nearest_support["family_badges"]
+    assert nearest_support["arbitration"]["kept_zone_id"] == "h1"
     assert nearest_resistance["zone_id"] == "h2"
     assert payload["market_structure"]["contract"] == STRUCTURE_DIAGNOSTIC_CONTRACT
     assert set(payload["market_structure"]["available_timeframes"]) == {"1D", "4H"}
+    availability = {row["timeframe"]: row for row in payload["market_structure"]["availability"]}
+    assert availability["1D"]["status"] == "ready"
+    assert availability["4H"]["status"] == "ready"
+    assert availability["1H"]["status"] == "missing_source"
