@@ -12,7 +12,13 @@ from typing import Any
 from liquidsniper.core.db import init_db
 from liquidsniper.core.pair_analytics import build_pair_analytics_snapshot, load_candles_from_csv
 from liquidsniper.core.sr_engine_v2 import nearest_sr_levels_v1
+from liquidsniper.core.sr_universe import resolve_market_structure_csv
 from liquidsniper.core.tv_artifacts import query_ui_artifact_links
+
+try:
+    import plotly.graph_objects as go
+except Exception:  # pragma: no cover - optional dependency for audit charting
+    go = None
 
 try:
     import streamlit as st
@@ -298,13 +304,7 @@ def _normalize_structure_tf_key(tf: str) -> str:
 
 
 def _find_market_structure_csv(symbol: str, tf: str) -> Path | None:
-    asset = "".join(ch for ch in symbol.split("USDT")[0].lower() if ch.isalnum())
-    tf_key = _normalize_structure_tf_key(tf)
-    data_dir = Path(__file__).resolve().parents[2] / "IntradayTrading" / "data"
-    if not data_dir.exists() or not asset:
-        return None
-    candidates = sorted(data_dir.glob(f"{asset}_{tf_key}_*.csv"))
-    return candidates[0] if candidates else None
+    return resolve_market_structure_csv(symbol, tf)
 
 
 def _format_zone_badges(zone: dict[str, Any] | None) -> str:
@@ -392,6 +392,67 @@ def _render_zone_block(label: str, zone: dict[str, Any] | None) -> None:
     arbitration_summary = _format_arbitration_summary(zone)
     if arbitration_summary:
         st.caption(f"Arbitration: {arbitration_summary}")
+
+
+def _zone_bounds(zone: dict[str, Any]) -> tuple[float | None, float | None]:
+    bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else zone
+    low = bounds.get("low") if isinstance(bounds, dict) else None
+    high = bounds.get("high") if isinstance(bounds, dict) else None
+    try:
+        return (float(low), float(high)) if low is not None and high is not None else (None, None)
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _build_audit_chart(symbol: str, candles: list[dict[str, Any]], entry: float, zones: list[dict[str, Any]], highlighted_ids: set[str] | None = None):
+    if go is None or not candles:
+        return None
+    highlighted_ids = highlighted_ids or set()
+    x = [row.get("timestamp") for row in candles]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Candlestick(
+            x=x,
+            open=[row.get("open") for row in candles],
+            high=[row.get("high") for row in candles],
+            low=[row.get("low") for row in candles],
+            close=[row.get("close") for row in candles],
+            name=symbol,
+        )
+    )
+    fig.add_hline(
+        y=float(entry),
+        line_dash="dash",
+        line_color="#f59e0b",
+        annotation_text=f"current {float(entry):,.4f}",
+        annotation_position="top left",
+    )
+    for zone in zones:
+        low, high = _zone_bounds(zone)
+        if low is None or high is None:
+            continue
+        zone_id = str(zone.get("zone_id") or "")
+        is_highlighted = zone_id in highlighted_ids
+        is_support = str(zone.get("kind") or zone.get("zone_kind") or "").lower() == "support"
+        fill = "rgba(34,197,94,0.22)" if is_support else "rgba(239,68,68,0.22)"
+        line = "rgba(34,197,94,0.90)" if is_support else "rgba(239,68,68,0.90)"
+        fig.add_hrect(
+            y0=low,
+            y1=high,
+            line_width=2 if is_highlighted else 1,
+            fillcolor=fill,
+            line_color=line,
+            opacity=0.45 if is_highlighted else 0.18,
+            annotation_text=f"{zone.get('tf')} {zone.get('kind') or zone.get('zone_kind') or ''} {zone.get('selection_score') or zone.get('strength') or zone.get('strength_score') or ''}",
+            annotation_position="top left",
+        )
+    fig.update_layout(
+        height=650,
+        xaxis_rangeslider_visible=False,
+        margin={"l": 8, "r": 8, "t": 32, "b": 8},
+        legend={"orientation": "h"},
+    )
+    return fig
 
 
 def _build_ui_pair_analytics(symbol: str, profile: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
@@ -493,6 +554,30 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
 
     analytics = _build_ui_pair_analytics(symbol=symbol, profile=profile, entry=float(entry), zones=zones)
     sr_levels = analytics.get("sr", {}).get("nearest_levels", {})
+
+    chart_tf = st.selectbox("Audit chart TF", options=["4H", "1D"], index=0)
+    chart_path = _find_market_structure_csv(symbol, chart_tf)
+    if chart_path and chart_path.exists():
+        chart_candles = load_candles_from_csv(chart_path, limit=220)
+        highlight_ids = {
+            str(zone.get("zone_id") or "")
+            for zone in [
+                sr_levels.get("nearest_support"),
+                sr_levels.get("next_support"),
+                sr_levels.get("nearest_resistance"),
+                sr_levels.get("next_resistance"),
+            ]
+            if isinstance(zone, dict)
+        }
+        chart_zones = [z for z in zones if str(z.get("tf") or "").upper() == chart_tf.upper()]
+        chart = _build_audit_chart(symbol, chart_candles, float(entry), chart_zones, highlighted_ids=highlight_ids)
+        if chart is not None:
+            st.plotly_chart(chart, use_container_width=True)
+            st.caption(f"Chart source: {chart_path}")
+        else:
+            st.info("Plotly is declared for this UI, but it is not installed in the current runtime yet.")
+    else:
+        st.info(f"No canonical {chart_tf} flat file found for {symbol}.")
 
     st.markdown("**Nearest / next ladder**")
     c1, c2 = st.columns(2)

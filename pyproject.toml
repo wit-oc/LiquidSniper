@@ -13,6 +13,7 @@ dependencies = [
   "telethon>=1.35.0",
   "streamlit>=1.30.0",
   "python-dotenv>=1.0.0",
+  "plotly>=5.24.0",
 ]
 
 [tool.pytest.ini_options]

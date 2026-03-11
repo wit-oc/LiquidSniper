@@ -100,13 +100,16 @@ def test_build_ui_pair_analytics_loads_available_structure_timeframes(monkeypatc
         calls.append((path.name, limit))
         return [{"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5} for _ in range(8)]
 
-    def fake_build(*, symbol: str, profile_id: str, entry: float, zones: list[dict], candles_by_tf: dict[str, list[dict]]):
+    def fake_build(*, symbol: str, profile_id: str, entry: float, zones: list[dict], candles_by_tf: dict[str, list[dict]], timeframe_availability: dict[str, dict]):
         return {
             "symbol": symbol,
             "profile_id": profile_id,
             "entry": entry,
             "zone_count": len(zones),
-            "market_structure": {"available_timeframes": sorted(candles_by_tf.keys())},
+            "market_structure": {
+                "available_timeframes": sorted(candles_by_tf.keys()),
+                "availability": [timeframe_availability[k] for k in sorted(timeframe_availability.keys())],
+            },
         }
 
     monkeypatch.setattr("liquidsniper.web.app._find_market_structure_csv", fake_find)

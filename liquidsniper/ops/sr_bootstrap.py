@@ -10,23 +10,22 @@ from typing import Any
 
 from liquidsniper.core.db import init_db
 from liquidsniper.core.sr_engine_v2 import build_zones_for_tf, persist_sr_state
+from liquidsniper.core.sr_universe import (
+    CANONICAL_SR_SOURCE,
+    default_sr_symbol_tf_files,
+    discover_symbol_tf_files,
+    load_validation_basket,
+)
 from liquidsniper.core.zone_selectors import (
+    apply_daily_soft_retest_weights as _apply_daily_soft_retest_weights,
     nearest_four_levels,
+    select_daily_local_band_representatives as _select_daily_local_band_representatives,
     select_daily_majors,
     select_operational_zones,
 )
 
 
-DEFAULT_SYMBOL_TF_FILES: dict[str, dict[str, str]] = {
-    "BTCUSDT": {
-        "1D": "IntradayTrading/data/btc_1d_blofin_derived_from_1h_2022_to_now.csv",
-        "4H": "IntradayTrading/data/btc_4h_blofin_derived_from_1h_2022_to_now.csv",
-    },
-    "ETHUSDT": {
-        "1D": "IntradayTrading/data/eth_1d_blofin_derived_from_1h_2022_to_now.csv",
-        "4H": "IntradayTrading/data/eth_4h_blofin_derived_from_1h_2022_to_now.csv",
-    },
-}
+DEFAULT_SYMBOL_TF_FILES: dict[str, dict[str, str]] = default_sr_symbol_tf_files()
 
 DEFAULT_TF_LOOKBACK = {
     "1D": 0,   # 0 => all available history (no decay)
@@ -94,6 +93,27 @@ def _load_bootstrap_config(path: str | None) -> dict[str, Any]:
         raise FileNotFoundError(f"Bootstrap config file not found: {p}")
     obj = json.loads(p.read_text(encoding="utf-8"))
     return obj if isinstance(obj, dict) else {}
+
+
+def _resolve_symbol_tf_files_from_config(cfg: dict[str, Any], requested_symbols: list[str]) -> tuple[list[str], dict[str, dict[str, str]], list[str]]:
+    cfg_symbols = cfg.get("symbols", {}) if isinstance(cfg, dict) else {}
+    if isinstance(cfg_symbols, dict) and cfg_symbols:
+        mapping = {
+            str(sym).upper(): {str(tf).upper(): str(path) for tf, path in tf_map.items()}
+            for sym, tf_map in cfg_symbols.items()
+            if isinstance(tf_map, dict)
+        }
+        selected = [s for s in requested_symbols if s in mapping] if requested_symbols else sorted(mapping.keys())
+        return selected, mapping, []
+
+    universe_cfg = cfg.get("universe", {}) if isinstance(cfg, dict) else {}
+    basket_path = universe_cfg.get("basket_path") if isinstance(universe_cfg, dict) else None
+    source = str(universe_cfg.get("source") or CANONICAL_SR_SOURCE) if isinstance(universe_cfg, dict) else CANONICAL_SR_SOURCE
+    basket_symbols = [row.symbol for row in load_validation_basket(basket_path)]
+    selected = [s for s in requested_symbols if s in basket_symbols] if requested_symbols else basket_symbols
+    mapping, missing = discover_symbol_tf_files(symbols=selected, source=source)
+    selected = [s for s in selected if s in mapping]
+    return selected, mapping, missing
 
 
 def _write_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
@@ -394,18 +414,13 @@ def main() -> None:
     args = _parse_args()
     cfg = _load_bootstrap_config(args.config)
     cfg_tuning = cfg.get("tuning", {}) if isinstance(cfg, dict) else {}
-    cfg_symbols = cfg.get("symbols", {}) if isinstance(cfg, dict) else {}
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     symbol_tf_files: dict[str, dict[str, str]] | None = None
-    if isinstance(cfg_symbols, dict) and cfg_symbols:
-        symbol_tf_files = {
-            str(sym).upper(): {str(tf): str(path) for tf, path in tf_map.items()}
-            for sym, tf_map in cfg_symbols.items()
-            if isinstance(tf_map, dict)
-        }
-        if symbol_tf_files:
-            symbols = [s for s in symbols if s in symbol_tf_files]
+    if cfg:
+        symbols, symbol_tf_files, missing = _resolve_symbol_tf_files_from_config(cfg, symbols)
+        if missing:
+            print(json.dumps({"missing_flat_files": missing}, indent=2))
 
     def _cfg(name: str, cli_value: Any) -> Any:
         return cfg_tuning.get(name, cli_value)
