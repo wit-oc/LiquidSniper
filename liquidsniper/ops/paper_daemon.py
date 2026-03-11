@@ -471,48 +471,81 @@ def _promote_positions_to_be(state: ThrottleState, *, now: datetime, cycle_count
     return promoted, ids
 
 
+def _marketdata_base_candidates() -> list[tuple[str, str]]:
+    explicit = os.getenv("LIQUIDSNIPER_MARKETDATA_BASE", "").strip()
+    if explicit:
+        return [(explicit.rstrip("/"), "explicit")]
+
+    mode = os.getenv("LIQUIDSNIPER_MARKETDATA_MODE", "perp_first").strip().lower()
+    if mode == "spot_only":
+        return [
+            ("https://data-api.binance.vision", "spot"),
+            ("https://api.binance.com", "spot"),
+        ]
+    return [
+        ("https://fapi.binance.com", "perp"),
+        ("https://data-api.binance.vision", "spot"),
+        ("https://api.binance.com", "spot"),
+    ]
+
+
+
 def _fetch_klines(symbol: str, interval: str, *, limit: int = 120) -> list[dict[str, object]]:
     qs = urllib.parse.urlencode({"symbol": symbol.upper(), "interval": interval, "limit": int(limit)})
-    base = os.getenv("LIQUIDSNIPER_MARKETDATA_BASE", "https://data-api.binance.vision").rstrip("/")
 
-    parsed = urllib.parse.urlparse(base)
-    allowed_hosts_raw = os.getenv("LIQUIDSNIPER_MARKETDATA_ALLOWED_HOSTS", "data-api.binance.vision,api.binance.com")
+    allowed_hosts_raw = os.getenv(
+        "LIQUIDSNIPER_MARKETDATA_ALLOWED_HOSTS",
+        "fapi.binance.com,data-api.binance.vision,api.binance.com",
+    )
     allowed_hosts = {h.strip().lower() for h in allowed_hosts_raw.split(",") if h.strip()}
-    if parsed.scheme != "https" or not parsed.netloc or parsed.hostname is None or parsed.hostname.lower() not in allowed_hosts:
-        raise MarketDataUnavailable("BINANCE_BASE_URL_INVALID")
 
-    url = f"{base}/api/v3/klines?{qs}"
-    req = urllib.request.Request(url, headers={"User-Agent": "LiquidSniper/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=8) as resp:  # nosec B310
-            if int(getattr(resp, "status", 200)) != 200:
-                raise MarketDataUnavailable(f"BINANCE_HTTP_{getattr(resp, 'status', 'ERR')}")
-            payload = json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise MarketDataUnavailable(f"BINANCE_FETCH_FAILED:{symbol}:{interval}") from exc
-
-    if not isinstance(payload, list) or len(payload) < 60:
-        raise MarketDataUnavailable(f"BINANCE_INSUFFICIENT_CANDLES:{symbol}:{interval}")
-
-    out: list[dict[str, object]] = []
-    for row in payload:
-        if not isinstance(row, list) or len(row) < 7:
+    last_error = "BINANCE_FETCH_FAILED"
+    for base, anchor_type in _marketdata_base_candidates():
+        parsed = urllib.parse.urlparse(base)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.hostname is None or parsed.hostname.lower() not in allowed_hosts:
+            last_error = "BINANCE_BASE_URL_INVALID"
             continue
-        out.append(
-            {
-                "open_time": datetime.fromtimestamp(int(row[0]) / 1000, tz=timezone.utc),
-                "open": float(row[1]),
-                "high": float(row[2]),
-                "low": float(row[3]),
-                "close": float(row[4]),
-                "volume": float(row[5]),
-                "close_time": datetime.fromtimestamp(int(row[6]) / 1000, tz=timezone.utc),
-            }
-        )
 
-    if len(out) < 60:
-        raise MarketDataUnavailable(f"BINANCE_PARSED_CANDLES_INSUFFICIENT:{symbol}:{interval}")
-    return out
+        path = "/fapi/v1/klines" if anchor_type == "perp" else "/api/v3/klines"
+        url = f"{base}{path}?{qs}"
+        req = urllib.request.Request(url, headers={"User-Agent": "LiquidSniper/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:  # nosec B310
+                if int(getattr(resp, "status", 200)) != 200:
+                    last_error = f"BINANCE_HTTP_{getattr(resp, 'status', 'ERR')}"
+                    continue
+                payload = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            last_error = f"BINANCE_FETCH_FAILED:{symbol}:{interval}:{anchor_type}"
+            continue
+
+        if not isinstance(payload, list) or len(payload) < 60:
+            last_error = f"BINANCE_INSUFFICIENT_CANDLES:{symbol}:{interval}:{anchor_type}"
+            continue
+
+        out: list[dict[str, object]] = []
+        for row in payload:
+            if not isinstance(row, list) or len(row) < 7:
+                continue
+            out.append(
+                {
+                    "open_time": datetime.fromtimestamp(int(row[0]) / 1000, tz=timezone.utc),
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                    "volume": float(row[5]),
+                    "close_time": datetime.fromtimestamp(int(row[6]) / 1000, tz=timezone.utc),
+                    "price_anchor": anchor_type,
+                }
+            )
+
+        if len(out) < 60:
+            last_error = f"BINANCE_PARSED_CANDLES_INSUFFICIENT:{symbol}:{interval}:{anchor_type}"
+            continue
+        return out
+
+    raise MarketDataUnavailable(last_error)
 
 
 def _fetch_klines_with_retry(

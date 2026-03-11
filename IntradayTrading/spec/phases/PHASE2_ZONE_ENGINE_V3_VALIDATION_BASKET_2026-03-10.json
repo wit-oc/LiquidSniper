@@ -5,7 +5,11 @@
   "rules": {
     "top_n": 15,
     "exclude_stables": true,
+    "exclude_wrapped": true,
+    "exclude_synthetics": true,
+    "exclude_non_spot_majors": true,
     "quote": "USDT",
+    "selection_contract": "spot-tradable-non-stable-non-wrapped-high-market-cap-majors",
     "use_for": [
       "BTC/ETH sanity",
       "blind multi-pair regression",
@@ -39,24 +43,9 @@
       "market_cap_rank": 7
     },
     {
-      "symbol": "TRXUSDT",
-      "name": "TRON",
-      "market_cap_rank": 8
-    },
-    {
-      "symbol": "FIGR_HELOCUSDT",
-      "name": "Figure Heloc",
-      "market_cap_rank": 9
-    },
-    {
       "symbol": "DOGEUSDT",
       "name": "Dogecoin",
       "market_cap_rank": 10
-    },
-    {
-      "symbol": "WBTUSDT",
-      "name": "WhiteBIT Coin",
-      "market_cap_rank": 11
     },
     {
       "symbol": "ADAUSDT",
@@ -69,24 +58,39 @@
       "market_cap_rank": 14
     },
     {
-      "symbol": "LEOUSDT",
-      "name": "LEO Token",
-      "market_cap_rank": 15
-    },
-    {
-      "symbol": "HYPEUSDT",
-      "name": "Hyperliquid",
-      "market_cap_rank": 16
-    },
-    {
       "symbol": "LINKUSDT",
       "name": "Chainlink",
       "market_cap_rank": 17
     },
     {
-      "symbol": "XMRUSDT",
-      "name": "Monero",
-      "market_cap_rank": 18
+      "symbol": "XLMUSDT",
+      "name": "Stellar",
+      "market_cap_rank": 19
+    },
+    {
+      "symbol": "LTCUSDT",
+      "name": "Litecoin",
+      "market_cap_rank": 21
+    },
+    {
+      "symbol": "AVAXUSDT",
+      "name": "Avalanche",
+      "market_cap_rank": 22
+    },
+    {
+      "symbol": "HBARUSDT",
+      "name": "Hedera",
+      "market_cap_rank": 23
+    },
+    {
+      "symbol": "DOTUSDT",
+      "name": "Polkadot",
+      "market_cap_rank": 24
+    },
+    {
+      "symbol": "TONUSDT",
+      "name": "Toncoin",
+      "market_cap_rank": 25
     }
   ]
 }

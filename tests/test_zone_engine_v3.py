@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from liquidsniper.core.zone_engine_v3 import (
+    V3B_CONTRACT,
     merge_candidate_zones,
     nearest_four_levels,
     score_zone,
@@ -32,6 +33,7 @@ def _zone(zone_id: str, mid: float, *, tf: str = "1D", kind: str = "support", st
         "close_inside_rate": 0.05,
         "counter_close_rate": 0.02,
         "first_retest_result": retest,
+        "atr_local": 4.0,
     }
 
 
@@ -49,13 +51,24 @@ def test_side_aware_interaction_flags_alignment_by_side_and_position():
     support = _zone("s1", 100.0, kind="support")
     resistance = _zone("r1", 110.0, kind="resistance")
 
-    buy_hit = side_aware_interaction(zone=support, price=103.0, side="buy")
-    sell_hit = side_aware_interaction(zone=resistance, price=107.0, side="sell")
-    wrong_way = side_aware_interaction(zone=support, price=103.0, side="sell")
+    buy_hit = side_aware_interaction(zone=support, price=103.0, side="buy", atr=4.0)
+    sell_hit = side_aware_interaction(zone=resistance, price=107.0, side="sell", atr=4.0)
+    wrong_way = side_aware_interaction(zone=support, price=103.0, side="sell", atr=4.0)
 
     assert buy_hit["is_aligned"] is True
+    assert buy_hit["lifecycle_state"] == "virgin"
     assert sell_hit["is_aligned"] is True
+    assert sell_hit["lifecycle_state"] == "virgin"
     assert wrong_way["is_aligned"] is False
+    assert wrong_way["lifecycle_state"] == "counter_side"
+
+
+def test_side_aware_interaction_marks_deep_test_and_broken():
+    support = _zone("s1", 100.0, kind="support")
+    deep = side_aware_interaction(zone=support, price=100.0, side="buy", atr=2.0)
+    broken = side_aware_interaction(zone=support, price=97.5, side="buy", atr=2.0)
+    assert deep["lifecycle_state"] == "deep_test"
+    assert broken["lifecycle_state"] == "broken"
 
 
 def test_merge_candidate_zones_combines_duplicate_zone_ids_and_tracks_sources():
@@ -117,12 +130,34 @@ def test_nearest_four_levels_adds_side_aware_payloads():
     assert payload["sell_interaction"]["is_aligned"] is True
 
 
-def test_score_zone_adds_selection_score_and_interaction_views():
-    scored = score_zone(_zone("sc1", 100.0), last_price=101.5)
-    assert scored["selection_score"] > 0
-    assert scored["interaction_buy"]["side"] == "buy"
-    assert scored["interaction_sell"]["side"] == "sell"
+def test_score_zone_uses_atr_and_lifecycle_in_selection_score():
+    virgin = score_zone(_zone("sc1", 100.0), last_price=103.5, atr=4.0)
+    broken = score_zone(_zone("sc2", 100.0), last_price=97.0, atr=4.0)
+    assert virgin["interaction_buy"]["lifecycle_state"] == "virgin"
+    assert broken["interaction_buy"]["lifecycle_state"] == "broken"
+    assert virgin["selection_score"] > broken["selection_score"]
+    assert virgin["zone_width_atr"] > 0
 
 
-def test_zone_candidates_from_base_is_stable_stub_for_v3a():
-    assert zone_candidates_from_base("BTCUSDT", "1D", []) == []
+def test_zone_candidates_from_base_emits_simple_breakout_shelf_candidates():
+    candles = [
+        {"open": 100.0, "high": 101.0, "low": 99.5, "close": 100.4},
+        {"open": 100.4, "high": 101.2, "low": 99.8, "close": 100.6},
+        {"open": 100.6, "high": 101.1, "low": 99.9, "close": 100.5},
+        {"open": 100.5, "high": 101.0, "low": 99.7, "close": 100.3},
+        {"open": 100.3, "high": 101.0, "low": 99.8, "close": 100.4},
+        {"open": 100.4, "high": 100.9, "low": 99.9, "close": 100.2},
+        {"open": 100.2, "high": 100.8, "low": 99.8, "close": 100.1},
+        {"open": 100.1, "high": 100.7, "low": 99.9, "close": 100.3},
+        {"open": 100.3, "high": 103.4, "low": 100.1, "close": 103.0},
+        {"open": 103.0, "high": 104.0, "low": 102.7, "close": 103.7},
+        {"open": 103.7, "high": 104.4, "low": 103.2, "close": 104.0},
+        {"open": 104.0, "high": 104.6, "low": 103.7, "close": 104.3},
+    ]
+    zones = zone_candidates_from_base("BTCUSDT", "4H", candles)
+    assert zones
+    best = zones[0]
+    assert best["candidate_family"] == "base"
+    assert best["engine_contract"] == V3B_CONTRACT
+    assert best["zone_kind"] == "support"
+    assert best["breakout_atr"] >= 0.85
