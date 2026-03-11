@@ -7,7 +7,7 @@ from pathlib import Path
 from liquidsniper.core.analysis_engine import Decision
 from liquidsniper.core.db import init_db
 from liquidsniper.core.simulation_mode import AlertingConfig, persist_decision
-from liquidsniper.web.app import query_diagnostic_cards
+from liquidsniper.web.app import _build_ui_pair_analytics, query_diagnostic_cards
 
 
 def _seed_run(
@@ -88,3 +88,41 @@ def test_query_diagnostic_cards_filters_by_status(tmp_path: Path) -> None:
     assert len(cards) == 1
     assert cards[0].decision == "reject"
     assert cards[0].symbol == "SOLUSDT"
+
+
+def test_build_ui_pair_analytics_loads_available_structure_timeframes(monkeypatch) -> None:
+    calls: list[tuple[str, int]] = []
+
+    def fake_find(symbol: str, tf: str):
+        return Path(f"/tmp/{symbol.lower()}_{tf.lower()}.csv") if tf == "1D" else None
+
+    def fake_load(path: Path, *, limit: int = 600):
+        calls.append((path.name, limit))
+        return [{"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5} for _ in range(8)]
+
+    def fake_build(*, symbol: str, profile_id: str, entry: float, zones: list[dict], candles_by_tf: dict[str, list[dict]]):
+        return {
+            "symbol": symbol,
+            "profile_id": profile_id,
+            "entry": entry,
+            "zone_count": len(zones),
+            "market_structure": {"available_timeframes": sorted(candles_by_tf.keys())},
+        }
+
+    monkeypatch.setattr("liquidsniper.web.app._find_market_structure_csv", fake_find)
+    monkeypatch.setattr("liquidsniper.web.app.load_candles_from_csv", fake_load)
+    monkeypatch.setattr("liquidsniper.web.app.build_pair_analytics_snapshot", fake_build)
+
+    payload = _build_ui_pair_analytics(
+        symbol="BTCUSDT",
+        profile="I",
+        entry=100.0,
+        zones=[{"zone_id": "z1"}, {"zone_id": "z2"}],
+    )
+
+    assert payload["symbol"] == "BTCUSDT"
+    assert payload["profile_id"] == "I"
+    assert payload["entry"] == 100.0
+    assert payload["zone_count"] == 2
+    assert payload["market_structure"]["available_timeframes"] == ["1D"]
+    assert calls == [("btcusdt_1d.csv", 600)]

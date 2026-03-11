@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from liquidsniper.core.db import init_db
+from liquidsniper.core.pair_analytics import build_pair_analytics_snapshot, load_candles_from_csv
 from liquidsniper.core.sr_engine_v2 import nearest_sr_levels_v1
 from liquidsniper.core.tv_artifacts import query_ui_artifact_links
 
@@ -283,6 +284,35 @@ def _load_sr_run_status(artifact_root: str) -> dict[str, Any] | None:
         return None
 
 
+def _find_market_structure_csv(symbol: str, tf: str) -> Path | None:
+    asset = "".join(ch for ch in symbol.split("USDT")[0].lower() if ch.isalnum())
+    tf_key = tf.lower().replace("d", "1d") if tf.upper() == "1D" else tf.lower().replace("h", "4h") if tf.upper() == "4H" else tf.lower()
+    data_dir = Path(__file__).resolve().parents[2] / "IntradayTrading" / "data"
+    if not data_dir.exists() or not asset:
+        return None
+    candidates = sorted(data_dir.glob(f"{asset}_{tf_key}_*.csv"))
+    return candidates[0] if candidates else None
+
+
+def _build_ui_pair_analytics(symbol: str, profile: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
+    candles_by_tf: dict[str, list[dict[str, Any]]] = {}
+    for tf in ("1D", "4H"):
+        path = _find_market_structure_csv(symbol, tf)
+        if path is None:
+            continue
+        try:
+            candles_by_tf[tf] = load_candles_from_csv(path, limit=600)
+        except Exception:
+            continue
+    return build_pair_analytics_snapshot(
+        symbol=symbol,
+        profile_id=profile,
+        entry=float(entry),
+        zones=zones,
+        candles_by_tf=candles_by_tf,
+    )
+
+
 def _zone_summary_line(label: str, zone: dict[str, Any] | None) -> None:
     st.markdown(f"**{label}**")
     if not zone:
@@ -372,6 +402,27 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
 
     with st.expander("nearest_sr_v1 payload", expanded=False):
         st.json(nearest)
+
+    analytics = _build_ui_pair_analytics(symbol=symbol, profile=profile, entry=float(entry), zones=zones)
+    with st.expander("Per-pair analytics contract", expanded=True):
+        st.json(analytics)
+
+    structure = analytics.get("market_structure", {}).get("timeframes", {})
+    if structure:
+        st.markdown("**Market structure diagnostics**")
+        cols = st.columns(max(1, len(structure)))
+        for idx, (tf_name, payload) in enumerate(sorted(structure.items())):
+            with cols[idx]:
+                st.markdown(f"**{tf_name}**")
+                st.write(
+                    {
+                        "trend": payload.get("trend"),
+                        "confidence": payload.get("confidence"),
+                        "last_transition_reason": payload.get("last_transition_reason"),
+                        "active_choch_level": payload.get("active_choch_level"),
+                        "event_counts": payload.get("event_counts"),
+                    }
+                )
 
     with st.expander("Historical zones", expanded=False):
         st.dataframe(zones, use_container_width=True)

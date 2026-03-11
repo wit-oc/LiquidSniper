@@ -71,14 +71,18 @@ def test_side_aware_interaction_marks_deep_test_and_broken():
     assert broken["lifecycle_state"] == "broken"
 
 
-def test_merge_candidate_zones_combines_duplicate_zone_ids_and_tracks_sources():
+def test_merge_candidate_zones_merges_nearby_cross_family_candidates_and_tracks_arbitration():
     merged = merge_candidate_zones(
         [{**_zone("z1", 100.0), "candidate_family": "reaction"}],
-        [{**_zone("z1", 100.0, strength=88.0), "candidate_family": "structure"}],
+        [{**_zone("z2", 100.2, strength=88.0), "candidate_family": "structure"}],
+        [{**_zone("z3", 99.9, strength=84.0), "candidate_family": "base"}],
     )
     assert len(merged) == 1
     assert merged[0]["strength_score"] == 88.0
-    assert merged[0]["candidate_sources"] == ["reaction", "structure"]
+    assert merged[0]["candidate_sources"] == ["base", "reaction", "structure"]
+    assert merged[0]["merge_family_count"] == 3
+    assert len(merged[0]["merged_from_zone_ids"]) == 3
+    assert merged[0]["family_confluence_bonus"] == 8.0
 
 
 def test_select_daily_majors_uses_selector_layer_contract():
@@ -130,13 +134,14 @@ def test_nearest_four_levels_adds_side_aware_payloads():
     assert payload["sell_interaction"]["is_aligned"] is True
 
 
-def test_score_zone_uses_atr_and_lifecycle_in_selection_score():
-    virgin = score_zone(_zone("sc1", 100.0), last_price=103.5, atr=4.0)
+def test_score_zone_uses_atr_lifecycle_and_family_confluence_in_selection_score():
+    virgin = score_zone({**_zone("sc1", 100.0), "candidate_sources": ["reaction", "base"]}, last_price=103.5, atr=4.0)
     broken = score_zone(_zone("sc2", 100.0), last_price=97.0, atr=4.0)
     assert virgin["interaction_buy"]["lifecycle_state"] == "virgin"
     assert broken["interaction_buy"]["lifecycle_state"] == "broken"
     assert virgin["selection_score"] > broken["selection_score"]
     assert virgin["zone_width_atr"] > 0
+    assert virgin["family_confluence_bonus"] == 3.0
 
 
 def test_zone_candidates_from_base_emits_simple_breakout_shelf_candidates():

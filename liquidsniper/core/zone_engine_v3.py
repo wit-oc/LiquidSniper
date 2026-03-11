@@ -131,20 +131,82 @@ def zone_candidates_from_reaction(symbol: str, tf: str, candles: list[dict[str, 
 
 
 def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
+    """Merge/arbitrate candidate families by actual zone proximity, not just identical ids."""
+    flattened: list[dict[str, Any]] = []
     for group in candidate_groups:
         for zone in group:
-            zone_id = str(zone.get("zone_id") or zone.get("candidate_id") or "")
-            if not zone_id:
-                zone_id = f"{zone.get('symbol','?')}:{zone.get('tf','?')}:{zone.get('zone_mid','?')}:{zone.get('candidate_family','?')}"
-            if zone_id not in merged:
-                merged[zone_id] = dict(zone)
-                merged[zone_id].setdefault("candidate_sources", [zone.get("candidate_family")])
-            else:
-                existing = merged[zone_id]
-                existing["candidate_sources"] = sorted({*existing.get("candidate_sources", []), zone.get("candidate_family")})
-                existing["strength_score"] = max(float(existing.get("strength_score") or 0.0), float(zone.get("strength_score") or 0.0))
-    return list(merged.values())
+            zz = dict(zone)
+            family = str(zz.get("candidate_family") or zz.get("source_family") or "unknown")
+            zz.setdefault("candidate_sources", [family])
+            zz.setdefault("source_family", family)
+            flattened.append(zz)
+    if not flattened:
+        return []
+
+    ranked = sorted(
+        flattened,
+        key=lambda z: (
+            float(z.get("selection_score") or z.get("strength_score") or 0.0),
+            float(z.get("reaction_efficiency_score") or 0.0),
+            float(z.get("carry_score") or 0.0),
+        ),
+        reverse=True,
+    )
+
+    clusters: list[list[dict[str, Any]]] = []
+    for zone in ranked:
+        low, high, mid = _zone_bounds(zone)
+        atr_ref = max(float(zone.get("atr_local") or zone.get("atr_ref") or 0.0), 0.0)
+        width = max(high - low, 0.0)
+        attached = False
+        for cluster in clusters:
+            seed = cluster[0]
+            s_low, s_high, s_mid = _zone_bounds(seed)
+            if str(seed.get("symbol") or "") != str(zone.get("symbol") or ""):
+                continue
+            if str(seed.get("tf") or "") != str(zone.get("tf") or ""):
+                continue
+            if str(seed.get("zone_kind") or "") != str(zone.get("zone_kind") or ""):
+                continue
+            seed_atr = max(float(seed.get("atr_local") or seed.get("atr_ref") or 0.0), 0.0)
+            merge_tol = max(width, s_high - s_low, atr_ref * 0.35, seed_atr * 0.35, abs(s_mid) * 0.0035)
+            overlaps = max(low, s_low) <= min(high, s_high)
+            nearby = abs(mid - s_mid) <= merge_tol
+            if overlaps or nearby:
+                cluster.append(zone)
+                attached = True
+                break
+        if not attached:
+            clusters.append([zone])
+
+    merged: list[dict[str, Any]] = []
+    for cluster in clusters:
+        best = dict(cluster[0])
+        families = sorted({str(z.get("candidate_family") or z.get("source_family") or "unknown") for z in cluster})
+        lows, highs, mids = zip(*[_zone_bounds(z) for z in cluster])
+        best["zone_low"] = round(min(lows), 8)
+        best["zone_high"] = round(max(highs), 8)
+        best["zone_mid"] = round(sum(mids) / len(mids), 8)
+        best["candidate_sources"] = families
+        best["merged_from_zone_ids"] = [str(z.get("zone_id") or z.get("candidate_id") or "") for z in cluster]
+        best["merge_family_count"] = len(families)
+        best["merge_candidate_count"] = len(cluster)
+        best["source_family"] = best.get("source_family") or (families[0] if families else None)
+        best["strength_score"] = round(max(float(z.get("strength_score") or 0.0) for z in cluster), 4)
+        best["selection_score"] = round(
+            max(float(z.get("selection_score") or z.get("strength_score") or 0.0) for z in cluster)
+            + max(0, len(families) - 1) * 4.0,
+            4,
+        )
+        best["family_confluence_bonus"] = round(max(0, len(families) - 1) * 4.0, 4)
+        best["price_anchor"] = {
+            "kind": "merged_zone_mid",
+            "zone_mid": best["zone_mid"],
+            "zone_low": best["zone_low"],
+            "zone_high": best["zone_high"],
+        }
+        merged.append(best)
+    return merged
 
 
 def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: float | None = None) -> dict[str, Any]:
@@ -166,6 +228,7 @@ def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: fl
         width_bonus = max(-10.0, min(8.0, (1.2 - width_atr) * 4.0))
 
     lifecycle_bonus = 0.0
+    family_bonus = max(0, len(scored.get("candidate_sources") or []) - 1) * 3.0
     if last_price is not None:
         buy_view = side_aware_interaction(zone=scored, price=float(last_price), side="buy", atr=atr_ref or None)
         sell_view = side_aware_interaction(zone=scored, price=float(last_price), side="sell", atr=atr_ref or None)
@@ -184,7 +247,8 @@ def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: fl
         if "broken" in {buy_state, sell_state}:
             lifecycle_bonus -= 10.0
 
-    scored["selection_score"] = round(base_score + width_bonus + lifecycle_bonus, 4)
+    scored["family_confluence_bonus"] = round(family_bonus, 4)
+    scored["selection_score"] = round(base_score + width_bonus + lifecycle_bonus + family_bonus, 4)
     return scored
 
 
