@@ -270,24 +270,29 @@ def _query_sr_zones(
     return out
 
 
-def _load_sr_bootstrap_snapshot(artifact_root: str) -> dict[str, Any] | None:
-    path = Path(artifact_root) / "sr" / "bootstrap_snapshot.json"
+def _load_json_artifact(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _load_sr_bootstrap_snapshot(artifact_root: str) -> dict[str, Any] | None:
+    return _load_json_artifact(Path(artifact_root) / "sr" / "bootstrap_snapshot.json")
 
 
 def _load_sr_run_status(artifact_root: str) -> dict[str, Any] | None:
-    path = Path(artifact_root) / "sr" / "run_status.json"
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    return _load_json_artifact(Path(artifact_root) / "sr" / "run_status.json")
+
+
+def _load_sr_shadow_bootstrap_snapshot(artifact_root: str) -> dict[str, Any] | None:
+    return _load_json_artifact(Path(artifact_root) / "sr" / "shadow" / "v3" / "bootstrap_snapshot.json")
+
+
+def _load_sr_shadow_run_status(artifact_root: str) -> dict[str, Any] | None:
+    return _load_json_artifact(Path(artifact_root) / "sr" / "shadow" / "v3" / "run_status.json")
 
 
 def _normalize_structure_tf_key(tf: str) -> str:
@@ -392,6 +397,67 @@ def _render_zone_block(label: str, zone: dict[str, Any] | None) -> None:
     arbitration_summary = _format_arbitration_summary(zone)
     if arbitration_summary:
         st.caption(f"Arbitration: {arbitration_summary}")
+
+
+def _render_shadow_surface_list(label: str, zones: list[dict[str, Any]]) -> None:
+    st.markdown(f"**{label}**")
+    if not zones:
+        st.write("(none)")
+        return
+    for zone in zones[:4]:
+        st.caption(_format_zone_badges(zone))
+        st.write(_format_zone_summary(zone))
+
+
+def _render_shadow_comparison(symbol: str, baseline_snapshot: dict[str, Any] | None, shadow_snapshot: dict[str, Any] | None) -> None:
+    if not shadow_snapshot or not isinstance(shadow_snapshot.get("symbols"), dict):
+        return
+    shadow_payload = shadow_snapshot["symbols"].get(symbol)
+    if not isinstance(shadow_payload, dict):
+        return
+
+    baseline_payload = None
+    if baseline_snapshot and isinstance(baseline_snapshot.get("symbols"), dict):
+        maybe = baseline_snapshot["symbols"].get(symbol)
+        baseline_payload = maybe if isinstance(maybe, dict) else None
+
+    st.markdown("**Shadow V3 comparison**")
+    left, right = st.columns(2)
+    with left:
+        st.caption("Baseline snapshot")
+        st.write(
+            {
+                "zone_count": baseline_payload.get("zone_count") if baseline_payload else None,
+                "nearest_contract": (baseline_payload.get("nearest") or {}).get("contract") if baseline_payload else None,
+            }
+        )
+    with right:
+        st.caption("Shadow V3 snapshot")
+        st.write(
+            {
+                "zone_count": shadow_payload.get("zone_count"),
+                "nearest_contract": (shadow_payload.get("nearest") or {}).get("contract"),
+            }
+        )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.caption("Shadow nearest / next ladder")
+        _render_zone_block("Nearest support", (shadow_payload.get("nearest") or {}).get("nearest_support"))
+        _render_zone_block("Next support", (shadow_payload.get("nearest") or {}).get("next_support"))
+    with c2:
+        st.caption(" ")
+        _render_zone_block("Nearest resistance", (shadow_payload.get("nearest") or {}).get("nearest_resistance"))
+        _render_zone_block("Next resistance", (shadow_payload.get("nearest") or {}).get("next_resistance"))
+
+    l2, r2 = st.columns(2)
+    with l2:
+        _render_shadow_surface_list("Shadow Daily majors", ((shadow_payload.get("surfaces") or {}).get("majors") or []))
+    with r2:
+        _render_shadow_surface_list("Shadow operational", ((shadow_payload.get("surfaces") or {}).get("operational") or []))
+
+    with st.expander("Shadow V3 payload", expanded=False):
+        st.json(shadow_payload)
 
 
 def _zone_bounds(zone: dict[str, Any]) -> tuple[float | None, float | None]:
@@ -509,9 +575,23 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
         else:
             st.caption(f"SR bootstrap status: {state} (run_id={run_id})")
 
+    shadow_run_status = _load_sr_shadow_run_status(artifact_root)
+    if shadow_run_status:
+        shadow_state = str(shadow_run_status.get("state", "unknown"))
+        shadow_run_id = shadow_run_status.get("run_id", "-")
+        if shadow_state == "failed":
+            st.error(f"SR shadow status: {shadow_state} (run_id={shadow_run_id}) · {shadow_run_status.get('error', '')}")
+        elif shadow_state == "running":
+            st.warning(f"SR shadow status: {shadow_state} (run_id={shadow_run_id})")
+        else:
+            st.caption(f"SR shadow status: {shadow_state} (run_id={shadow_run_id})")
+
     snapshot = _load_sr_bootstrap_snapshot(artifact_root)
+    shadow_snapshot = _load_sr_shadow_bootstrap_snapshot(artifact_root)
     if snapshot:
         st.caption(f"Last bootstrap snapshot: {snapshot.get('generated_at', '-')}")
+    if shadow_snapshot:
+        st.caption(f"Last shadow snapshot: {shadow_snapshot.get('generated_at', '-')}")
 
     symbols = _query_sr_symbols(conn)
     if not symbols:
@@ -602,6 +682,8 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
         for zone in operational[:4]:
             st.caption(_format_zone_badges(zone))
             st.write(_format_zone_summary(zone))
+
+    _render_shadow_comparison(symbol=symbol, baseline_snapshot=snapshot, shadow_snapshot=shadow_snapshot)
 
     with st.expander("nearest_sr_v1 payload", expanded=False):
         st.json(nearest)

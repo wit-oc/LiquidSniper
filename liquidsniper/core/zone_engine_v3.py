@@ -1,3 +1,23 @@
+"""Zone Engine V3 scaffold / bridge module.
+
+This module is intentionally the thin architectural seam for the Phase 2 V3
+shadow-mode migration. The doctrinal target is a family-fusion engine with
+separate generation, arbitration, scoring, and selector layers, but the current
+branch must preserve the existing nearest-four execution payload concept while
+that migration happens.
+
+Why this file exists in its current form:
+- keep the seam names and contracts stable for bootstrap/tests
+- allow structure/base/reaction families to converge behind one engine surface
+- preserve selector separation instead of burying policy in bootstrap logic
+- stay reversible while V3 remains shadow-first and non-default
+
+Implementation note:
+The functions below are bridge implementations, not the final doctrinal endpoint.
+They should be treated as scaffold seams that future work can replace family by
+family without breaking downstream callers.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -13,6 +33,11 @@ V3D_CONTRACT = "zone_engine_v3d"
 
 
 def _zone_bounds(zone: dict[str, Any]) -> tuple[float, float, float]:
+    """Normalize a candidate/merged zone into low/high/mid bounds.
+
+    This helper keeps downstream seam functions agnostic to whether an upstream
+    family emitted explicit low/high bounds or only a midpoint.
+    """
     low = float(zone.get("zone_low") or zone.get("zone_mid") or 0.0)
     high = float(zone.get("zone_high") or zone.get("zone_mid") or low)
     if high < low:
@@ -257,7 +282,39 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
     return merged
 
 
+def classify_zone_state(zone: dict[str, Any], *, last_price: float | None = None, atr: float | None = None) -> dict[str, Any]:
+    """Return role-aware lifecycle semantics without mutating doctrinal storage.
+
+    Zones remain neutral in storage. Lifecycle is derived from approach-side
+    interaction so MAP/LIVE consumers can reason about support, resistance, and
+    flip behavior without forcing a permanent zone polarity.
+    """
+    state = dict(zone)
+    atr_ref = max(float(atr or state.get("atr_local") or state.get("atr_ref") or 0.0), 0.0)
+    if last_price is None:
+        state.setdefault("lifecycle_state", str(state.get("first_touch_state") or "unknown"))
+        return state
+
+    buy_view = side_aware_interaction(zone=state, price=float(last_price), side="buy", atr=atr_ref or None)
+    sell_view = side_aware_interaction(zone=state, price=float(last_price), side="sell", atr=atr_ref or None)
+    state["interaction_buy"] = buy_view
+    state["interaction_sell"] = sell_view
+
+    preferred = buy_view if buy_view.get("is_aligned") else sell_view if sell_view.get("is_aligned") else buy_view
+    state["lifecycle_state"] = str(preferred.get("lifecycle_state") or "unknown")
+    state["first_touch_state"] = state["lifecycle_state"]
+    state["interaction_role"] = str(preferred.get("role") or "neutral")
+    return state
+
+
 def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: float | None = None) -> dict[str, Any]:
+    """Apply bridge-era scoring without changing the selector/output seam.
+
+    The score is intentionally a reversible composition of current bridge
+    signals: strength/reaction/carry, width sanity, lifecycle state, and family
+    confluence. Future doctrinal revisions can replace the scoring internals
+    while keeping the surrounding V3 contract stable for shadow comparisons.
+    """
     scored = dict(zone)
     strength = float(scored.get("strength_score") or 0.0)
     reaction = float(scored.get("reaction_score") or 0.0)
@@ -278,14 +335,11 @@ def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: fl
     lifecycle_bonus = 0.0
     family_bonus = max(0, len(scored.get("candidate_sources") or []) - 1) * 3.0
     if last_price is not None:
-        buy_view = side_aware_interaction(zone=scored, price=float(last_price), side="buy", atr=atr_ref or None)
-        sell_view = side_aware_interaction(zone=scored, price=float(last_price), side="sell", atr=atr_ref or None)
-        scored["interaction_buy"] = buy_view
-        scored["interaction_sell"] = sell_view
-
-        buy_state = buy_view["lifecycle_state"]
-        sell_state = sell_view["lifecycle_state"]
-        scored["first_touch_state"] = buy_state if buy_view["is_aligned"] else sell_state if sell_view["is_aligned"] else "counter_side"
+        scored = classify_zone_state(scored, last_price=float(last_price), atr=atr_ref or None)
+        buy_view = scored.get("interaction_buy") or {}
+        sell_view = scored.get("interaction_sell") or {}
+        buy_state = str(buy_view.get("lifecycle_state") or "")
+        sell_state = str(sell_view.get("lifecycle_state") or "")
         if "virgin" in {buy_state, sell_state}:
             lifecycle_bonus += 4.0
         if "first_touch" in {buy_state, sell_state}:
@@ -300,6 +354,21 @@ def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: fl
     return scored
 
 
+def build_structure_candidates(symbol: str, tf: str, candles: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
+    """Required V3 seam alias for structure-family candidate generation."""
+    return zone_candidates_from_structure(symbol, tf, candles, **kwargs)
+
+
+def build_base_candidates(symbol: str, tf: str, candles: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
+    """Required V3 seam alias for base/shelf candidate generation."""
+    return zone_candidates_from_base(symbol, tf, candles, **kwargs)
+
+
+def build_reaction_candidates(symbol: str, tf: str, candles: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
+    """Required V3 seam alias for reaction-family candidate generation."""
+    return zone_candidates_from_reaction(symbol, tf, candles, **kwargs)
+
+
 __all__ = [
     "V3A_CONTRACT",
     "V3B_CONTRACT",
@@ -309,7 +378,11 @@ __all__ = [
     "zone_candidates_from_structure",
     "zone_candidates_from_base",
     "zone_candidates_from_reaction",
+    "build_structure_candidates",
+    "build_base_candidates",
+    "build_reaction_candidates",
     "merge_candidate_zones",
+    "classify_zone_state",
     "score_zone",
     "select_daily_majors",
     "select_operational_zones",

@@ -16,6 +16,16 @@ from liquidsniper.core.sr_universe import (
     discover_symbol_tf_files,
     load_validation_basket,
 )
+from liquidsniper.core.zone_engine_v3 import (
+    build_base_candidates,
+    build_reaction_candidates,
+    build_structure_candidates,
+    merge_candidate_zones,
+    nearest_four_levels as nearest_four_levels_v3,
+    score_zone as score_zone_v3,
+    select_daily_majors as select_daily_majors_v3,
+    select_operational_zones as select_operational_zones_v3,
+)
 from liquidsniper.core.zone_selectors import (
     apply_daily_soft_retest_weights as _apply_daily_soft_retest_weights,
     nearest_four_levels,
@@ -84,7 +94,7 @@ def _load_csv_candles(path: Path) -> list[dict[str, Any]]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
 def _load_bootstrap_config(path: str | None) -> dict[str, Any]:
@@ -123,6 +133,123 @@ def _write_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
     _write_json(status_path, payload)
 
 
+def _write_shadow_run_status(artifact_root: str, payload: dict[str, Any]) -> None:
+    status_path = Path(artifact_root) / "sr" / "shadow" / "v3" / "run_status.json"
+    _write_json(status_path, payload)
+
+
+def _shadow_artifact_dir(artifact_root: str) -> Path:
+    return Path(artifact_root) / "sr" / "shadow" / "v3"
+
+
+def _build_v3_shadow_snapshot(
+    *,
+    run_id: str,
+    generated_at: str,
+    profile_id: str,
+    symbols: list[str],
+    symbol_inputs: dict[str, dict[str, Any]],
+    daily_major_mode: bool,
+    daily_min_strength: float,
+    daily_min_zone_separation_bps: float,
+    daily_max_zones: int,
+    daily_require_first_retest_quality: bool,
+    min_strength_4h: float,
+    min_zone_separation_bps: float,
+    max_zones_4h: int,
+) -> dict[str, Any]:
+    shadow_snapshot: dict[str, Any] = {
+        "contract": "zone_snapshot_v2_shadow",
+        "source_version": "zone_engine_v3_shadow_v1",
+        "baseline_run_id": run_id,
+        "generated_at": generated_at,
+        "profile_id": profile_id,
+        "mode": "shadow",
+        "symbols": {},
+    }
+
+    for symbol in symbols:
+        payload = symbol_inputs.get(symbol, {})
+        tf_inputs = payload.get("timeframes", {}) if isinstance(payload, dict) else {}
+        last_price = payload.get("last_price")
+        symbol_zones: list[dict[str, Any]] = []
+        tf_stats: dict[str, Any] = {}
+        major_surface: list[dict[str, Any]] = []
+        operational_surface: list[dict[str, Any]] = []
+
+        for tf, tf_payload in tf_inputs.items():
+            candles = tf_payload.get("candles") if isinstance(tf_payload, dict) else None
+            if not isinstance(candles, list) or not candles:
+                continue
+            candidate_kwargs = {
+                "cluster_eps": tf_payload.get("cluster_eps"),
+                "reaction_atr_min": tf_payload.get("reaction_atr_min"),
+                "min_meaningful_touches": tf_payload.get("min_meaningful_touches"),
+            }
+            structure = build_structure_candidates(symbol, tf, candles, **candidate_kwargs)
+            base = build_base_candidates(symbol, tf, candles, **candidate_kwargs)
+            reaction = build_reaction_candidates(symbol, tf, candles, **candidate_kwargs)
+            merged = merge_candidate_zones(structure, base, reaction)
+            scored = [score_zone_v3(zone, last_price=float(last_price or 0.0)) for zone in merged]
+
+            if tf == "1D" and daily_major_mode:
+                kept = select_daily_majors_v3(
+                    scored,
+                    min_strength=float(daily_min_strength),
+                    min_zone_separation_bps=float(daily_min_zone_separation_bps),
+                    max_zones=int(daily_max_zones),
+                    strict_retest_quality=bool(daily_require_first_retest_quality),
+                )
+                major_surface = [dict(zone) for zone in kept]
+                selection_mode = "shadow_daily_major_v3"
+            else:
+                kept = select_operational_zones_v3(
+                    scored,
+                    min_strength=float(min_strength_4h) if tf == "4H" else 0.0,
+                    min_zone_separation_bps=float(min_zone_separation_bps),
+                    max_zones=int(max_zones_4h if tf == "4H" else daily_max_zones),
+                )
+                selection_mode = "shadow_operational_v3"
+                if tf == "4H":
+                    operational_surface = [dict(zone) for zone in kept]
+
+            for zone in kept:
+                zz = dict(zone)
+                zz.setdefault("selector_surface", "daily_major" if tf == "1D" else "operational")
+                symbol_zones.append(zz)
+
+            tf_stats[tf] = {
+                "candles_used": len(candles),
+                "candidate_counts": {
+                    "structure": len(structure),
+                    "base": len(base),
+                    "reaction": len(reaction),
+                    "merged": len(merged),
+                },
+                "zones_kept": len(kept),
+                "selection_mode": selection_mode,
+                "source_csv": tf_payload.get("source_csv"),
+                "zones": kept,
+            }
+
+        nearest_payload = nearest_four_levels_v3(
+            profile_id=profile_id,
+            entry=float(last_price or 0.0),
+            zones=symbol_zones,
+        )
+        shadow_snapshot["symbols"][symbol] = {
+            "last_price": last_price,
+            "zone_count": len(symbol_zones),
+            "timeframes": tf_stats,
+            "surfaces": {
+                "majors": major_surface,
+                "operational": operational_surface,
+            },
+            "nearest": nearest_payload,
+        }
+
+    return shadow_snapshot
+
 
 def run_bootstrap(
     *,
@@ -146,6 +273,7 @@ def run_bootstrap(
     daily_min_strength: float = 70.0,
     daily_max_zones: int = 8,
     daily_require_first_retest_quality: bool = True,
+    shadow_mode_v3: bool = False,
     # Global caps/lookbacks
     max_zones_per_symbol: int = 24,
     max_zones_4h: int = 12,
@@ -163,11 +291,13 @@ def run_bootstrap(
             "started_at": now_iso,
             "profile_id": profile_id,
             "symbols": symbols,
+            "shadow_mode_v3": bool(shadow_mode_v3),
         },
     )
 
     all_zones: list[dict[str, Any]] = []
     all_touches: list[dict[str, Any]] = []
+    shadow_symbol_inputs: dict[str, dict[str, Any]] = {}
     snapshot: dict[str, Any] = {
         "contract": "zone_snapshot_v1",
         "run_id": run_id,
@@ -187,6 +317,7 @@ def run_bootstrap(
             "daily_min_strength": daily_min_strength,
             "daily_max_zones": daily_max_zones,
             "daily_require_first_retest_quality": daily_require_first_retest_quality,
+            "shadow_mode_v3": shadow_mode_v3,
             "max_zones_per_symbol": max_zones_per_symbol,
             "max_zones_4h": max_zones_4h,
             "lookback_1d": lookback_1d,
@@ -213,6 +344,7 @@ def run_bootstrap(
         symbol_zones: list[dict[str, Any]] = []
         symbol_touches: list[dict[str, Any]] = []
         tf_stats: dict[str, Any] = {}
+        symbol_shadow_inputs: dict[str, dict[str, Any]] = {}
         last_price: float | None = None
 
         for tf, rel_path in tf_map.items():
@@ -312,6 +444,13 @@ def run_bootstrap(
                     "require_first_retest_quality": tf_require_first_retest_quality,
                 },
             }
+            symbol_shadow_inputs[tf] = {
+                "candles": candles,
+                "source_csv": str(csv_path),
+                "cluster_eps": tf_cluster_eps,
+                "reaction_atr_min": tf_reaction_atr_min,
+                "min_meaningful_touches": tf_min_meaningful_touches,
+            }
             last_price = float(candles[-1]["close"])
 
         all_zones.extend(symbol_zones)
@@ -332,6 +471,10 @@ def run_bootstrap(
             "timeframes": tf_stats,
             "nearest": nearest_payload,
         }
+        shadow_symbol_inputs[symbol] = {
+            "last_price": last_price,
+            "timeframes": symbol_shadow_inputs,
+        }
 
     try:
         conn = init_db(db_path)
@@ -349,6 +492,41 @@ def run_bootstrap(
         for symbol, payload in snapshot["symbols"].items():
             _write_json(artifact_dir / f"nearest_{symbol}.json", payload["nearest"])
 
+        shadow_snapshot_path: str | None = None
+        if shadow_mode_v3:
+            shadow_snapshot = _build_v3_shadow_snapshot(
+                run_id=run_id,
+                generated_at=now_iso,
+                profile_id=profile_id,
+                symbols=symbols,
+                symbol_inputs=shadow_symbol_inputs,
+                daily_major_mode=daily_major_mode,
+                daily_min_strength=daily_min_strength,
+                daily_min_zone_separation_bps=daily_min_zone_separation_bps,
+                daily_max_zones=daily_max_zones,
+                daily_require_first_retest_quality=daily_require_first_retest_quality,
+                min_strength_4h=min_strength_4h,
+                min_zone_separation_bps=min_zone_separation_bps,
+                max_zones_4h=max_zones_4h,
+            )
+            shadow_dir = _shadow_artifact_dir(artifact_root)
+            _write_json(shadow_dir / "bootstrap_snapshot.json", shadow_snapshot)
+            for symbol, payload in shadow_snapshot["symbols"].items():
+                _write_json(shadow_dir / f"nearest_{symbol}.json", payload["nearest"])
+            _write_shadow_run_status(
+                artifact_root,
+                {
+                    "run_id": f"{run_id}:shadow:v3",
+                    "baseline_run_id": run_id,
+                    "state": "completed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "profile_id": profile_id,
+                    "symbols": symbols,
+                    "snapshot": str(shadow_dir / "bootstrap_snapshot.json"),
+                },
+            )
+            shadow_snapshot_path = str(shadow_dir / "bootstrap_snapshot.json")
+
         _write_run_status(
             artifact_root,
             {
@@ -360,10 +538,25 @@ def run_bootstrap(
                 "zone_count": len(all_zones),
                 "touch_count": len(all_touches),
                 "snapshot": str((Path(artifact_root) / "sr" / "bootstrap_snapshot.json")),
+                "shadow_mode_v3": bool(shadow_mode_v3),
+                "shadow_snapshot": shadow_snapshot_path,
             },
         )
         return snapshot
     except Exception as exc:
+        if shadow_mode_v3:
+            _write_shadow_run_status(
+                artifact_root,
+                {
+                    "run_id": f"{run_id}:shadow:v3",
+                    "baseline_run_id": run_id,
+                    "state": "failed",
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                    "profile_id": profile_id,
+                    "symbols": symbols,
+                    "error": str(exc),
+                },
+            )
         _write_run_status(
             artifact_root,
             {
@@ -373,6 +566,7 @@ def run_bootstrap(
                 "profile_id": profile_id,
                 "symbols": symbols,
                 "error": str(exc),
+                "shadow_mode_v3": bool(shadow_mode_v3),
             },
         )
         raise
@@ -406,6 +600,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--daily-max-zones", type=int, default=8, help="1D max retained major zones")
     parser.add_argument("--daily-require-first-retest-quality", action="store_true", default=True, help="Require 1D first retest to be reject/deviation")
     parser.add_argument("--no-daily-require-first-retest-quality", action="store_false", dest="daily_require_first_retest_quality", help="Do not require quality first retest for 1D")
+    parser.add_argument("--shadow-v3", action="store_true", default=False, help="Emit zone_engine_v3 shadow artifacts beside the current baseline path")
+    parser.add_argument("--no-shadow-v3", action="store_false", dest="shadow_v3", help="Disable zone_engine_v3 shadow artifacts")
 
     parser.add_argument("--lookback-1d", type=int, default=0, help="1D candles used in bootstrap (0=all available)")
     parser.add_argument("--lookback-4h", type=int, default=800, help="4H candles used in bootstrap")
@@ -458,6 +654,7 @@ def main() -> None:
         daily_min_strength=float(_cfg("daily_min_strength", args.daily_min_strength)),
         daily_max_zones=int(_cfg("daily_max_zones", args.daily_max_zones)),
         daily_require_first_retest_quality=bool(_cfg("daily_require_first_retest_quality", args.daily_require_first_retest_quality)),
+        shadow_mode_v3=bool(_cfg("shadow_mode_v3", args.shadow_v3)),
         max_zones_per_symbol=int(_cfg("max_zones_per_symbol", args.max_zones_per_symbol)),
         max_zones_4h=int(_cfg("max_zones_4h", args.max_zones_4h)),
         lookback_1d=int(_cfg("lookback_1d", args.lookback_1d)),
