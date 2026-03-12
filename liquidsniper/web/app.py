@@ -409,6 +409,99 @@ def _render_shadow_surface_list(label: str, zones: list[dict[str, Any]]) -> None
         st.write(_format_zone_summary(zone))
 
 
+def _nearest_zone_diff_rows(baseline_zone: dict[str, Any] | None, shadow_zone: dict[str, Any] | None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    labels = {
+        "zone_id": "zone_id",
+        "tf": "tf",
+        "distance_bps": "distance_bps",
+        "selection_score": "selection_score",
+        "source_family": "source_family",
+    }
+    for key, label in labels.items():
+        baseline_value = baseline_zone.get(key) if isinstance(baseline_zone, dict) else None
+        shadow_value = shadow_zone.get(key) if isinstance(shadow_zone, dict) else None
+        if baseline_value != shadow_value:
+            rows.append({
+                "field": label,
+                "baseline": baseline_value,
+                "shadow": shadow_value,
+            })
+
+    b_low, b_high = _zone_bounds(baseline_zone or {}) if isinstance(baseline_zone, dict) else (None, None)
+    s_low, s_high = _zone_bounds(shadow_zone or {}) if isinstance(shadow_zone, dict) else (None, None)
+    if (b_low, b_high) != (s_low, s_high):
+        rows.append({
+            "field": "bounds",
+            "baseline": f"{b_low} -> {b_high}",
+            "shadow": f"{s_low} -> {s_high}",
+        })
+    return rows
+
+
+def _render_shadow_delta_tables(baseline_payload: dict[str, Any] | None, shadow_payload: dict[str, Any]) -> None:
+    baseline_payload = baseline_payload or {}
+    baseline_tfs = baseline_payload.get("timeframes") if isinstance(baseline_payload.get("timeframes"), dict) else {}
+    shadow_tfs = shadow_payload.get("timeframes") if isinstance(shadow_payload.get("timeframes"), dict) else {}
+
+    baseline_surfaces = baseline_payload.get("surfaces") if isinstance(baseline_payload.get("surfaces"), dict) else {}
+    shadow_surfaces = shadow_payload.get("surfaces") if isinstance(shadow_payload.get("surfaces"), dict) else {}
+
+    count_rows: list[dict[str, Any]] = [
+        {
+            "surface": "all_zones",
+            "baseline": int(baseline_payload.get("zone_count") or 0),
+            "shadow": int(shadow_payload.get("zone_count") or 0),
+            "delta": int(shadow_payload.get("zone_count") or 0) - int(baseline_payload.get("zone_count") or 0),
+        },
+        {
+            "surface": "majors_surface",
+            "baseline": len(baseline_surfaces.get("majors") or []) if baseline_surfaces else None,
+            "shadow": len(shadow_surfaces.get("majors") or []),
+            "delta": (len(shadow_surfaces.get("majors") or []) - len(baseline_surfaces.get("majors") or [])) if baseline_surfaces else None,
+        },
+        {
+            "surface": "operational_surface",
+            "baseline": len(baseline_surfaces.get("operational") or []) if baseline_surfaces else None,
+            "shadow": len(shadow_surfaces.get("operational") or []),
+            "delta": (len(shadow_surfaces.get("operational") or []) - len(baseline_surfaces.get("operational") or [])) if baseline_surfaces else None,
+        },
+    ]
+    for tf in sorted(set(baseline_tfs.keys()) | set(shadow_tfs.keys())):
+        b_tf = baseline_tfs.get(tf) if isinstance(baseline_tfs.get(tf), dict) else {}
+        s_tf = shadow_tfs.get(tf) if isinstance(shadow_tfs.get(tf), dict) else {}
+        baseline_kept = int(b_tf.get("zones_kept") or 0)
+        shadow_kept = int(s_tf.get("zones_kept") or 0)
+        count_rows.append(
+            {
+                "surface": tf,
+                "baseline": baseline_kept,
+                "shadow": shadow_kept,
+                "delta": shadow_kept - baseline_kept,
+            }
+        )
+
+    st.caption("Count deltas")
+    st.dataframe(count_rows, use_container_width=True)
+
+    nearest_rows: list[dict[str, Any]] = []
+    baseline_nearest = baseline_payload.get("nearest") if isinstance(baseline_payload.get("nearest"), dict) else {}
+    shadow_nearest = shadow_payload.get("nearest") if isinstance(shadow_payload.get("nearest"), dict) else {}
+    for slot in ["nearest_support", "next_support", "nearest_resistance", "next_resistance"]:
+        for row in _nearest_zone_diff_rows(
+            baseline_nearest.get(slot) if isinstance(baseline_nearest, dict) else None,
+            shadow_nearest.get(slot) if isinstance(shadow_nearest, dict) else None,
+        ):
+            nearest_rows.append({"slot": slot, **row})
+
+    if nearest_rows:
+        st.caption("Nearest-four field deltas")
+        st.dataframe(nearest_rows, use_container_width=True)
+    else:
+        st.caption("Nearest-four field deltas: none")
+
+
+
 def _render_shadow_comparison(symbol: str, baseline_snapshot: dict[str, Any] | None, shadow_snapshot: dict[str, Any] | None) -> None:
     if not shadow_snapshot or not isinstance(shadow_snapshot.get("symbols"), dict):
         return
@@ -439,6 +532,8 @@ def _render_shadow_comparison(symbol: str, baseline_snapshot: dict[str, Any] | N
                 "nearest_contract": (shadow_payload.get("nearest") or {}).get("contract"),
             }
         )
+
+    _render_shadow_delta_tables(baseline_payload, shadow_payload)
 
     c1, c2 = st.columns(2)
     with c1:
