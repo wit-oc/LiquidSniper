@@ -55,6 +55,8 @@ DEFAULT_TF_TUNING: dict[str, dict[str, Any]] = {
     },
 }
 
+DEFAULT_SYMBOLS_ARG = "BTCUSDT,ETHUSDT"
+
 
 def _iso_from_unix(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
@@ -380,7 +382,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Bootstrap SR snapshots for BTC/ETH verification")
     parser.add_argument("--db", default="data/liquidsniper.sqlite", help="SQLite DB path")
     parser.add_argument("--artifact-root", default="data/artifacts", help="Artifact root directory")
-    parser.add_argument("--symbols", default="BTCUSDT,ETHUSDT", help="Comma-separated symbols")
+    parser.add_argument("--symbols", default=DEFAULT_SYMBOLS_ARG, help="Comma-separated symbols")
     parser.add_argument("--profile", default="I", choices=["S", "I", "C"], help="Nearest SR profile")
     parser.add_argument("--config", default=None, help="Optional JSON config path for symbol map + tuning")
 
@@ -410,12 +412,24 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _resolve_requested_symbols(symbols_arg: str, cfg: dict[str, Any]) -> list[str]:
+    normalized = [s.strip().upper() for s in symbols_arg.split(",") if s.strip()]
+    if not cfg:
+        return normalized
+    cfg_symbols = cfg.get("symbols", {}) if isinstance(cfg, dict) else {}
+    universe_cfg = cfg.get("universe", {}) if isinstance(cfg, dict) else {}
+    has_cfg_symbol_source = (isinstance(cfg_symbols, dict) and bool(cfg_symbols)) or (isinstance(universe_cfg, dict) and bool(universe_cfg))
+    if has_cfg_symbol_source and symbols_arg.replace(" ", "").upper() == DEFAULT_SYMBOLS_ARG:
+        return []
+    return normalized
+
+
 def main() -> None:
     args = _parse_args()
     cfg = _load_bootstrap_config(args.config)
     cfg_tuning = cfg.get("tuning", {}) if isinstance(cfg, dict) else {}
 
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    symbols = _resolve_requested_symbols(args.symbols, cfg)
     symbol_tf_files: dict[str, dict[str, str]] | None = None
     if cfg:
         symbols, symbol_tf_files, missing = _resolve_symbol_tf_files_from_config(cfg, symbols)

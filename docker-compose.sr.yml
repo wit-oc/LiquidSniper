@@ -45,6 +45,7 @@ services:
       - "8501:8501"
     volumes:
       - liquidsniper_data:/data
+      - ./IntradayTrading/data:/app/IntradayTrading/data:ro
     depends_on:
       - liquidsniper-sr-worker
 
