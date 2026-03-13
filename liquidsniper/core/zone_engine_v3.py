@@ -22,9 +22,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from liquidsniper.core.sr_engine_v2 import build_zones_for_tf
+from liquidsniper.core.sr_engine_v2 import _zone_fmt_with_distance, build_zones_for_tf, profile_anchor_and_eligible
 from liquidsniper.core.zone_primitives import local_atr, side_aware_interaction
-from liquidsniper.core.zone_selectors import nearest_four_levels, select_daily_majors, select_operational_zones
+from liquidsniper.core.zone_selectors import select_daily_majors, select_operational_zones
 
 
 V3A_CONTRACT = "zone_engine_v3a"
@@ -67,22 +67,26 @@ def zone_candidates_from_structure(symbol: str, tf: str, candles: list[dict[str,
 def zone_candidates_from_base(symbol: str, tf: str, candles: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
     """Narrow V3-B base/shelf generator.
 
-    This intentionally starts simple: detect compressed shelves followed by directional
-    breakout, then emit support/resistance candidates from the compressed band.
+    The first bridge version overfit any narrow window with a breakout. This pass
+    raises the doctrinal bar: a base needs compression plus repeated overlap,
+    visible edge participation, and a close-based breakout beyond the shelf.
     """
     _ = kwargs
-    if len(candles) < 12:
+    if len(candles) < 14:
         return []
 
     atr_ref = local_atr(candles, period=14)
     if atr_ref <= 0.0:
         return []
 
-    window = 4
+    window = 5
     breakout_lookahead = 3
-    compression_max_atr = 1.35
-    breakout_min_atr = 0.85
-    touch_tol = atr_ref * 0.12
+    compression_max_atr = 1.10
+    breakout_min_atr = 0.80
+    breakout_close_min_atr = 0.35
+    overlap_min_ratio = 0.45
+    min_overlap_links = 2
+    touch_tol = atr_ref * 0.10
     out: list[dict[str, Any]] = []
 
     for start in range(0, len(candles) - window - breakout_lookahead + 1):
@@ -95,18 +99,68 @@ def zone_candidates_from_base(symbol: str, tf: str, candles: list[dict[str, Any]
         if span_atr <= 0.0 or span_atr > compression_max_atr:
             continue
 
-        up_break = max(float(r.get("high") or 0.0) for r in post) - base_high
-        down_break = base_low - min(float(r.get("low") or 0.0) for r in post)
-        breakout_up_atr = max(0.0, up_break) / atr_ref
-        breakout_down_atr = max(0.0, down_break) / atr_ref
-        if max(breakout_up_atr, breakout_down_atr) < breakout_min_atr:
+        overlap_links = 0
+        for prev, cur in zip(base, base[1:]):
+            prev_high = float(prev.get("high") or 0.0)
+            prev_low = float(prev.get("low") or 0.0)
+            cur_high = float(cur.get("high") or 0.0)
+            cur_low = float(cur.get("low") or 0.0)
+            overlap = max(0.0, min(prev_high, cur_high) - max(prev_low, cur_low))
+            smaller_range = max(min(prev_high - prev_low, cur_high - cur_low), 1e-9)
+            if (overlap / smaller_range) >= overlap_min_ratio:
+                overlap_links += 1
+        if overlap_links < min_overlap_links:
             continue
 
-        kind = "support" if breakout_up_atr >= breakout_down_atr else "resistance"
+        upper_touches = 0
+        lower_touches = 0
+        for row in base:
+            high = float(row.get("high") or 0.0)
+            low = float(row.get("low") or 0.0)
+            close = float(row.get("close") or 0.0)
+            if abs(high - base_high) <= touch_tol or abs(close - base_high) <= touch_tol:
+                upper_touches += 1
+            if abs(low - base_low) <= touch_tol or abs(close - base_low) <= touch_tol:
+                lower_touches += 1
+        edge_touch_total = upper_touches + lower_touches
+        if edge_touch_total < 4:
+            continue
+        if upper_touches < 1 or lower_touches < 1:
+            continue
+
+        post_high = max(float(r.get("high") or 0.0) for r in post)
+        post_low = min(float(r.get("low") or 0.0) for r in post)
+        post_close_high = max(float(r.get("close") or 0.0) for r in post)
+        post_close_low = min(float(r.get("close") or 0.0) for r in post)
+        up_break = post_high - base_high
+        down_break = base_low - post_low
+        close_up_break = post_close_high - base_high
+        close_down_break = base_low - post_close_low
+        breakout_up_atr = max(0.0, up_break) / atr_ref
+        breakout_down_atr = max(0.0, down_break) / atr_ref
+        close_breakout_up_atr = max(0.0, close_up_break) / atr_ref
+        close_breakout_down_atr = max(0.0, close_down_break) / atr_ref
         breakout_atr = max(breakout_up_atr, breakout_down_atr)
-        body_closes = [float(r.get("close") or 0.0) for r in base]
-        touches = sum(1 for close in body_closes if (base_low - touch_tol) <= close <= (base_high + touch_tol))
-        score = min(100.0, 40.0 + (28.0 * breakout_atr) + (18.0 * (1.0 - min(span_atr / compression_max_atr, 1.0))) + (3.0 * touches))
+        close_breakout_atr = max(close_breakout_up_atr, close_breakout_down_atr)
+        if breakout_atr < breakout_min_atr or close_breakout_atr < breakout_close_min_atr:
+            continue
+
+        kind = "support" if close_breakout_up_atr >= close_breakout_down_atr else "resistance"
+        compression_bonus = max(0.0, 1.0 - min(span_atr / compression_max_atr, 1.0))
+        overlap_score = min(1.0, overlap_links / max(window - 1, 1))
+        edge_balance = min(upper_touches, lower_touches)
+        edge_score = min(1.0, edge_touch_total / float(window + 1))
+        battle_score = min(1.0, (edge_balance + overlap_links) / float(window + 1))
+        score = min(
+            100.0,
+            28.0
+            + (24.0 * breakout_atr)
+            + (18.0 * close_breakout_atr)
+            + (14.0 * overlap_score)
+            + (12.0 * edge_score)
+            + (10.0 * compression_bonus)
+            + (8.0 * battle_score),
+        )
         zone_id = f"{symbol}:{tf}:base:{start}:{kind}"
         out.append(
             {
@@ -119,19 +173,23 @@ def zone_candidates_from_base(symbol: str, tf: str, candles: list[dict[str, Any]
                 "zone_mid": round((base_low + base_high) / 2.0, 8),
                 "zone_kind": kind,
                 "strength_score": round(score, 4),
-                "reaction_score": round(min(100.0, 52.0 + breakout_atr * 24.0), 4),
-                "reaction_efficiency_score": round(min(100.0, 48.0 + breakout_atr * 20.0), 4),
-                "carry_score": round(min(100.0, 40.0 + touches * 8.0), 4),
-                "body_respect_score": round(min(100.0, 45.0 + (1.0 - min(span_atr / compression_max_atr, 1.0)) * 35.0), 4),
-                "meaningful_touch_count": touches,
+                "reaction_score": round(min(100.0, 44.0 + breakout_atr * 22.0 + close_breakout_atr * 10.0), 4),
+                "reaction_efficiency_score": round(min(100.0, 42.0 + close_breakout_atr * 24.0 + overlap_score * 12.0), 4),
+                "carry_score": round(min(100.0, 34.0 + edge_touch_total * 7.0 + overlap_links * 6.0), 4),
+                "body_respect_score": round(min(100.0, 40.0 + compression_bonus * 20.0 + battle_score * 18.0), 4),
+                "meaningful_touch_count": edge_touch_total,
                 "zone_width_bps": round((base_span / max(abs((base_low + base_high) / 2.0), 1e-9)) * 10000.0, 4),
                 "candidate_family": "base",
                 "source_family": "base_shelf_v3b",
-                "source_version": "zone_engine_v3b_base_v1",
+                "source_version": "zone_engine_v3b_base_v2",
                 "engine_contract": V3B_CONTRACT,
                 "atr_local": round(atr_ref, 8),
                 "compression_span_atr": round(span_atr, 6),
                 "breakout_atr": round(breakout_atr, 6),
+                "close_breakout_atr": round(close_breakout_atr, 6),
+                "overlap_links": overlap_links,
+                "upper_edge_touches": upper_touches,
+                "lower_edge_touches": lower_touches,
                 "first_touch_state": "virgin",
             }
         )
@@ -154,6 +212,21 @@ def zone_candidates_from_reaction(symbol: str, tf: str, candles: list[dict[str, 
             zz.setdefault("atr_local", round(atr_ref, 8))
         out.append(zz)
     return out
+
+
+def _normalized_zone_kind(zone: dict[str, Any]) -> str:
+    return str(zone.get("zone_kind") or zone.get("kind") or "mixed").strip().lower() or "mixed"
+
+
+def _zone_kinds_compatible(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    kind_a = _normalized_zone_kind(a)
+    kind_b = _normalized_zone_kind(b)
+    if kind_a == kind_b:
+        return True
+    if "mixed" in {kind_a, kind_b}:
+        explicit = {kind for kind in {kind_a, kind_b} if kind != "mixed"}
+        return len(explicit) <= 1
+    return False
 
 
 def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -192,7 +265,7 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
                 continue
             if str(seed.get("tf") or "") != str(zone.get("tf") or ""):
                 continue
-            if str(seed.get("zone_kind") or "") != str(zone.get("zone_kind") or ""):
+            if not _zone_kinds_compatible(seed, zone):
                 continue
             seed_atr = max(float(seed.get("atr_local") or seed.get("atr_ref") or 0.0), 0.0)
             merge_tol = max(width, s_high - s_low, atr_ref * 0.35, seed_atr * 0.35, abs(s_mid) * 0.0035)
@@ -243,9 +316,12 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
                 }
             )
         family_bonus = max(0, len(families) - 1) * 4.0
+        explicit_kinds = sorted({_normalized_zone_kind(z) for z in cluster if _normalized_zone_kind(z) != "mixed"})
+        merged_kind = explicit_kinds[0] if len(explicit_kinds) == 1 else _normalized_zone_kind(best)
         best["zone_low"] = round(min(lows), 8)
         best["zone_high"] = round(max(highs), 8)
         best["zone_mid"] = round(sum(mids) / len(mids), 8)
+        best["zone_kind"] = merged_kind
         best["candidate_sources"] = families
         best["merged_from_zone_ids"] = [row["zone_id"] for row in arbitration_rows]
         best["merge_family_count"] = len(families)
@@ -367,6 +443,75 @@ def build_base_candidates(symbol: str, tf: str, candles: list[dict[str, Any]], *
 def build_reaction_candidates(symbol: str, tf: str, candles: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
     """Required V3 seam alias for reaction-family candidate generation."""
     return zone_candidates_from_reaction(symbol, tf, candles, **kwargs)
+
+
+def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
+    """Role-aware nearest-four wrapper for V3 shadow paths.
+
+    Baseline `nearest_sr_levels_v1` allows overlapping zones to appear on both
+    sides. That is acceptable for older mixed zones, but shadow V3 candidates
+    carry explicit `zone_kind` more often, so we filter support/resistance slots
+    through side-aware interaction before ranking.
+    """
+    anchor_tf, eligible_tfs = profile_anchor_and_eligible(profile_id)
+    allowed = [z for z in zones if z.get("status") == "confirmed" and str(z.get("tf")) in eligible_tfs]
+
+    def _distance_bps(distance: float) -> float:
+        return (max(distance, 0.0) / max(abs(float(entry)), 1e-9)) * 10000.0
+
+    support_rows: list[tuple[float, float, dict[str, Any], dict[str, Any]]] = []
+    resistance_rows: list[tuple[float, float, dict[str, Any], dict[str, Any]]] = []
+    for zone in allowed:
+        buy_view = side_aware_interaction(zone=zone, price=float(entry), side="buy")
+        sell_view = side_aware_interaction(zone=zone, price=float(entry), side="sell")
+        strength = float(zone.get("selection_score") or zone.get("strength_score") or 0.0)
+        if buy_view.get("is_aligned"):
+            support_rows.append((_distance_bps(float(buy_view.get("distance_to_zone") or 0.0)), -strength, dict(zone), buy_view))
+        if sell_view.get("is_aligned"):
+            resistance_rows.append((_distance_bps(float(sell_view.get("distance_to_zone") or 0.0)), -strength, dict(zone), sell_view))
+
+    support_rows.sort(key=lambda row: (row[0], row[1]))
+    resistance_rows.sort(key=lambda row: (row[0], row[1]))
+
+    def _pick_unique(candidates: list[tuple[float, float, dict[str, Any], dict[str, Any]]], used_ids: set[str]) -> tuple[float, float, dict[str, Any], dict[str, Any]] | None:
+        for row in candidates:
+            zid = str(row[2].get("zone_id") or "")
+            if zid and zid not in used_ids:
+                used_ids.add(zid)
+                return row
+        return None
+
+    def _fmt(row: tuple[float, float, dict[str, Any], dict[str, Any]] | None) -> dict[str, Any] | None:
+        if not row:
+            return None
+        zone = dict(row[2])
+        payload = _zone_fmt_with_distance(zone, distance_bps=row[0], entry=float(entry)) or {}
+        payload["kind"] = zone.get("zone_kind")
+        payload["source_family"] = zone.get("source_family")
+        payload["candidate_families"] = zone.get("candidate_sources")
+        payload["selection_score"] = zone.get("selection_score")
+        payload["interaction"] = row[3]
+        return payload
+
+    used_ids: set[str] = set()
+    nearest_support = _pick_unique(support_rows, used_ids)
+    next_support = _pick_unique(support_rows, used_ids)
+    nearest_resistance = _pick_unique(resistance_rows, used_ids)
+    next_resistance = _pick_unique(resistance_rows, used_ids)
+
+    return {
+        "contract": "nearest_four_levels_v3a",
+        "sr_anchor_tf": anchor_tf,
+        "sr_eligible_tfs": list(eligible_tfs),
+        "entry": float(entry),
+        "nearest_support": _fmt(nearest_support),
+        "next_support": _fmt(next_support),
+        "nearest_resistance": _fmt(nearest_resistance),
+        "next_resistance": _fmt(next_resistance),
+        "available_confirmed_zones": len(allowed),
+        "buy_interaction": nearest_support[3] if nearest_support else None,
+        "sell_interaction": nearest_resistance[3] if nearest_resistance else None,
+    }
 
 
 __all__ = [

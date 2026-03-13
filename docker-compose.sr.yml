@@ -22,6 +22,7 @@ services:
       - I
       - --config
       - /app/liquidsniper/config/sr_bootstrap.default.json
+      - --shadow-v3
     volumes:
       - liquidsniper_data:/data
       - ./IntradayTrading/data:/app/IntradayTrading/data:ro

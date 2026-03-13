@@ -344,6 +344,22 @@ def _format_anchor_summary(zone: dict[str, Any] | None) -> str:
     return kind
 
 
+def _format_zone_ref(zone: dict[str, Any] | None) -> str:
+    if not zone:
+        return "(none)"
+    bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else zone
+    tf = str(zone.get("tf") or "?")
+    kind = str(zone.get("kind") or zone.get("zone_kind") or "zone")
+    low = bounds.get("low") if isinstance(bounds, dict) else None
+    high = bounds.get("high") if isinstance(bounds, dict) else None
+    mid = bounds.get("mid") if isinstance(bounds, dict) else None
+    if low is not None and high is not None:
+        return f"{tf} {kind} {float(low):,.1f} → {float(high):,.1f}"
+    if mid is not None:
+        return f"{tf} {kind} @ {float(mid):,.1f}"
+    return f"{tf} {kind}"
+
+
 def _format_zone_summary(zone: dict[str, Any] | None) -> str:
     if not zone:
         return "(none)"
@@ -422,6 +438,9 @@ def _nearest_zone_diff_rows(baseline_zone: dict[str, Any] | None, shadow_zone: d
         baseline_value = baseline_zone.get(key) if isinstance(baseline_zone, dict) else None
         shadow_value = shadow_zone.get(key) if isinstance(shadow_zone, dict) else None
         if baseline_value != shadow_value:
+            if key == "zone_id":
+                baseline_value = _format_zone_ref(baseline_zone)
+                shadow_value = _format_zone_ref(shadow_zone)
             rows.append({
                 "field": label,
                 "baseline": baseline_value,
