@@ -20,8 +20,10 @@ family without breaking downstream callers.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
+from IntradayTrading.engine.htf_phase1 import run_phase1_htf_structure
 from liquidsniper.core.sr_engine_v2 import _zone_fmt_with_distance, build_zones_for_tf, profile_anchor_and_eligible
 from liquidsniper.core.zone_primitives import local_atr, side_aware_interaction
 from liquidsniper.core.zone_selectors import select_daily_majors, select_operational_zones
@@ -30,6 +32,140 @@ from liquidsniper.core.zone_selectors import select_daily_majors, select_operati
 V3A_CONTRACT = "zone_engine_v3a"
 V3B_CONTRACT = "zone_engine_v3b"
 V3D_CONTRACT = "zone_engine_v3d"
+
+STRUCTURE_SEED_POLICY_VERSION = "zone_engine_v3_structure_seed_rules_v1"
+
+
+@dataclass(frozen=True)
+class StructureAnchorSeed:
+    seed_kind: str
+    zone_kind: str
+    anchor_index: int
+    anchor_price: float
+    break_index: int
+    break_price: float
+    transition_direction: str
+    source_event: str
+    source_reason: str
+    lock_event: str
+
+
+def _structure_series(candles: list[dict[str, Any]]) -> tuple[list[float], list[float], list[float]]:
+    highs = [float(row.get("high") or 0.0) for row in candles]
+    lows = [float(row.get("low") or 0.0) for row in candles]
+    closes = [float(row.get("close") or 0.0) for row in candles]
+    return highs, lows, closes
+
+
+def structure_seed_rules() -> dict[str, Any]:
+    """Codify the doctrinal seed policy for native structure-family candidates.
+
+    T1 is intentionally about truth before tuning: define which structure anchors
+    count, and which tempting-but-noisy levels do *not* count. T2 can then build
+    real candidate zones from these seeds without re-deciding policy.
+    """
+    return {
+        "policy_version": STRUCTURE_SEED_POLICY_VERSION,
+        "generator_contract": V3A_CONTRACT,
+        "seed_sources": ["bos_confirmed", "choch_detected"],
+        "allowed_seed_kinds": ["bos_anchor", "flip_anchor"],
+        "lock_events": {
+            "bos_confirmed": ["swing_low_locked", "swing_high_locked"],
+            "choch_detected": ["swing_high_locked", "swing_low_locked"],
+        },
+        "protected_level_policy": {
+            "allow_raw_protected_levels": False,
+            "allow_only_event_locked_levels": True,
+            "max_lock_distance_bars": 3,
+            "reason": "avoid flooding structure-family candidates with every rolling protected-level update",
+        },
+        "selector_guardrails": {
+            "baseline_path_untouched": True,
+            "no_symbol_specific_overrides": True,
+            "no_generic_selector_tuning_pass": True,
+            "shadow_observability_required": True,
+        },
+    }
+
+
+def extract_structure_anchor_seeds(candles: list[dict[str, Any]]) -> list[StructureAnchorSeed]:
+    """Return native structure anchor seeds derived from phase1 BoS / flip events.
+
+    This helper deliberately emits *anchor seeds*, not finished zones. It keeps
+    T1 narrowly focused on doctrinal truth so T2 can implement actual structure
+    candidate generation plus diagnostics on top of a stable seed contract.
+    """
+    if len(candles) < 8:
+        return []
+
+    highs, lows, closes = _structure_series(candles)
+    _bars, events, _swings = run_phase1_htf_structure(
+        highs,
+        lows,
+        closes,
+        left=2,
+        right=2,
+        n_init=min(25, len(candles)),
+        break_min_frac_of_candle=0.20,
+        choch_break_min_frac_of_candle=0.15,
+        strict_gating=False,
+        bos_require_fresh_cross=True,
+        enable_continuation_break=True,
+    )
+    if not events:
+        return []
+
+    policy = structure_seed_rules()
+    max_lock_distance = int(policy["protected_level_policy"]["max_lock_distance_bars"])
+    seeds: list[StructureAnchorSeed] = []
+    seen: set[tuple[str, str, int, int]] = set()
+
+    for idx, event in enumerate(events):
+        event_name = str(event.get("event") or "")
+        if event_name not in {"bos_confirmed", "choch_detected"}:
+            continue
+
+        event_index = int(event.get("index") or 0)
+        event_price = float(event.get("price") or 0.0)
+        transition_direction = str(event.get("regime_direction") or "unknown")
+        source_reason = str(event.get("transition_reason") or event_name)
+        seed_kind = "bos_anchor" if event_name == "bos_confirmed" else "flip_anchor"
+        expected_lock_event = "swing_low_locked" if transition_direction == "bullish" else "swing_high_locked"
+        zone_kind = "support" if expected_lock_event == "swing_low_locked" else "resistance"
+
+        lock_event: dict[str, Any] | None = None
+        for follow in events[idx + 1 : idx + 4]:
+            follow_name = str(follow.get("event") or "")
+            follow_index = int(follow.get("index") or 0)
+            if follow_index - event_index > max_lock_distance:
+                break
+            if follow_name == expected_lock_event:
+                lock_event = follow
+                break
+        if lock_event is None:
+            continue
+
+        anchor_index = int(lock_event.get("anchor_index") or lock_event.get("index") or 0)
+        key = (seed_kind, zone_kind, anchor_index, event_index)
+        if key in seen:
+            continue
+        seen.add(key)
+        seeds.append(
+            StructureAnchorSeed(
+                seed_kind=seed_kind,
+                zone_kind=zone_kind,
+                anchor_index=anchor_index,
+                anchor_price=float(lock_event.get("price") or 0.0),
+                break_index=event_index,
+                break_price=event_price,
+                transition_direction=transition_direction,
+                source_event=event_name,
+                source_reason=source_reason,
+                lock_event=str(lock_event.get("event") or expected_lock_event),
+            )
+        )
+
+    return seeds
 
 
 def _zone_bounds(zone: dict[str, Any]) -> tuple[float, float, float]:
@@ -47,20 +183,120 @@ def _zone_bounds(zone: dict[str, Any]) -> tuple[float, float, float]:
 
 
 def zone_candidates_from_structure(symbol: str, tf: str, candles: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
-    """V3-A structure candidate adapter.
+    """Build native structure-family candidates from real BoS / flip anchor seeds.
 
-    First pass keeps structure generation deliberately thin by adapting the existing
-    reaction-family pipeline. Later passes can replace this with native structure-only
-    candidate generation without disturbing selector/output contracts.
+    T2 replaces the reaction-family surrogate path with minimal-but-real
+    structure zones. Each candidate is anchored to the locked swing that backed
+    the BoS/CHoCH event, carries explicit provenance, and keeps shadow-mode
+    diagnostics rich enough for later tranche review.
     """
-    zones, _ = build_zones_for_tf(symbol, tf, candles, **kwargs)
+    _ = kwargs
+    anchor_seeds = extract_structure_anchor_seeds(candles)
+    if not anchor_seeds:
+        return []
+
+    atr_ref = local_atr(candles, period=14)
+    if atr_ref <= 0.0:
+        return []
+
+    policy = structure_seed_rules()
     out: list[dict[str, Any]] = []
-    for zone in zones:
-        zz = dict(zone)
-        zz["candidate_family"] = "structure"
-        zz["source_family"] = "reaction_family"
-        zz["engine_contract"] = V3B_CONTRACT
-        out.append(zz)
+    seen: set[tuple[int, str, int]] = set()
+
+    for seed in anchor_seeds:
+        if seed.anchor_index < 0 or seed.anchor_index >= len(candles):
+            continue
+        anchor_row = candles[seed.anchor_index]
+        anchor_open = float(anchor_row.get("open") or seed.anchor_price)
+        anchor_close = float(anchor_row.get("close") or seed.anchor_price)
+        anchor_high = float(anchor_row.get("high") or max(anchor_open, anchor_close, seed.anchor_price))
+        anchor_low = float(anchor_row.get("low") or min(anchor_open, anchor_close, seed.anchor_price))
+        anchor_mid = float(seed.anchor_price)
+        anchor_body_high = max(anchor_open, anchor_close)
+        anchor_body_low = min(anchor_open, anchor_close)
+        anchor_span = max(anchor_high - anchor_low, 0.0)
+        body_span = max(anchor_body_high - anchor_body_low, 0.0)
+        if seed.zone_kind == "support":
+            zone_low = min(anchor_low, anchor_mid)
+            zone_high = max(anchor_body_high, anchor_mid)
+        else:
+            zone_low = min(anchor_body_low, anchor_mid)
+            zone_high = max(anchor_high, anchor_mid)
+        if zone_high <= zone_low:
+            pad = max(atr_ref * 0.08, max(anchor_span, body_span, 1e-6) * 0.25)
+            zone_low = anchor_mid - pad
+            zone_high = anchor_mid + pad
+        zone_mid = (zone_low + zone_high) / 2.0
+        zone_width = max(zone_high - zone_low, 1e-9)
+        break_distance = abs(seed.break_price - anchor_mid)
+        break_distance_atr = break_distance / atr_ref
+        width_atr = zone_width / atr_ref
+        if break_distance_atr < 0.05:
+            continue
+        key = (seed.anchor_index, seed.zone_kind, seed.break_index)
+        if key in seen:
+            continue
+        seen.add(key)
+        structure_score = min(100.0, 58.0 + (18.0 * min(break_distance_atr, 2.0)) + (10.0 * min(anchor_span / atr_ref, 1.5)))
+        efficiency_score = min(100.0, 52.0 + (22.0 * min(break_distance_atr, 1.5)) - (6.0 * max(width_atr - 1.0, 0.0)))
+        carry_score = min(100.0, 48.0 + (10.0 * min(body_span / max(zone_width, 1e-9), 1.0)) + (8.0 if seed.seed_kind == "flip_anchor" else 4.0))
+        zone_id = f"{symbol}:{tf}:structure:{seed.seed_kind}:{seed.anchor_index}:{seed.break_index}:{seed.zone_kind}"
+        provenance = {
+            "family": "structure",
+            "seed_kind": seed.seed_kind,
+            "source_event": seed.source_event,
+            "source_reason": seed.source_reason,
+            "transition_direction": seed.transition_direction,
+            "lock_event": seed.lock_event,
+            "anchor_index": seed.anchor_index,
+            "anchor_price": round(seed.anchor_price, 8),
+            "break_index": seed.break_index,
+            "break_price": round(seed.break_price, 8),
+            "anchor_timestamp": anchor_row.get("ts") or anchor_row.get("timestamp"),
+        }
+        out.append(
+            {
+                "zone_id": zone_id,
+                "symbol": symbol,
+                "tf": tf,
+                "status": "confirmed",
+                "zone_low": round(zone_low, 8),
+                "zone_high": round(zone_high, 8),
+                "zone_mid": round(zone_mid, 8),
+                "zone_kind": seed.zone_kind,
+                "strength_score": round(structure_score, 4),
+                "reaction_score": round(min(100.0, 50.0 + (16.0 * min(break_distance_atr, 2.0))), 4),
+                "reaction_efficiency_score": round(efficiency_score, 4),
+                "carry_score": round(carry_score, 4),
+                "body_respect_score": round(min(100.0, 44.0 + (18.0 * min(body_span / max(zone_width, 1e-9), 1.0))), 4),
+                "meaningful_touch_count": 1,
+                "zone_width_bps": round((zone_width / max(abs(zone_mid), 1e-9)) * 10000.0, 4),
+                "candidate_family": "structure",
+                "source_family": "structure_anchor_v3a",
+                "source_version": STRUCTURE_SEED_POLICY_VERSION,
+                "engine_contract": V3A_CONTRACT,
+                "atr_local": round(atr_ref, 8),
+                "structure_seed_policy": policy,
+                "candidate_provenance": provenance,
+                "structure_provenance": provenance,
+                "shadow_diagnostics": {
+                    "family": "structure",
+                    "generator_contract": V3A_CONTRACT,
+                    "seed_policy_version": STRUCTURE_SEED_POLICY_VERSION,
+                    "seed_count_total": len(anchor_seeds),
+                    "anchor_span_atr": round(anchor_span / atr_ref, 6),
+                    "zone_width_atr": round(width_atr, 6),
+                    "break_distance_atr": round(break_distance_atr, 6),
+                    "anchor_candle": {
+                        "open": round(anchor_open, 8),
+                        "high": round(anchor_high, 8),
+                        "low": round(anchor_low, 8),
+                        "close": round(anchor_close, 8),
+                    },
+                },
+                "first_touch_state": "virgin",
+            }
+        )
     return out
 
 

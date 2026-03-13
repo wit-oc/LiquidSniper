@@ -116,18 +116,61 @@ def daily_retest_weight(z: dict[str, Any], *, strict_mode: bool) -> float:
     return max(0.6, min(1.0, base + dynamic))
 
 
+def daily_major_provenance_weight(z: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+    """Return a small generic Daily-major promotion bias from canonical provenance.
+
+    The goal is not to re-tune selectors generically or encode symbol-specific
+    exceptions. It is only to let Daily majors prefer corroborated structural
+    truth over pure base-only shelves when the rest of the evidence is close.
+    """
+    candidate_sources = [str(src) for src in (z.get("candidate_sources") or ([] if z.get("source_family") is None else [z.get("source_family")]))]
+    family_set = set(candidate_sources)
+    merge_family_count = int(z.get("merge_family_count") or len(family_set))
+    has_structure = "structure" in family_set or bool(z.get("structure_provenance"))
+    pure_base_only = family_set == {"base"} or (
+        str(z.get("source_family") or "") == "base" and merge_family_count <= 1 and not has_structure and not family_set.difference({"base"})
+    )
+
+    weight = 1.0
+    if has_structure:
+        weight += 0.06
+    if merge_family_count >= 2:
+        weight += min(0.04, 0.02 * float(merge_family_count - 1))
+    if pure_base_only:
+        weight -= 0.06
+
+    diagnostics = {
+        "candidate_sources": sorted(family_set),
+        "merge_family_count": merge_family_count,
+        "has_structure": has_structure,
+        "pure_base_only": pure_base_only,
+        "weight": round(max(0.88, min(1.12, weight)), 4),
+    }
+    return max(0.88, min(1.12, weight)), diagnostics
+
+
 def apply_daily_soft_retest_weights(zones: list[dict[str, Any]], *, strict_mode: bool) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for z in zones:
         zz = dict(z)
-        weight = daily_retest_weight(zz, strict_mode=strict_mode)
+        retest_weight = daily_retest_weight(zz, strict_mode=strict_mode)
+        provenance_weight, provenance_diag = daily_major_provenance_weight(zz)
         strength = float(zz.get("strength_score") or 0.0)
         reaction = float(zz.get("reaction_score") or 0.0)
         efficiency = float(zz.get("reaction_efficiency_score") or 0.0)
         carry = float(zz.get("carry_score") or 0.0)
         body_respect = float(zz.get("body_respect_score") or 0.0)
-        zz["retest_weight"] = round(weight, 4)
-        zz["selection_score"] = round((strength * weight) + (0.08 * reaction) + (0.16 * efficiency) + (0.06 * carry) + (0.10 * body_respect), 4)
+        zz["retest_weight"] = round(retest_weight, 4)
+        zz["daily_major_provenance_weight"] = round(provenance_weight, 4)
+        zz["daily_major_diagnostics"] = provenance_diag
+        zz["selection_score"] = round(
+            (strength * retest_weight * provenance_weight)
+            + (0.08 * reaction)
+            + (0.16 * efficiency)
+            + (0.06 * carry)
+            + (0.10 * body_respect),
+            4,
+        )
         out.append(zz)
     return out
 

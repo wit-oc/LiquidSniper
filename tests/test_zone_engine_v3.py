@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from liquidsniper.core.zone_engine_v3 import (
+    STRUCTURE_SEED_POLICY_VERSION,
+    V3A_CONTRACT,
     V3B_CONTRACT,
     V3D_CONTRACT,
     merge_candidate_zones,
@@ -9,6 +13,7 @@ from liquidsniper.core.zone_engine_v3 import (
     select_daily_majors,
     select_operational_zones,
     zone_candidates_from_base,
+    zone_candidates_from_structure,
 )
 from liquidsniper.core.zone_primitives import local_atr, side_aware_interaction
 
@@ -110,6 +115,34 @@ def test_select_daily_majors_uses_selector_layer_contract():
     assert len(selected) == 2
     assert all(z["status"] == "confirmed" for z in selected)
     assert all("selection_score" in z for z in selected)
+    assert all("daily_major_provenance_weight" in z for z in selected)
+
+
+
+def test_select_daily_majors_prefers_corroborated_structure_participation_over_pure_base_only_when_close():
+    pure_base = {
+        **_zone("dbase", 100.0, tf="1D", strength=87.0, retest="reject"),
+        "candidate_sources": ["base"],
+        "merge_family_count": 1,
+        "source_family": "base",
+    }
+    corroborated = {
+        **_zone("dcorro", 130.0, tf="1D", strength=84.0, retest="reject"),
+        "candidate_sources": ["base", "structure"],
+        "merge_family_count": 2,
+        "source_family": "structure_anchor_v3a",
+        "structure_provenance": {"family": "structure", "seed_kind": "flip_anchor"},
+    }
+    selected = select_daily_majors(
+        [pure_base, corroborated],
+        min_strength=70.0,
+        min_zone_separation_bps=120.0,
+        max_zones=1,
+        strict_retest_quality=True,
+    )
+    assert [z["zone_id"] for z in selected] == ["dcorro"]
+    assert selected[0]["daily_major_provenance_weight"] > 1.0
+    assert selected[0]["daily_major_diagnostics"]["has_structure"] is True
 
 
 def test_select_operational_zones_collapses_nearby_levels():
@@ -174,3 +207,54 @@ def test_zone_candidates_from_base_emits_simple_breakout_shelf_candidates():
     assert best["engine_contract"] == V3B_CONTRACT
     assert best["zone_kind"] == "support"
     assert best["breakout_atr"] >= 0.85
+
+
+def test_zone_candidates_from_structure_emits_native_candidates_with_provenance_and_shadow_diagnostics():
+    candles = [
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0},
+        {"open": 100.0, "high": 102.0, "low": 99.5, "close": 101.5},
+        {"open": 101.5, "high": 103.0, "low": 100.5, "close": 102.5},
+        {"open": 102.5, "high": 104.0, "low": 101.5, "close": 103.5},
+        {"open": 103.5, "high": 105.0, "low": 102.5, "close": 104.5},
+        {"open": 104.5, "high": 106.0, "low": 103.5, "close": 105.5},
+        {"open": 105.5, "high": 107.0, "low": 104.5, "close": 106.5},
+        {"open": 106.5, "high": 108.0, "low": 105.5, "close": 107.5},
+        {"open": 107.5, "high": 109.0, "low": 106.5, "close": 108.5},
+        {"open": 108.5, "high": 110.0, "low": 107.5, "close": 109.5},
+        {"open": 109.5, "high": 111.0, "low": 108.5, "close": 110.5},
+        {"open": 110.5, "high": 112.0, "low": 109.5, "close": 111.5},
+        {"open": 111.5, "high": 113.0, "low": 110.5, "close": 112.5},
+        {"open": 112.5, "high": 114.0, "low": 111.5, "close": 113.5},
+        {"open": 113.5, "high": 115.0, "low": 112.5, "close": 114.5},
+    ]
+    mocked_seeds = [
+        {
+            "seed_kind": "bos_anchor",
+            "zone_kind": "support",
+            "anchor_index": 4,
+            "anchor_price": 102.5,
+            "break_index": 7,
+            "break_price": 107.5,
+            "transition_direction": "bullish",
+            "source_event": "bos_confirmed",
+            "source_reason": "bullish_continuation",
+            "lock_event": "swing_low_locked",
+        }
+    ]
+    with patch("liquidsniper.core.zone_engine_v3.extract_structure_anchor_seeds") as mock_extract:
+        from liquidsniper.core.zone_engine_v3 import StructureAnchorSeed
+
+        mock_extract.return_value = [StructureAnchorSeed(**row) for row in mocked_seeds]
+        zones = zone_candidates_from_structure("BTCUSDT", "1D", candles)
+    assert zones
+    best = zones[0]
+    assert best["candidate_family"] == "structure"
+    assert best["source_family"] == "structure_anchor_v3a"
+    assert best["engine_contract"] == V3A_CONTRACT
+    assert best["source_version"] == STRUCTURE_SEED_POLICY_VERSION
+    assert best["candidate_provenance"]["family"] == "structure"
+    assert best["candidate_provenance"]["seed_kind"] == "bos_anchor"
+    assert best["candidate_provenance"]["anchor_index"] == 4
+    assert best["shadow_diagnostics"]["generator_contract"] == V3A_CONTRACT
+    assert best["shadow_diagnostics"]["seed_policy_version"] == STRUCTURE_SEED_POLICY_VERSION
+    assert best["shadow_diagnostics"]["break_distance_atr"] > 0.0
