@@ -13,6 +13,7 @@ from liquidsniper.core.zone_engine_v3 import (
     select_daily_majors,
     select_operational_zones,
     zone_candidates_from_base,
+    zone_candidates_from_reaction,
     zone_candidates_from_structure,
 )
 from liquidsniper.core.zone_primitives import local_atr, side_aware_interaction
@@ -40,6 +41,8 @@ def _zone(zone_id: str, mid: float, *, tf: str = "1D", kind: str = "support", st
         "counter_close_rate": 0.02,
         "first_retest_result": retest,
         "atr_local": 4.0,
+        "candidate_family": "reaction",
+        "source_family": "reaction_family",
     }
 
 
@@ -79,13 +82,21 @@ def test_side_aware_interaction_marks_deep_test_and_broken():
 
 def test_merge_candidate_zones_merges_nearby_cross_family_candidates_and_tracks_arbitration():
     merged = merge_candidate_zones(
-        [{**_zone("z1", 100.0), "candidate_family": "reaction"}],
-        [{**_zone("z2", 100.2, strength=88.0), "candidate_family": "structure"}],
-        [{**_zone("z3", 99.9, strength=84.0), "candidate_family": "base"}],
+        [{**_zone("z1", 100.0), "candidate_family": "reaction", "candidate_provenance": {"family": "reaction", "evidence": "reaction-fixture"}, "source_version": "reaction_v1", "engine_contract": "reaction_contract"}],
+        [{**_zone("z2", 100.2, strength=88.0), "candidate_family": "structure", "source_family": "structure_anchor_v3a", "candidate_provenance": {"family": "structure", "evidence": "structure-fixture"}, "structure_provenance": {"family": "structure", "evidence": "structure-fixture"}, "source_version": "structure_v1", "engine_contract": "structure_contract"}],
+        [{**_zone("z3", 99.9, strength=84.0), "candidate_family": "base", "source_family": "base_shelf_v3b", "candidate_provenance": {"family": "base", "evidence": "base-fixture"}, "source_version": "base_v1", "engine_contract": "base_contract"}],
     )
     assert len(merged) == 1
     assert merged[0]["strength_score"] == 88.0
     assert merged[0]["candidate_sources"] == ["base", "reaction", "structure"]
+    assert merged[0]["candidate_families"] == ["base", "reaction", "structure"]
+    assert merged[0]["family_stamp_contract"] == "zone_engine_v3_family_stamp_v1"
+    assert merged[0]["family_provenance"]["reaction"]["evidence"] == "reaction-fixture"
+    assert merged[0]["family_provenance"]["structure"]["evidence"] == "structure-fixture"
+    assert merged[0]["family_provenance"]["base"]["evidence"] == "base-fixture"
+    assert merged[0]["source_versions"] == {"base": "base_v1", "reaction": "reaction_v1", "structure": "structure_v1"}
+    assert merged[0]["generator_contracts"] == {"base": "base_contract", "reaction": "reaction_contract", "structure": "structure_contract"}
+    assert merged[0]["provenance_summary"]["merge_family_count"] == 3
     assert merged[0]["merge_family_count"] == 3
     assert len(merged[0]["merged_from_zone_ids"]) == 3
     assert merged[0]["family_confluence_bonus"] == 8.0
@@ -170,6 +181,8 @@ def test_nearest_four_levels_adds_side_aware_payloads():
     payload = nearest_four_levels(profile_id="I", entry=100.0, zones=zones)
     assert payload["contract"] == "nearest_four_levels_v3a"
     assert payload["nearest_support"]["zone_id"] == "s1"
+    assert payload["nearest_support"]["candidate_families"] == ["reaction"]
+    assert payload["nearest_support"]["provenance_summary"]["primary_family"] == "reaction"
     assert payload["nearest_resistance"]["zone_id"] == "r1"
     assert payload["buy_interaction"]["is_aligned"] is True
     assert payload["sell_interaction"]["is_aligned"] is True
@@ -187,6 +200,8 @@ def test_score_zone_uses_atr_lifecycle_and_family_confluence_in_selection_score(
 
 def test_zone_candidates_from_base_emits_simple_breakout_shelf_candidates():
     candles = [
+        {"open": 99.6, "high": 100.4, "low": 99.2, "close": 99.9},
+        {"open": 99.9, "high": 100.6, "low": 99.4, "close": 100.1},
         {"open": 100.0, "high": 101.0, "low": 99.5, "close": 100.4},
         {"open": 100.4, "high": 101.2, "low": 99.8, "close": 100.6},
         {"open": 100.6, "high": 101.1, "low": 99.9, "close": 100.5},
@@ -207,6 +222,12 @@ def test_zone_candidates_from_base_emits_simple_breakout_shelf_candidates():
     assert best["engine_contract"] == V3B_CONTRACT
     assert best["zone_kind"] == "support"
     assert best["breakout_atr"] >= 0.85
+    assert best["candidate_provenance"]["family"] == "base"
+    assert best["candidate_provenance"]["compression"]["qualifies"] is True
+    assert best["candidate_provenance"]["overlap"]["qualifies"] is True
+    assert best["candidate_provenance"]["edge_touches"]["qualifies"] is True
+    assert best["candidate_provenance"]["breakout"]["direction"] == "up"
+    assert best["family_provenance"]["base"]["breakout"]["qualifies"] is True
 
 
 def test_zone_candidates_from_structure_emits_native_candidates_with_provenance_and_shadow_diagnostics():
@@ -253,8 +274,70 @@ def test_zone_candidates_from_structure_emits_native_candidates_with_provenance_
     assert best["engine_contract"] == V3A_CONTRACT
     assert best["source_version"] == STRUCTURE_SEED_POLICY_VERSION
     assert best["candidate_provenance"]["family"] == "structure"
+    assert best["candidate_families"] == ["structure"]
+    assert best["family_provenance"]["structure"]["seed_kind"] == "bos_anchor"
+    assert best["provenance_summary"]["primary_family"] == "structure"
     assert best["candidate_provenance"]["seed_kind"] == "bos_anchor"
     assert best["candidate_provenance"]["anchor_index"] == 4
     assert best["shadow_diagnostics"]["generator_contract"] == V3A_CONTRACT
     assert best["shadow_diagnostics"]["seed_policy_version"] == STRUCTURE_SEED_POLICY_VERSION
     assert best["shadow_diagnostics"]["break_distance_atr"] > 0.0
+
+
+def test_zone_candidates_from_reaction_emits_touch_and_retest_provenance():
+    mocked_zone = {
+        **_zone("rx1", 100.0, tf="4H", kind="support"),
+        "pivot_count": 4,
+        "touch_count": 5,
+        "meaningful_touch_count": 3,
+        "body_overlap_rate": 0.67,
+        "wick_only_rate": 0.33,
+        "directional_close_rate": 0.67,
+        "deviation_retest": 0,
+        "first_retest_pending": 0,
+        "first_retest_ts": "2026-03-14T00:00:00Z",
+        "first_retest_result": "reject",
+    }
+    mocked_touches = [
+        {
+            "zone_id": "rx1",
+            "candle_ts": "2026-03-13T00:00:00Z",
+            "reaction_type": "reject_up",
+            "reaction_magnitude_atr": 0.9,
+            "carry_magnitude_atr": 0.6,
+            "adverse_magnitude_atr": 0.1,
+            "is_meaningful": 1,
+        },
+        {
+            "zone_id": "rx1",
+            "candle_ts": "2026-03-13T04:00:00Z",
+            "reaction_type": "reject_up",
+            "reaction_magnitude_atr": 0.7,
+            "carry_magnitude_atr": 0.5,
+            "adverse_magnitude_atr": 0.2,
+            "is_meaningful": 1,
+        },
+        {
+            "zone_id": "rx1",
+            "candle_ts": "2026-03-13T08:00:00Z",
+            "reaction_type": "reject_down",
+            "reaction_magnitude_atr": 0.4,
+            "carry_magnitude_atr": 0.3,
+            "adverse_magnitude_atr": 0.2,
+            "is_meaningful": 0,
+        },
+    ]
+    with patch("liquidsniper.core.zone_engine_v3.build_zones_for_tf", return_value=([mocked_zone], mocked_touches)):
+        zones = zone_candidates_from_reaction("BTCUSDT", "4H", [{"high": 101.0, "low": 99.0, "close": 100.0}] * 20)
+    assert zones
+    best = zones[0]
+    assert best["candidate_family"] == "reaction"
+    assert best["family_provenance"]["reaction"]["family"] == "reaction"
+    assert best["family_provenance"]["reaction"]["cluster"]["meaningful_touch_count"] == 3
+    assert best["family_provenance"]["reaction"]["touch_behavior"]["reaction_type"] == "reject_up"
+    assert best["family_provenance"]["reaction"]["reaction"]["max_reaction_atr"] == 0.9
+    assert best["family_provenance"]["reaction"]["retest"]["first_retest_result"] == "reject"
+    assert best["family_provenance"]["reaction"]["timestamps"]["touches"] == [
+        "2026-03-13T00:00:00Z",
+        "2026-03-13T04:00:00Z",
+    ]

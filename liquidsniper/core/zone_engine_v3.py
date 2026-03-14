@@ -32,6 +32,7 @@ from liquidsniper.core.zone_selectors import select_daily_majors, select_operati
 V3A_CONTRACT = "zone_engine_v3a"
 V3B_CONTRACT = "zone_engine_v3b"
 V3D_CONTRACT = "zone_engine_v3d"
+FAMILY_STAMP_CONTRACT = "zone_engine_v3_family_stamp_v1"
 
 STRUCTURE_SEED_POLICY_VERSION = "zone_engine_v3_structure_seed_rules_v1"
 
@@ -255,7 +256,7 @@ def zone_candidates_from_structure(symbol: str, tf: str, candles: list[dict[str,
             "anchor_timestamp": anchor_row.get("ts") or anchor_row.get("timestamp"),
         }
         out.append(
-            {
+            stamp_family_provenance({
                 "zone_id": zone_id,
                 "symbol": symbol,
                 "tf": tf,
@@ -295,7 +296,7 @@ def zone_candidates_from_structure(symbol: str, tf: str, candles: list[dict[str,
                     },
                 },
                 "first_touch_state": "virgin",
-            }
+            })
         )
     return out
 
@@ -387,6 +388,64 @@ def zone_candidates_from_base(symbol: str, tf: str, candles: list[dict[str, Any]
         edge_balance = min(upper_touches, lower_touches)
         edge_score = min(1.0, edge_touch_total / float(window + 1))
         battle_score = min(1.0, (edge_balance + overlap_links) / float(window + 1))
+        breakout_direction = "up" if close_breakout_up_atr >= close_breakout_down_atr else "down"
+        breakout_window = [row.get("ts") or row.get("timestamp") for row in post]
+        base_window = [row.get("ts") or row.get("timestamp") for row in base]
+        provenance = {
+            "family": "base",
+            "pattern_kind": "compressed_shelf",
+            "start_index": start,
+            "window": window,
+            "breakout_lookahead": breakout_lookahead,
+            "zone_kind": kind,
+            "base_range": {
+                "low": round(base_low, 8),
+                "high": round(base_high, 8),
+                "mid": round((base_low + base_high) / 2.0, 8),
+                "span": round(base_span, 8),
+                "span_atr": round(span_atr, 6),
+            },
+            "compression": {
+                "span_atr": round(span_atr, 6),
+                "max_atr": round(compression_max_atr, 6),
+                "compression_bonus": round(compression_bonus, 6),
+                "qualifies": span_atr <= compression_max_atr,
+            },
+            "overlap": {
+                "links": overlap_links,
+                "min_links": min_overlap_links,
+                "ratio_threshold": round(overlap_min_ratio, 6),
+                "score": round(overlap_score, 6),
+                "qualifies": overlap_links >= min_overlap_links,
+            },
+            "edge_touches": {
+                "upper": upper_touches,
+                "lower": lower_touches,
+                "total": edge_touch_total,
+                "min_total": 4,
+                "touch_tolerance": round(touch_tol, 8),
+                "balance": edge_balance,
+                "score": round(edge_score, 6),
+                "battle_score": round(battle_score, 6),
+                "qualifies": edge_touch_total >= 4 and upper_touches >= 1 and lower_touches >= 1,
+            },
+            "breakout": {
+                "direction": breakout_direction,
+                "range_atr": round(breakout_atr, 6),
+                "close_atr": round(close_breakout_atr, 6),
+                "min_range_atr": round(breakout_min_atr, 6),
+                "min_close_atr": round(breakout_close_min_atr, 6),
+                "up_range_atr": round(breakout_up_atr, 6),
+                "down_range_atr": round(breakout_down_atr, 6),
+                "up_close_atr": round(close_breakout_up_atr, 6),
+                "down_close_atr": round(close_breakout_down_atr, 6),
+                "qualifies": breakout_atr >= breakout_min_atr and close_breakout_atr >= breakout_close_min_atr,
+            },
+            "timestamps": {
+                "base_window": base_window,
+                "breakout_window": breakout_window,
+            },
+        }
         score = min(
             100.0,
             28.0
@@ -399,7 +458,7 @@ def zone_candidates_from_base(symbol: str, tf: str, candles: list[dict[str, Any]
         )
         zone_id = f"{symbol}:{tf}:base:{start}:{kind}"
         out.append(
-            {
+            stamp_family_provenance({
                 "zone_id": zone_id,
                 "symbol": symbol,
                 "tf": tf,
@@ -426,17 +485,76 @@ def zone_candidates_from_base(symbol: str, tf: str, candles: list[dict[str, Any]
                 "overlap_links": overlap_links,
                 "upper_edge_touches": upper_touches,
                 "lower_edge_touches": lower_touches,
+                "candidate_provenance": provenance,
+                "base_provenance": provenance,
                 "first_touch_state": "virgin",
-            }
+            })
         )
 
     return out
 
 
+def _reaction_family_provenance(zone: dict[str, Any], touches: list[dict[str, Any]]) -> dict[str, Any]:
+    meaningful = [touch for touch in touches if int(touch.get("is_meaningful") or 0) == 1]
+    touch_samples = meaningful or touches
+    reaction_samples = [float(touch.get("reaction_magnitude_atr") or 0.0) for touch in touch_samples]
+    carry_samples = [float(touch.get("carry_magnitude_atr") or 0.0) for touch in touch_samples]
+    adverse_samples = [float(touch.get("adverse_magnitude_atr") or 0.0) for touch in touch_samples]
+    reject_up = sum(1 for touch in touch_samples if str(touch.get("reaction_type") or "") == "reject_up")
+    reject_down = sum(1 for touch in touch_samples if str(touch.get("reaction_type") or "") == "reject_down")
+    reaction_type = "reject_up" if reject_up >= reject_down else "reject_down"
+    zone_kind = _normalized_zone_kind(zone)
+    if zone_kind == "mixed":
+        zone_kind = "support" if reaction_type == "reject_up" else "resistance"
+    return {
+        "family": "reaction",
+        "pattern_kind": "pivot_cluster_reaction",
+        "zone_kind": zone_kind,
+        "cluster": {
+            "pivot_count": int(zone.get("pivot_count") or 0),
+            "touch_count": int(zone.get("touch_count") or len(touches)),
+            "meaningful_touch_count": int(zone.get("meaningful_touch_count") or 0),
+            "status": zone.get("status"),
+        },
+        "touch_behavior": {
+            "reaction_type": reaction_type,
+            "reject_up_count": reject_up,
+            "reject_down_count": reject_down,
+            "body_overlap_rate": float(zone.get("body_overlap_rate") or 0.0),
+            "wick_only_rate": float(zone.get("wick_only_rate") or 0.0),
+            "close_inside_rate": float(zone.get("close_inside_rate") or 0.0),
+            "directional_close_rate": float(zone.get("directional_close_rate") or 0.0),
+            "counter_close_rate": float(zone.get("counter_close_rate") or 0.0),
+        },
+        "reaction": {
+            "max_reaction_atr": round(max(reaction_samples, default=0.0), 6),
+            "mean_reaction_atr": round(sum(reaction_samples) / max(len(reaction_samples), 1), 6),
+            "carry_score": float(zone.get("carry_score") or 0.0),
+            "body_respect_score": float(zone.get("body_respect_score") or 0.0),
+            "mean_carry_atr": round(sum(carry_samples) / max(len(carry_samples), 1), 6),
+            "mean_adverse_atr": round(sum(adverse_samples) / max(len(adverse_samples), 1), 6),
+        },
+        "retest": {
+            "first_retest_pending": int(zone.get("first_retest_pending") or 0),
+            "first_retest_ts": zone.get("first_retest_ts"),
+            "first_retest_result": zone.get("first_retest_result"),
+            "deviation_retest": int(zone.get("deviation_retest") or 0),
+        },
+        "timestamps": {
+            "touches": [touch.get("candle_ts") for touch in touch_samples if touch.get("candle_ts")],
+        },
+    }
+
+
 def zone_candidates_from_reaction(symbol: str, tf: str, candles: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
     """Expose sr_engine_v2 as the current reaction-family candidate generator."""
-    zones, _ = build_zones_for_tf(symbol, tf, candles, **kwargs)
+    zones, touches = build_zones_for_tf(symbol, tf, candles, **kwargs)
     atr_ref = local_atr(candles, period=14)
+    touches_by_zone: dict[str, list[dict[str, Any]]] = {}
+    for touch in touches:
+        zone_id = str(touch.get("zone_id") or "")
+        if zone_id:
+            touches_by_zone.setdefault(zone_id, []).append(dict(touch))
     out: list[dict[str, Any]] = []
     for zone in zones:
         zz = dict(zone)
@@ -444,11 +562,115 @@ def zone_candidates_from_reaction(symbol: str, tf: str, candles: list[dict[str, 
         zz["source_family"] = "reaction_family"
         zz["source_version"] = zz.get("source_version") or "sr_engine_v2_reaction_family"
         zz["engine_contract"] = V3B_CONTRACT
+        zz["candidate_provenance"] = _reaction_family_provenance(zz, touches_by_zone.get(str(zz.get("zone_id") or ""), []))
+        zz["reaction_provenance"] = zz["candidate_provenance"]
         if atr_ref > 0.0:
             zz.setdefault("atr_local", round(atr_ref, 8))
-        out.append(zz)
+        out.append(stamp_family_provenance(zz))
     return out
 
+
+
+def _normalized_family_name(value: Any) -> str:
+    family = str(value or "").strip().lower()
+    if family.startswith("structure"):
+        return "structure"
+    if family.startswith("base"):
+        return "base"
+    if family.startswith("reaction"):
+        return "reaction"
+    return family or "unknown"
+
+
+def _coerce_candidate_families(zone: dict[str, Any]) -> list[str]:
+    raw = zone.get("candidate_families") or zone.get("candidate_sources")
+    if not raw:
+        source = zone.get("candidate_family") or zone.get("source_family")
+        raw = [] if source is None else [source]
+    families = sorted({_normalized_family_name(item) for item in raw if item})
+    return [family for family in families if family]
+
+
+def _coerce_source_versions(zone: dict[str, Any], *, families: list[str]) -> dict[str, Any]:
+    source_versions = zone.get("source_versions")
+    if isinstance(source_versions, dict):
+        out = {str(key): value for key, value in source_versions.items() if value not in (None, "", [], {})}
+    else:
+        out = {}
+    candidate_family = _normalized_family_name(zone.get("candidate_family") or zone.get("source_family"))
+    source_version = zone.get("source_version")
+    if source_version not in (None, "", [], {}):
+        family_key = candidate_family if candidate_family in families else (families[0] if len(families) == 1 else None)
+        if family_key and family_key not in out:
+            out[family_key] = source_version
+    return out
+
+
+def _coerce_generator_contracts(zone: dict[str, Any], *, families: list[str]) -> dict[str, Any]:
+    generator_contracts = zone.get("generator_contracts")
+    if isinstance(generator_contracts, dict):
+        out = {str(key): value for key, value in generator_contracts.items() if value not in (None, "", [], {})}
+    else:
+        out = {}
+    candidate_family = _normalized_family_name(zone.get("candidate_family") or zone.get("source_family"))
+    contract = zone.get("engine_contract")
+    if contract not in (None, "", [], {}):
+        family_key = candidate_family if candidate_family in families else (families[0] if len(families) == 1 else None)
+        if family_key and family_key not in out:
+            out[family_key] = contract
+    return out
+
+
+def _coerce_family_provenance(zone: dict[str, Any], *, families: list[str]) -> dict[str, dict[str, Any]]:
+    family_provenance = zone.get("family_provenance")
+    out: dict[str, dict[str, Any]] = {}
+    if isinstance(family_provenance, dict):
+        for key, value in family_provenance.items():
+            family = _normalized_family_name(key)
+            if isinstance(value, dict):
+                out[family] = dict(value)
+    if isinstance(zone.get("structure_provenance"), dict):
+        out.setdefault("structure", dict(zone["structure_provenance"]))
+    if isinstance(zone.get("candidate_provenance"), dict):
+        family = _normalized_family_name(zone["candidate_provenance"].get("family") or zone.get("candidate_family") or zone.get("source_family"))
+        out.setdefault(family, dict(zone["candidate_provenance"]))
+    return {family: out[family] for family in families if family in out}
+
+
+def stamp_family_provenance(zone: dict[str, Any]) -> dict[str, Any]:
+    stamped = dict(zone)
+    families = _coerce_candidate_families(stamped)
+    family_provenance = _coerce_family_provenance(stamped, families=families)
+    source_versions = _coerce_source_versions(stamped, families=families)
+    generator_contracts = _coerce_generator_contracts(stamped, families=families)
+    source_family = stamped.get("source_family")
+    primary_family = _normalized_family_name(source_family) if source_family else (families[0] if families else "unknown")
+    if primary_family == "unknown" and families:
+        primary_family = families[0]
+    source_family_display = str(source_family) if source_family else primary_family
+    zone_kind = _normalized_zone_kind(stamped)
+
+    stamped["family_stamp_contract"] = FAMILY_STAMP_CONTRACT
+    stamped["candidate_sources"] = families
+    stamped["candidate_families"] = families
+    stamped["merge_family_count"] = int(stamped.get("merge_family_count") or len(families))
+    stamped["zone_kind"] = zone_kind
+    stamped["source_family"] = source_family_display
+    stamped["source_family_primary"] = primary_family
+    stamped["source_family_display"] = source_family_display
+    stamped["family_provenance"] = family_provenance
+    stamped["source_versions"] = source_versions
+    stamped["generator_contracts"] = generator_contracts
+    stamped["provenance_summary"] = {
+        "primary_family": primary_family,
+        "candidate_families": families,
+        "has_structure": "structure" in families or "structure" in family_provenance,
+        "merge_family_count": stamped["merge_family_count"],
+        "zone_kind": zone_kind,
+        "source_versions": sorted(source_versions.keys()),
+        "generator_contracts": sorted(generator_contracts.keys()),
+    }
+    return stamped
 
 def _normalized_zone_kind(zone: dict[str, Any]) -> str:
     return str(zone.get("zone_kind") or zone.get("kind") or "mixed").strip().lower() or "mixed"
@@ -551,6 +773,19 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
                     "kept_reason": "top_ranked_in_cluster" if idx == 0 else "clustered_under_stronger_candidate",
                 }
             )
+        merged_family_provenance: dict[str, dict[str, Any]] = {}
+        merged_source_versions: dict[str, Any] = {}
+        merged_generator_contracts: dict[str, Any] = {}
+        for candidate in cluster:
+            stamped_candidate = stamp_family_provenance(candidate)
+            for family, provenance in stamped_candidate.get("family_provenance", {}).items():
+                if isinstance(provenance, dict):
+                    merged_family_provenance.setdefault(family, dict(provenance))
+            for family, version in stamped_candidate.get("source_versions", {}).items():
+                merged_source_versions.setdefault(family, version)
+            for family, contract in stamped_candidate.get("generator_contracts", {}).items():
+                merged_generator_contracts.setdefault(family, contract)
+
         family_bonus = max(0, len(families) - 1) * 4.0
         explicit_kinds = sorted({_normalized_zone_kind(z) for z in cluster if _normalized_zone_kind(z) != "mixed"})
         merged_kind = explicit_kinds[0] if len(explicit_kinds) == 1 else _normalized_zone_kind(best)
@@ -559,6 +794,10 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
         best["zone_mid"] = round(sum(mids) / len(mids), 8)
         best["zone_kind"] = merged_kind
         best["candidate_sources"] = families
+        best["candidate_families"] = families
+        best["family_provenance"] = merged_family_provenance
+        best["source_versions"] = merged_source_versions
+        best["generator_contracts"] = merged_generator_contracts
         best["merged_from_zone_ids"] = [row["zone_id"] for row in arbitration_rows]
         best["merge_family_count"] = len(families)
         best["merge_candidate_count"] = len(cluster)
@@ -590,7 +829,7 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
             },
             "candidates": arbitration_rows,
         }
-        merged.append(best)
+        merged.append(stamp_family_provenance(best))
     return merged
 
 
@@ -690,7 +929,7 @@ def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, 
     through side-aware interaction before ranking.
     """
     anchor_tf, eligible_tfs = profile_anchor_and_eligible(profile_id)
-    allowed = [z for z in zones if z.get("status") == "confirmed" and str(z.get("tf")) in eligible_tfs]
+    allowed = [stamp_family_provenance(dict(z)) for z in zones if z.get("status") == "confirmed" and str(z.get("tf")) in eligible_tfs]
 
     def _distance_bps(distance: float) -> float:
         return (max(distance, 0.0) / max(abs(float(entry)), 1e-9)) * 10000.0
@@ -723,8 +962,14 @@ def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, 
         zone = dict(row[2])
         payload = _zone_fmt_with_distance(zone, distance_bps=row[0], entry=float(entry)) or {}
         payload["kind"] = zone.get("zone_kind")
+        payload["zone_kind"] = zone.get("zone_kind")
         payload["source_family"] = zone.get("source_family")
-        payload["candidate_families"] = zone.get("candidate_sources")
+        payload["candidate_families"] = zone.get("candidate_families") or zone.get("candidate_sources")
+        payload["family_stamp_contract"] = zone.get("family_stamp_contract")
+        payload["family_provenance"] = zone.get("family_provenance")
+        payload["provenance_summary"] = zone.get("provenance_summary")
+        payload["source_versions"] = zone.get("source_versions")
+        payload["generator_contracts"] = zone.get("generator_contracts")
         payload["selection_score"] = zone.get("selection_score")
         payload["interaction"] = row[3]
         return payload
@@ -754,6 +999,8 @@ __all__ = [
     "V3A_CONTRACT",
     "V3B_CONTRACT",
     "V3D_CONTRACT",
+    "FAMILY_STAMP_CONTRACT",
+    "stamp_family_provenance",
     "local_atr",
     "side_aware_interaction",
     "zone_candidates_from_structure",

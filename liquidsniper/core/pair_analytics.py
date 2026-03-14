@@ -31,7 +31,9 @@ def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, 
     mid = bounds.get("mid", zone.get("zone_mid"))
     high = bounds.get("high", zone.get("zone_high"))
     source_family = zone.get("source_family") or diagnostics.get("source_family")
-    candidate_families = diagnostics.get("candidate_families") or zone.get("candidate_sources") or ([] if source_family is None else [source_family])
+    candidate_families = zone.get("candidate_families") or diagnostics.get("candidate_families") or zone.get("candidate_sources") or ([] if source_family is None else [source_family])
+    family_provenance = zone.get("family_provenance") if isinstance(zone.get("family_provenance"), dict) else diagnostics.get("family_provenance")
+    provenance_summary = zone.get("provenance_summary") if isinstance(zone.get("provenance_summary"), dict) else diagnostics.get("provenance_summary")
     price_anchor = zone.get("price_anchor") if isinstance(zone.get("price_anchor"), dict) else diagnostics.get("price_anchor")
     return {
         "zone_id": zone.get("zone_id"),
@@ -51,6 +53,11 @@ def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, 
         "first_retest_status": zone.get("first_retest_status") or zone.get("first_retest_result"),
         "source_family": source_family,
         "candidate_families": candidate_families,
+        "family_stamp_contract": zone.get("family_stamp_contract") or diagnostics.get("family_stamp_contract"),
+        "family_provenance": family_provenance or {},
+        "provenance_summary": provenance_summary or {},
+        "source_versions": zone.get("source_versions") or diagnostics.get("source_versions") or {},
+        "generator_contracts": zone.get("generator_contracts") or diagnostics.get("generator_contracts") or {},
         "family_badges": [badge for badge in [source_family, *candidate_families] if badge],
         "price_anchor": price_anchor or {
             "kind": "zone_mid",
@@ -149,6 +156,18 @@ def build_pair_analytics_snapshot(
             merged["source_family"] = source.get("source_family")
         if not merged.get("candidate_sources") and source.get("candidate_sources") is not None:
             merged["candidate_sources"] = source.get("candidate_sources")
+        if not merged.get("candidate_families") and source.get("candidate_families") is not None:
+            merged["candidate_families"] = source.get("candidate_families")
+        if not isinstance(merged.get("family_provenance"), dict) and source.get("family_provenance") is not None:
+            merged["family_provenance"] = source.get("family_provenance")
+        if not isinstance(merged.get("provenance_summary"), dict) and source.get("provenance_summary") is not None:
+            merged["provenance_summary"] = source.get("provenance_summary")
+        if merged.get("family_stamp_contract") is None and source.get("family_stamp_contract") is not None:
+            merged["family_stamp_contract"] = source.get("family_stamp_contract")
+        if not isinstance(merged.get("source_versions"), dict) and source.get("source_versions") is not None:
+            merged["source_versions"] = source.get("source_versions")
+        if not isinstance(merged.get("generator_contracts"), dict) and source.get("generator_contracts") is not None:
+            merged["generator_contracts"] = source.get("generator_contracts")
         if not isinstance(merged.get("arbitration_diagnostics"), dict) and source.get("arbitration_diagnostics") is not None:
             merged["arbitration_diagnostics"] = source.get("arbitration_diagnostics")
         return merged

@@ -28,7 +28,13 @@ def _zone(zone_id: str, mid: float, *, tf: str, kind: str = "support", family: s
         "meaningful_touch_count": 5,
         "first_retest_result": "reject",
         "candidate_sources": [family],
+        "candidate_families": [family],
         "source_family": family,
+        "family_stamp_contract": "zone_engine_v3_family_stamp_v1",
+        "family_provenance": {family: {"family": family, "evidence": "fixture"}},
+        "provenance_summary": {"primary_family": family, "candidate_families": [family], "has_structure": family == "structure", "merge_family_count": 1, "zone_kind": kind, "source_versions": [family], "generator_contracts": [family]},
+        "source_versions": {family: f"{family}_v1"},
+        "generator_contracts": {family: f"{family}_contract"},
         "price_anchor": {"kind": "merged_zone_mid", "zone_mid": mid},
         "arbitration_diagnostics": {
             "kept_zone_id": zone_id,
@@ -111,6 +117,11 @@ def test_build_pair_analytics_snapshot_combines_sr_and_structure_contracts():
     assert nearest_support["selection_score"] == 85.0
     assert nearest_support["first_retest_status"] == "reject"
     assert nearest_support["price_anchor"]["zone_mid"] == 99.0
+    assert nearest_support["family_stamp_contract"] == "zone_engine_v3_family_stamp_v1"
+    assert nearest_support["family_provenance"]["base"]["evidence"] == "fixture"
+    assert nearest_support["provenance_summary"]["primary_family"] == "base"
+    assert nearest_support["source_versions"]["base"] == "base_v1"
+    assert nearest_support["generator_contracts"]["base"] == "base_contract"
     assert "base" in nearest_support["family_badges"]
     assert nearest_support["arbitration"]["kept_zone_id"] == "h1"
     assert nearest_resistance["zone_id"] == "h2"
