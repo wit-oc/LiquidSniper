@@ -1,3 +1,5 @@
+> **Status:** Historical / superseded. This bundle captured the post-Fix A / Fix B state before native structure, canonical provenance stamping, and the later role-semantics diagnosis landed. Use `PHASE2_SR_V3_REDESIGN_PROPOSAL_2026-03-15.md` plus `PHASE2_SR_V3_ROLE_SEMANTICS_REVIEW_2026-03-14.md` for current next-step guidance.
+
 # Phase 2 S/R V3 Peer Review Bundle — 2026-03-12
 
 Branch: `phase2-zone-engine-v3`

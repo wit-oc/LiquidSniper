@@ -1,3 +1,5 @@
+> **Status:** Historical checkpoint / superseded for next-step planning. This bundle captured the post-provenance state and asked whether architecture was complete enough for calibration mode. Subsequent review concluded a targeted redesign pass is still needed around role semantics, review-surface separation, and then structure/promotion follow-through. Use `PHASE2_SR_V3_REDESIGN_PROPOSAL_2026-03-15.md` as the current proposal.
+
 # Phase 2 S/R V3 Peer Review Bundle — 2026-03-14
 
 Branch: `phase2-zone-engine-v3`
