@@ -211,6 +211,22 @@ During shadow mode:
 
 Timeframe is part of doctrinal role, not just metadata.
 
+### 8.0 Origin role vs current role separation
+
+Selectors must treat these as distinct concepts:
+- `origin_kind` / `zone_kind`: provenance-side doctrine from generation/arbitration
+- `relative_position`: where price sits versus the zone right now
+- `current_role`: execution/review-facing interpretation at the current price
+
+Required review semantics for Phase 2:
+- zones **below** price surface as `current_role=support`
+- zones **above** price surface as `current_role=resistance`
+- zones **containing** price surface as `current_role=containing`
+
+Guardrail:
+Selectors and review surfaces must not relabel provenance to make the current map look cleaner.
+A zone can originate as `resistance` and later function as current support after price acceptance above it. That is a feature of the model, not a contradiction to hide.
+
 Default role split:
 - **Daily major:** primarily `1D`
 - **4H operational:** primarily `4H`

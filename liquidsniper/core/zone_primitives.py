@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 
+ROLE_SEMANTICS_CONTRACT = "zone_role_semantics_v1"
+
+
 def as_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -43,6 +46,34 @@ def zone_interaction_side(*, zone: dict[str, Any], price: float) -> str:
     return "inside"
 
 
+def derive_role_semantics(*, zone: dict[str, Any], price: float | None = None) -> dict[str, Any]:
+    """Derive execution-facing role semantics without mutating origin doctrine.
+
+    `zone_kind` remains the canonical provenance/origin field. Current role is a
+    derived interpretation at a specific price: below-price zones act as support,
+    above-price zones act as resistance, and containing-price zones are active
+    containing bands.
+    """
+    origin_kind = str(zone.get("origin_kind") or zone.get("zone_kind") or "mixed").lower()
+    relative_position = "unknown" if price is None else zone_interaction_side(zone=zone, price=price)
+
+    if relative_position == "below":
+        current_role = "resistance"
+    elif relative_position == "above":
+        current_role = "support"
+    elif relative_position == "inside":
+        current_role = "containing"
+    else:
+        current_role = "neutral"
+
+    return {
+        "role_semantics_contract": ROLE_SEMANTICS_CONTRACT,
+        "origin_kind": origin_kind,
+        "relative_position": relative_position,
+        "current_role": current_role,
+    }
+
+
 def side_aware_interaction(*, zone: dict[str, Any], price: float, side: str, atr: float | None = None) -> dict[str, Any]:
     """Return reusable side-aware interaction diagnostics.
 
@@ -54,12 +85,19 @@ def side_aware_interaction(*, zone: dict[str, Any], price: float, side: str, atr
     being defended, or likely spent/broken.
     """
     normalized_side = (side or "").lower()
-    relation = zone_interaction_side(zone=zone, price=price)
-    kind = str(zone.get("zone_kind") or "mixed").lower()
+    semantics = derive_role_semantics(zone=zone, price=price)
+    relation = str(semantics.get("relative_position") or "unknown")
+    origin_kind = str(semantics.get("origin_kind") or "mixed")
+    current_role = str(semantics.get("current_role") or "neutral")
     expected_relation = "above" if normalized_side == "buy" else "below" if normalized_side == "sell" else "inside"
-    aligned_kind = (
-        (normalized_side == "buy" and kind in {"support", "mixed"})
-        or (normalized_side == "sell" and kind in {"resistance", "mixed"})
+    aligned_role = (
+        (normalized_side == "buy" and current_role in {"support", "containing"})
+        or (normalized_side == "sell" and current_role in {"resistance", "containing"})
+        or normalized_side not in {"buy", "sell"}
+    )
+    origin_aligned = (
+        (normalized_side == "buy" and origin_kind in {"support", "mixed"})
+        or (normalized_side == "sell" and origin_kind in {"resistance", "mixed"})
         or normalized_side not in {"buy", "sell"}
     )
     relation_ok = relation in {expected_relation, "inside"}
@@ -88,7 +126,7 @@ def side_aware_interaction(*, zone: dict[str, Any], price: float, side: str, atr
     else:
         penetration_atr = 0.0
 
-    if not aligned_kind:
+    if not origin_aligned:
         lifecycle = "counter_side"
     elif relation == expected_relation and distance_atr > 0.35:
         lifecycle = "virgin"
@@ -103,11 +141,15 @@ def side_aware_interaction(*, zone: dict[str, Any], price: float, side: str, atr
 
     return {
         "side": normalized_side,
-        "zone_kind": kind,
+        "zone_kind": origin_kind,
+        "origin_kind": origin_kind,
+        "current_role": current_role,
+        "relative_position": relation,
+        "role_semantics_contract": ROLE_SEMANTICS_CONTRACT,
         "price_relation": relation,
         "expected_relation": expected_relation,
-        "interaction_bias": "aligned" if (aligned_kind and relation_ok) else "counter",
-        "is_aligned": bool(aligned_kind and relation_ok),
+        "interaction_bias": "aligned" if (aligned_role and relation_ok) else "counter",
+        "is_aligned": bool(aligned_role and relation_ok),
         "distance_to_zone": round(distance, 8),
         "distance_to_zone_atr": round(distance_atr, 6),
         "zone_width_atr": round(width_atr, 6),

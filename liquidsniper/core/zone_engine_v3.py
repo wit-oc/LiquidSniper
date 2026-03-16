@@ -25,7 +25,7 @@ from typing import Any
 
 from IntradayTrading.engine.htf_phase1 import run_phase1_htf_structure
 from liquidsniper.core.sr_engine_v2 import _zone_fmt_with_distance, build_zones_for_tf, profile_anchor_and_eligible
-from liquidsniper.core.zone_primitives import local_atr, side_aware_interaction
+from liquidsniper.core.zone_primitives import ROLE_SEMANTICS_CONTRACT, derive_role_semantics, local_atr, side_aware_interaction
 from liquidsniper.core.zone_selectors import select_daily_majors, select_operational_zones
 
 
@@ -836,15 +836,22 @@ def merge_candidate_zones(*candidate_groups: list[dict[str, Any]]) -> list[dict[
 def classify_zone_state(zone: dict[str, Any], *, last_price: float | None = None, atr: float | None = None) -> dict[str, Any]:
     """Return role-aware lifecycle semantics without mutating doctrinal storage.
 
-    Zones remain neutral in storage. Lifecycle is derived from approach-side
-    interaction so MAP/LIVE consumers can reason about support, resistance, and
-    flip behavior without forcing a permanent zone polarity.
+    `origin_kind` stays tied to the zone's provenance (`zone_kind`).
+    `current_role` and `relative_position` are derived from current price so the
+    same canonical zone can be reviewed honestly as below-price support,
+    above-price resistance, or an active containing band.
     """
     state = dict(zone)
+    state.setdefault("origin_kind", str(state.get("zone_kind") or "mixed").lower())
+    state["role_semantics_contract"] = ROLE_SEMANTICS_CONTRACT
     atr_ref = max(float(atr or state.get("atr_local") or state.get("atr_ref") or 0.0), 0.0)
     if last_price is None:
         state.setdefault("lifecycle_state", str(state.get("first_touch_state") or "unknown"))
+        state.setdefault("relative_position", "unknown")
+        state.setdefault("current_role", "neutral")
         return state
+
+    state.update(derive_role_semantics(zone=state, price=float(last_price)))
 
     buy_view = side_aware_interaction(zone=state, price=float(last_price), side="buy", atr=atr_ref or None)
     sell_view = side_aware_interaction(zone=state, price=float(last_price), side="sell", atr=atr_ref or None)
@@ -854,7 +861,10 @@ def classify_zone_state(zone: dict[str, Any], *, last_price: float | None = None
     preferred = buy_view if buy_view.get("is_aligned") else sell_view if sell_view.get("is_aligned") else buy_view
     state["lifecycle_state"] = str(preferred.get("lifecycle_state") or "unknown")
     state["first_touch_state"] = state["lifecycle_state"]
-    state["interaction_role"] = str(preferred.get("role") or "neutral")
+    state["interaction_role"] = str(preferred.get("current_role") or state.get("current_role") or "neutral")
+    state["current_role"] = str(preferred.get("current_role") or state.get("current_role") or "neutral")
+    state["relative_position"] = str(preferred.get("relative_position") or state.get("relative_position") or "unknown")
+    state["origin_kind"] = str(preferred.get("origin_kind") or state.get("origin_kind") or state.get("zone_kind") or "mixed")
     return state
 
 
@@ -963,6 +973,7 @@ def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, 
         payload = _zone_fmt_with_distance(zone, distance_bps=row[0], entry=float(entry)) or {}
         payload["kind"] = zone.get("zone_kind")
         payload["zone_kind"] = zone.get("zone_kind")
+        payload["origin_kind"] = zone.get("origin_kind") or zone.get("zone_kind")
         payload["source_family"] = zone.get("source_family")
         payload["candidate_families"] = zone.get("candidate_families") or zone.get("candidate_sources")
         payload["family_stamp_contract"] = zone.get("family_stamp_contract")
@@ -972,6 +983,9 @@ def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, 
         payload["generator_contracts"] = zone.get("generator_contracts")
         payload["selection_score"] = zone.get("selection_score")
         payload["interaction"] = row[3]
+        payload["role_semantics_contract"] = row[3].get("role_semantics_contract") or ROLE_SEMANTICS_CONTRACT
+        payload["current_role"] = row[3].get("current_role")
+        payload["relative_position"] = row[3].get("relative_position")
         return payload
 
     used_ids: set[str] = set()

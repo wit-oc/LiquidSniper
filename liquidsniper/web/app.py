@@ -373,9 +373,13 @@ def _format_zone_summary(zone: dict[str, Any] | None) -> str:
     touches = zone.get("meaningful_touch_count") if zone.get("meaningful_touch_count") is not None else zone.get("touch_count")
     span = f"{float(low):,.4f} -> {float(high):,.4f}" if low is not None and high is not None else "n/a"
     mid_text = f"{float(mid):,.4f}" if mid is not None else "n/a"
+    current_role = zone.get("current_role") or zone.get("kind") or zone.get("zone_kind") or "n/a"
+    relative_position = zone.get("relative_position") or "unknown"
+    origin_kind = zone.get("origin_kind") or zone.get("zone_kind") or "n/a"
     pieces = [
         f"mid {mid_text}",
         f"band {span}",
+        f"role {current_role} / pos {relative_position} / origin {origin_kind}",
         f"dist {float(distance):.1f}bps" if distance is not None else "dist n/a",
         f"sel {float(selection):.1f}" if selection is not None else "sel n/a",
         f"retest {retest}",
@@ -425,6 +429,49 @@ def _render_shadow_surface_list(label: str, zones: list[dict[str, Any]]) -> None
         st.write(_format_zone_summary(zone))
 
 
+def _surface_group_label(position: str) -> str:
+    normalized = str(position or "unknown").strip().lower()
+    if normalized == "above":
+        return "Below price / support"
+    if normalized == "inside":
+        return "Contains price / active band"
+    if normalized == "below":
+        return "Above price / resistance"
+    return "Unknown side"
+
+
+def _group_zones_by_relative_position(zones: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+    order = ["above", "inside", "below", "unknown"]
+    grouped = {key: [] for key in order}
+    extras: dict[str, list[dict[str, Any]]] = {}
+    for zone in zones:
+        key = str(zone.get("relative_position") or "unknown").strip().lower()
+        if key in grouped:
+            grouped[key].append(zone)
+        else:
+            extras.setdefault(key, []).append(zone)
+
+    output: list[tuple[str, list[dict[str, Any]]]] = []
+    for key in order:
+        if grouped[key]:
+            output.append((key, grouped[key]))
+    for key in sorted(extras.keys()):
+        output.append((key, extras[key]))
+    return output
+
+
+def _render_grouped_zone_surface(label: str, zones: list[dict[str, Any]], *, limit_per_group: int = 4) -> None:
+    st.markdown(f"**{label}**")
+    if not zones:
+        st.write("(none)")
+        return
+    for position, bucket in _group_zones_by_relative_position(zones):
+        st.caption(f"{_surface_group_label(position)} · {len(bucket)} zone(s)")
+        for zone in bucket[:limit_per_group]:
+            st.caption(_format_zone_badges(zone))
+            st.write(_format_zone_summary(zone))
+
+
 def _nearest_zone_diff_rows(baseline_zone: dict[str, Any] | None, shadow_zone: dict[str, Any] | None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     labels = {
@@ -463,44 +510,53 @@ def _render_shadow_delta_tables(baseline_payload: dict[str, Any] | None, shadow_
     baseline_tfs = baseline_payload.get("timeframes") if isinstance(baseline_payload.get("timeframes"), dict) else {}
     shadow_tfs = shadow_payload.get("timeframes") if isinstance(shadow_payload.get("timeframes"), dict) else {}
 
-    baseline_surfaces = baseline_payload.get("surfaces") if isinstance(baseline_payload.get("surfaces"), dict) else {}
     shadow_surfaces = shadow_payload.get("surfaces") if isinstance(shadow_payload.get("surfaces"), dict) else {}
 
     count_rows: list[dict[str, Any]] = [
         {
-            "surface": "all_zones",
-            "baseline": int(baseline_payload.get("zone_count") or 0),
-            "shadow": int(shadow_payload.get("zone_count") or 0),
-            "delta": int(shadow_payload.get("zone_count") or 0) - int(baseline_payload.get("zone_count") or 0),
+            "surface": "all selected zones",
+            "baseline_raw": int(baseline_payload.get("zone_count_raw") or 0),
+            "baseline_selected": int(baseline_payload.get("zone_count") or 0),
+            "shadow_raw": None,
+            "shadow_selected": int(shadow_payload.get("zone_count") or 0),
+            "selected_delta": int(shadow_payload.get("zone_count") or 0) - int(baseline_payload.get("zone_count") or 0),
         },
         {
-            "surface": "majors_surface",
-            "baseline": len(baseline_surfaces.get("majors") or []) if baseline_surfaces else None,
-            "shadow": len(shadow_surfaces.get("majors") or []),
-            "delta": (len(shadow_surfaces.get("majors") or []) - len(baseline_surfaces.get("majors") or [])) if baseline_surfaces else None,
+            "surface": "shadow daily majors",
+            "baseline_raw": None,
+            "baseline_selected": None,
+            "shadow_raw": int((shadow_tfs.get("1D") or {}).get("candidate_counts", {}).get("merged") or 0) if isinstance(shadow_tfs.get("1D"), dict) else None,
+            "shadow_selected": len(shadow_surfaces.get("majors") or []),
+            "selected_delta": None,
         },
         {
-            "surface": "operational_surface",
-            "baseline": len(baseline_surfaces.get("operational") or []) if baseline_surfaces else None,
-            "shadow": len(shadow_surfaces.get("operational") or []),
-            "delta": (len(shadow_surfaces.get("operational") or []) - len(baseline_surfaces.get("operational") or [])) if baseline_surfaces else None,
+            "surface": "shadow 4H operational",
+            "baseline_raw": None,
+            "baseline_selected": None,
+            "shadow_raw": int((shadow_tfs.get("4H") or {}).get("candidate_counts", {}).get("merged") or 0) if isinstance(shadow_tfs.get("4H"), dict) else None,
+            "shadow_selected": len(shadow_surfaces.get("operational") or []),
+            "selected_delta": None,
         },
     ]
     for tf in sorted(set(baseline_tfs.keys()) | set(shadow_tfs.keys())):
         b_tf = baseline_tfs.get(tf) if isinstance(baseline_tfs.get(tf), dict) else {}
         s_tf = shadow_tfs.get(tf) if isinstance(shadow_tfs.get(tf), dict) else {}
-        baseline_kept = int(b_tf.get("zones_kept") or 0)
-        shadow_kept = int(s_tf.get("zones_kept") or 0)
+        baseline_raw = b_tf.get("zones_raw")
+        baseline_kept = b_tf.get("zones_kept")
+        shadow_raw = (s_tf.get("candidate_counts") or {}).get("merged") if isinstance(s_tf.get("candidate_counts"), dict) else None
+        shadow_kept = s_tf.get("zones_kept")
         count_rows.append(
             {
-                "surface": tf,
-                "baseline": baseline_kept,
-                "shadow": shadow_kept,
-                "delta": shadow_kept - baseline_kept,
+                "surface": f"{tf} raw → selected",
+                "baseline_raw": int(baseline_raw) if baseline_raw is not None else None,
+                "baseline_selected": int(baseline_kept) if baseline_kept is not None else None,
+                "shadow_raw": int(shadow_raw) if shadow_raw is not None else None,
+                "shadow_selected": int(shadow_kept) if shadow_kept is not None else None,
+                "selected_delta": (int(shadow_kept) - int(baseline_kept)) if shadow_kept is not None and baseline_kept is not None else None,
             }
         )
 
-    st.caption("Count deltas")
+    st.caption("Baseline vs shadow / raw vs selected")
     st.dataframe(count_rows, use_container_width=True)
 
     nearest_rows: list[dict[str, Any]] = []
@@ -566,9 +622,9 @@ def _render_shadow_comparison(symbol: str, baseline_snapshot: dict[str, Any] | N
 
     l2, r2 = st.columns(2)
     with l2:
-        _render_shadow_surface_list("Shadow Daily majors", ((shadow_payload.get("surfaces") or {}).get("majors") or []))
+        _render_grouped_zone_surface("Shadow Daily majors grouped by side of price", ((shadow_payload.get("surfaces") or {}).get("majors") or []))
     with r2:
-        _render_shadow_surface_list("Shadow operational", ((shadow_payload.get("surfaces") or {}).get("operational") or []))
+        _render_shadow_surface_list("Shadow operational (selected 4H surface)", ((shadow_payload.get("surfaces") or {}).get("operational") or []))
 
     with st.expander("Shadow V3 payload", expanded=False):
         st.json(shadow_payload)
@@ -782,20 +838,14 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
         _render_zone_block("Nearest resistance", sr_levels.get("nearest_resistance"))
         _render_zone_block("Next resistance", sr_levels.get("next_resistance"))
 
-    st.markdown("**Majors vs operational**")
+    st.markdown("**Review surfaces**")
     majors = analytics.get("sr", {}).get("majors", [])
     operational = analytics.get("sr", {}).get("operational", [])
     left, right = st.columns(2)
     with left:
-        st.caption("Daily / major levels")
-        for zone in majors[:4]:
-            st.caption(_format_zone_badges(zone))
-            st.write(_format_zone_summary(zone))
+        _render_grouped_zone_surface("Daily majors grouped by side of price", majors)
     with right:
-        st.caption("Operational / closer-in levels")
-        for zone in operational[:4]:
-            st.caption(_format_zone_badges(zone))
-            st.write(_format_zone_summary(zone))
+        _render_shadow_surface_list("Operational / selected 4H surface", operational)
 
     _render_shadow_comparison(symbol=symbol, baseline_snapshot=snapshot, shadow_snapshot=shadow_snapshot)
 

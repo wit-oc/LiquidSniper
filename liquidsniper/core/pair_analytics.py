@@ -7,8 +7,9 @@ from typing import Any
 from IntradayTrading.engine.htf_phase1 import run_phase1_htf_structure
 
 from liquidsniper.core.zone_engine_v3 import nearest_four_levels
+from liquidsniper.core.zone_primitives import ROLE_SEMANTICS_CONTRACT, derive_role_semantics
 
-PAIR_ANALYTICS_CONTRACT = "pair_analytics_v2"
+PAIR_ANALYTICS_CONTRACT = "pair_analytics_v3"
 STRUCTURE_DIAGNOSTIC_CONTRACT = "market_structure_diagnostic_v2"
 
 
@@ -21,7 +22,11 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
-def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, Any] | None:
+def summarize_zone_for_pair_analytics(
+    zone: dict[str, Any] | None,
+    *,
+    reference_price: float | None = None,
+) -> dict[str, Any] | None:
     if not zone:
         return None
     bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
@@ -35,11 +40,37 @@ def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, 
     family_provenance = zone.get("family_provenance") if isinstance(zone.get("family_provenance"), dict) else diagnostics.get("family_provenance")
     provenance_summary = zone.get("provenance_summary") if isinstance(zone.get("provenance_summary"), dict) else diagnostics.get("provenance_summary")
     price_anchor = zone.get("price_anchor") if isinstance(zone.get("price_anchor"), dict) else diagnostics.get("price_anchor")
+    semantics = {
+        "origin_kind": zone.get("origin_kind") or zone.get("zone_kind"),
+        "current_role": zone.get("current_role"),
+        "relative_position": zone.get("relative_position"),
+        "role_semantics_contract": zone.get("role_semantics_contract"),
+    }
+    if reference_price is not None and (not semantics["current_role"] or not semantics["relative_position"]):
+        derived = derive_role_semantics(zone=zone, price=float(reference_price))
+        semantics = {
+            "origin_kind": semantics["origin_kind"] or derived.get("origin_kind") or zone.get("zone_kind"),
+            "current_role": semantics["current_role"] or derived.get("current_role"),
+            "relative_position": semantics["relative_position"] or derived.get("relative_position"),
+            "role_semantics_contract": semantics["role_semantics_contract"] or derived.get("role_semantics_contract") or ROLE_SEMANTICS_CONTRACT,
+        }
+    primary_role = semantics["current_role"] or zone.get("kind") or zone.get("zone_kind")
     return {
         "zone_id": zone.get("zone_id"),
         "tf": zone.get("tf"),
         "status": zone.get("status"),
-        "kind": zone.get("kind") or zone.get("zone_kind"),
+        "kind": primary_role,
+        "origin_kind": semantics["origin_kind"] or zone.get("zone_kind"),
+        "current_role": semantics["current_role"],
+        "relative_position": semantics["relative_position"],
+        "role_semantics_contract": semantics["role_semantics_contract"],
+        "role_semantics": {
+            "origin_kind": semantics["origin_kind"] or zone.get("zone_kind"),
+            "current_role": semantics["current_role"],
+            "relative_position": semantics["relative_position"],
+            "review_label": primary_role,
+            "contract": semantics["role_semantics_contract"],
+        },
         "distance_bps": zone.get("distance_bps"),
         "bounds": {
             "low": low,
@@ -54,6 +85,15 @@ def summarize_zone_for_pair_analytics(zone: dict[str, Any] | None) -> dict[str, 
         "source_family": source_family,
         "candidate_families": candidate_families,
         "family_stamp_contract": zone.get("family_stamp_contract") or diagnostics.get("family_stamp_contract"),
+        "provenance": {
+            "source_family": source_family,
+            "candidate_families": candidate_families,
+            "family_stamp_contract": zone.get("family_stamp_contract") or diagnostics.get("family_stamp_contract"),
+            "family_provenance": family_provenance or {},
+            "provenance_summary": provenance_summary or {},
+            "source_versions": zone.get("source_versions") or diagnostics.get("source_versions") or {},
+            "generator_contracts": zone.get("generator_contracts") or diagnostics.get("generator_contracts") or {},
+        },
         "family_provenance": family_provenance or {},
         "provenance_summary": provenance_summary or {},
         "source_versions": zone.get("source_versions") or diagnostics.get("source_versions") or {},
@@ -203,13 +243,13 @@ def build_pair_analytics_snapshot(
         "sr": {
             "nearest_four": nearest,
             "nearest_levels": {
-                "nearest_support": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("nearest_support"))),
-                "next_support": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("next_support"))),
-                "nearest_resistance": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("nearest_resistance"))),
-                "next_resistance": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("next_resistance"))),
+                "nearest_support": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("nearest_support")), reference_price=entry),
+                "next_support": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("next_support")), reference_price=entry),
+                "nearest_resistance": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("nearest_resistance")), reference_price=entry),
+                "next_resistance": summarize_zone_for_pair_analytics(_hydrate_nearest(nearest.get("next_resistance")), reference_price=entry),
             },
-            "majors": [summarize_zone_for_pair_analytics(z) for z in majors[:8]],
-            "operational": [summarize_zone_for_pair_analytics(z) for z in operational[:8]],
+            "majors": [summarize_zone_for_pair_analytics(z, reference_price=entry) for z in majors[:8]],
+            "operational": [summarize_zone_for_pair_analytics(z, reference_price=entry) for z in operational[:8]],
         },
         "market_structure": {
             "contract": STRUCTURE_DIAGNOSTIC_CONTRACT,

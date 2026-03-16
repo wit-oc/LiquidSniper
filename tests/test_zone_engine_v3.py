@@ -16,7 +16,7 @@ from liquidsniper.core.zone_engine_v3 import (
     zone_candidates_from_reaction,
     zone_candidates_from_structure,
 )
-from liquidsniper.core.zone_primitives import local_atr, side_aware_interaction
+from liquidsniper.core.zone_primitives import ROLE_SEMANTICS_CONTRACT, derive_role_semantics, local_atr, side_aware_interaction
 
 
 def _zone(zone_id: str, mid: float, *, tf: str = "1D", kind: str = "support", status: str = "confirmed", strength: float = 80.0, selection: float | None = None, retest: str = "reject") -> dict:
@@ -56,6 +56,20 @@ def test_local_atr_matches_simple_average_true_range_window():
     assert round(local_atr(candles, period=3), 6) == round((2.0 + 3.0 + 3.0) / 3.0, 6)
 
 
+def test_derive_role_semantics_separates_origin_from_price_relative_role():
+    resistance = _zone("r1", 110.0, kind="resistance")
+    support = _zone("s1", 100.0, kind="support")
+
+    flipped = derive_role_semantics(zone=resistance, price=112.0)
+    containing = derive_role_semantics(zone=support, price=100.0)
+
+    assert flipped["origin_kind"] == "resistance"
+    assert flipped["relative_position"] == "above"
+    assert flipped["current_role"] == "support"
+    assert containing["current_role"] == "containing"
+    assert flipped["role_semantics_contract"] == ROLE_SEMANTICS_CONTRACT
+
+
 def test_side_aware_interaction_flags_alignment_by_side_and_position():
     support = _zone("s1", 100.0, kind="support")
     resistance = _zone("r1", 110.0, kind="resistance")
@@ -65,8 +79,12 @@ def test_side_aware_interaction_flags_alignment_by_side_and_position():
     wrong_way = side_aware_interaction(zone=support, price=103.0, side="sell", atr=4.0)
 
     assert buy_hit["is_aligned"] is True
+    assert buy_hit["current_role"] == "support"
+    assert buy_hit["relative_position"] == "above"
     assert buy_hit["lifecycle_state"] == "virgin"
     assert sell_hit["is_aligned"] is True
+    assert sell_hit["current_role"] == "resistance"
+    assert sell_hit["relative_position"] == "below"
     assert sell_hit["lifecycle_state"] == "virgin"
     assert wrong_way["is_aligned"] is False
     assert wrong_way["lifecycle_state"] == "counter_side"
@@ -183,6 +201,9 @@ def test_nearest_four_levels_adds_side_aware_payloads():
     assert payload["nearest_support"]["zone_id"] == "s1"
     assert payload["nearest_support"]["candidate_families"] == ["reaction"]
     assert payload["nearest_support"]["provenance_summary"]["primary_family"] == "reaction"
+    assert payload["nearest_support"]["origin_kind"] == "support"
+    assert payload["nearest_support"]["current_role"] == "support"
+    assert payload["nearest_support"]["relative_position"] == "above"
     assert payload["nearest_resistance"]["zone_id"] == "r1"
     assert payload["buy_interaction"]["is_aligned"] is True
     assert payload["sell_interaction"]["is_aligned"] is True

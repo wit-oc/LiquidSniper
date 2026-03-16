@@ -112,19 +112,30 @@ def test_build_pair_analytics_snapshot_combines_sr_and_structure_contracts():
     assert payload["contract"] == PAIR_ANALYTICS_CONTRACT
     nearest_support = payload["sr"]["nearest_levels"]["nearest_support"]
     nearest_resistance = payload["sr"]["nearest_levels"]["nearest_resistance"]
+    majors = payload["sr"]["majors"]
     assert nearest_support["zone_id"] == "h1"
+    assert nearest_support["kind"] == "containing"
     assert nearest_support["bounds"]["mid"] == 99.0
     assert nearest_support["selection_score"] == 85.0
     assert nearest_support["first_retest_status"] == "reject"
     assert nearest_support["price_anchor"]["zone_mid"] == 99.0
     assert nearest_support["family_stamp_contract"] == "zone_engine_v3_family_stamp_v1"
+    assert nearest_support["role_semantics"]["review_label"] == "containing"
+    assert nearest_support["role_semantics"]["relative_position"] == "inside"
+    assert nearest_support["role_semantics"]["origin_kind"] == "support"
+    assert nearest_support["provenance"]["family_provenance"]["base"]["evidence"] == "fixture"
     assert nearest_support["family_provenance"]["base"]["evidence"] == "fixture"
     assert nearest_support["provenance_summary"]["primary_family"] == "base"
+    assert nearest_support["provenance"]["source_versions"]["base"] == "base_v1"
     assert nearest_support["source_versions"]["base"] == "base_v1"
     assert nearest_support["generator_contracts"]["base"] == "base_contract"
     assert "base" in nearest_support["family_badges"]
     assert nearest_support["arbitration"]["kept_zone_id"] == "h1"
     assert nearest_resistance["zone_id"] == "h2"
+    assert majors[0]["kind"] == "support"
+    assert majors[0]["origin_kind"] == "support"
+    assert majors[1]["kind"] == "resistance"
+    assert majors[1]["origin_kind"] == "resistance"
     assert payload["market_structure"]["contract"] == STRUCTURE_DIAGNOSTIC_CONTRACT
     assert set(payload["market_structure"]["available_timeframes"]) == {"1D", "4H"}
     availability = {row["timeframe"]: row for row in payload["market_structure"]["availability"]}

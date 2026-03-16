@@ -56,6 +56,10 @@ Recommended:
 - `source_version: str | null` — source generator version when applicable
 - `generated_at: str | null` — ISO timestamp for generation
 - `as_of_candle_time: str | null` — candle timestamp anchoring the record
+- `origin_kind: str` — canonical/provenance-side role inherited from the zone's source doctrine; defaults to `zone_kind`
+- `current_role: str | null` — execution-facing interpretation at the current review price (`support`, `resistance`, `containing`, `neutral`)
+- `relative_position: str | null` — relationship between price and zone bounds (`below`, `inside`, `above`, `unknown`)
+- `role_semantics_contract: str | null` — explicit version marker for the derived role-semantics adapter
 
 ### 3.2 Structural bounds fields
 
@@ -131,6 +135,30 @@ Interpretation:
 ## 5) Lifecycle state model
 
 A zone needs lifecycle semantics independent of raw score.
+
+### 5.0 Role semantics split (new Phase 2 contract clarification)
+
+`zone_kind` / `origin_kind` answer: **what kind of zone did the engine generate?**
+They are provenance fields and should remain stable across review surfaces.
+
+`relative_position` answers: **where is price relative to this zone right now?**
+Allowed values for the current branch:
+- `below` — price is below the zone
+- `inside` — price is inside/contained by the zone
+- `above` — price is above the zone
+- `unknown` — no reference price was supplied
+
+`current_role` answers: **how should the zone be interpreted on the current review/execution surface?**
+Default derived mapping for Phase 2:
+- `below` -> `resistance`
+- `above` -> `support`
+- `inside` -> `containing`
+- `unknown` -> `neutral`
+
+Critical rule:
+- **do not overwrite origin/provenance semantics with review-time role semantics**
+- a resistance-origin zone that price has already moved above still keeps `origin_kind=resistance`, but may surface as `current_role=support`
+- a support-origin zone that currently contains price should surface as `current_role=containing`, not be mislabeled as static support just because of provenance
 
 ### 5.1 Zone status
 
@@ -281,6 +309,10 @@ Recommended LIVE-safe additions when already part of the current payload concept
   "symbol": "BTCUSDT",
   "tf": "4H",
   "zone_kind": "support",
+  "origin_kind": "support",
+  "current_role": "support",
+  "relative_position": "above",
+  "role_semantics_contract": "zone_role_semantics_v1",
   "status": "confirmed",
   "engine_contract": "zone_engine_v3d",
   "candidate_family": "reaction",
