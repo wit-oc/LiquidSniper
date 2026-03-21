@@ -1,0 +1,567 @@
+//@version=5
+strategy("LiquidSniper HTF Fib LTF CHoCH Strategy v1", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, commission_type=strategy.commission.percent, commission_value=0.05, process_orders_on_close=true, calc_on_every_tick=false, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
+
+g_meta = "00. Timeframes"
+external_structure_tf = input.timeframe("D", "External Structure TF (HTF)", group=g_meta)
+internal_structure_tf = input.timeframe("5", "Internal Structure TF (set chart to match)", group=g_meta)
+require_internal_tf_match = input.bool(true, "Require chart TF to match Internal Structure TF", group=g_meta)
+
+g_structure = "01. Structure Engine"
+autoBootstrap = input.bool(true, "Bootstrap from EMA12 over first N bars", group=g_structure)
+bootstrapBars = input.int(25, "Bootstrap bars", minval=5, group=g_structure)
+manualInitialBullish = input.bool(true, "Manual initial bullish (used before bootstrap)", group=g_structure)
+processLookbackBars = input.int(20000, "Process only recent bars", minval=200, group=g_structure)
+maxLockWindowBars = input.int(5000, "Max lockback window bars", minval=200, group=g_structure)
+breakMinFrac = input.float(0.15, "BoS min fraction of candle range", minval=0.0, maxval=1.0, step=0.01, group=g_structure)
+bosRequireFreshCross = input.bool(true, "BoS requires fresh cross of validated ref", group=g_structure)
+chochBreakMinFrac = input.float(0.15, "CHoCH min fraction of candle range", minval=0.0, maxval=1.0, step=0.01, group=g_structure)
+enableContinuationBreak = input.bool(true, "Enable Continuation Break (CB)", group=g_structure)
+strictGating = input.bool(false, "Strict gate", group=g_structure)
+structure_require_confirmed = input.bool(true, "HTF must be confirmed", group=g_structure)
+
+g_zone = "02. HTF Fib Zone"
+fib_retrace_a = input.float(0.618, "Fib Retrace A", minval=0.0, maxval=1.0, step=0.001, group=g_zone)
+fib_retrace_b = input.float(0.786, "Fib Retrace B", minval=0.0, maxval=1.0, step=0.001, group=g_zone)
+max_zone_age_htf_bars = input.int(250, "Max Zone Age (HTF bars)", minval=1, group=g_zone)
+require_first_touch = input.bool(true, "Require First Touch", group=g_zone)
+max_bars_after_touch = input.int(288, "Max Internal Bars After Touch", minval=1, group=g_zone)
+
+g_risk = "03. Risk"
+atr_len = input.int(14, "ATR Length", minval=1, group=g_risk)
+atr_stop_mult = input.float(1.0, "ATR Stop Mult", minval=0.0, step=0.1, group=g_risk)
+min_stop_pct = input.float(0.10, "Min Stop Distance (%)", minval=0.0, step=0.01, group=g_risk)
+tp1_r = input.float(1.0, "TP1 (R)", minval=0.1, step=0.1, group=g_risk)
+tp2_r = input.float(2.0, "TP2 (R)", minval=0.1, step=0.1, group=g_risk)
+tp3_r = input.float(3.0, "TP3 (R)", minval=0.1, step=0.1, group=g_risk)
+tp1_qty_pct = input.float(33.0, "TP1 Qty (%)", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+tp2_qty_pct = input.float(33.0, "TP2 Qty (%)", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+tp3_qty_pct = input.float(34.0, "TP3 Qty (%)", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+
+g_view = "04. Visuals"
+show_htf_zone = input.bool(true, "Show HTF Fib Zone", group=g_view)
+show_state_bg = input.bool(true, "Shade Active Watch State", group=g_view)
+show_signal_markers = input.bool(true, "Show Watch/Entry Markers", group=g_view)
+show_diag_table = input.bool(true, "Show Diagnostics Table", group=g_view)
+
+convincingBreakAboveWithFrac(level, frac) =>
+    rng = math.max(1e-9, high - low)
+    close > level and (close - level) >= frac * rng
+
+convincingBreakBelowWithFrac(level, frac) =>
+    rng = math.max(1e-9, high - low)
+    close < level and (level - close) >= frac * rng
+
+convincingBosAbove(level) =>
+    convincingBreakAboveWithFrac(level, breakMinFrac)
+
+convincingBosBelow(level) =>
+    convincingBreakBelowWithFrac(level, breakMinFrac)
+
+convincingChochAbove(level) =>
+    convincingBreakAboveWithFrac(level, chochBreakMinFrac)
+
+convincingChochBelow(level) =>
+    convincingBreakBelowWithFrac(level, chochBreakMinFrac)
+
+freshCrossAbove(level) =>
+    close > level and nz(close[1], close) <= level
+
+freshCrossBelow(level) =>
+    close < level and nz(close[1], close) >= level
+
+f_structure_engine() =>
+    var string regimeDir = manualInitialBullish ? "bullish" : "bearish"
+    var string regimeConf = "confirmed"
+    var bool bootstrapLocked = false
+    var bool processActive = false
+    var int processSeedIdx = na
+    var float bootEma = na
+    var int bootCount = 0
+    processStartIdx = math.max(0, last_bar_index - processLookbackBars + 1)
+
+    var float protectedLow = low
+    var int protectedLowIdx = bar_index
+    var float protectedHigh = high
+    var int protectedHighIdx = bar_index
+    var float validatedHigh = high
+    var int validatedHighIdx = bar_index
+    var float validatedLow = low
+    var int validatedLowIdx = bar_index
+    var float candHigh = high
+    var int candHighIdx = bar_index
+    var float candHighLow = low
+    var float candLow = low
+    var int candLowIdx = bar_index
+    var float candLowHigh = high
+    var int lastChochProtectedLowIdx = na
+    var int lastChochProtectedHighIdx = na
+    var bool cbActive = false
+    var string cbDir = ""
+    var float cbLevel = na
+    var int cbFromIdx = na
+    var int lastBosBullRefIdx = na
+    var int lastBosBearRefIdx = na
+
+    var float bullLegLow = na
+    var float bullLegHigh = na
+    var int bullLegSourceIdx = na
+    var float bearLegHigh = na
+    var float bearLegLow = na
+    var int bearLegSourceIdx = na
+
+    if not processActive and bar_index >= processStartIdx
+        processActive := true
+        processSeedIdx := bar_index
+        regimeDir := manualInitialBullish ? "bullish" : "bearish"
+        regimeConf := "confirmed"
+        protectedLow := low
+        protectedLowIdx := bar_index
+        protectedHigh := high
+        protectedHighIdx := bar_index
+        validatedHigh := high
+        validatedHighIdx := bar_index
+        validatedLow := low
+        validatedLowIdx := bar_index
+        candHigh := high
+        candHighIdx := bar_index
+        candHighLow := low
+        candLow := low
+        candLowIdx := bar_index
+        candLowHigh := high
+        lastChochProtectedLowIdx := na
+        lastChochProtectedHighIdx := na
+        lastBosBullRefIdx := na
+        lastBosBearRefIdx := na
+        cbActive := false
+        cbDir := ""
+        cbLevel := na
+        cbFromIdx := na
+        bullLegLow := low
+        bullLegHigh := high
+        bullLegSourceIdx := bar_index
+        bearLegHigh := high
+        bearLegLow := low
+        bearLegSourceIdx := bar_index
+        bootEma := close
+        bootCount := 1
+        bootstrapLocked := not autoBootstrap
+
+    if processActive and autoBootstrap and not bootstrapLocked and bar_index > processSeedIdx
+        alpha = 2.0 / (12.0 + 1.0)
+        if bootCount < bootstrapBars
+            bootEma := alpha * close + (1.0 - alpha) * bootEma
+            bootCount += 1
+        if bootCount >= bootstrapBars
+            regimeDir := close >= bootEma ? "bullish" : "bearish"
+            bootstrapLocked := true
+
+    processReady = processActive and bootstrapLocked
+    evBos = false
+    evChochBull = false
+    evChochBear = false
+
+    availableBars = processActive ? math.max(1, bar_index - processSeedIdx + 1) : 1
+    safeWindowMax = math.max(1, math.min(maxLockWindowBars, availableBars))
+    lenBullRaw = na(validatedHighIdx) ? 1 : math.max(1, bar_index - validatedHighIdx + 1)
+    lenBull = math.min(lenBullRaw, safeWindowMax)
+    bullLockLow = ta.lowest(low, lenBull)
+    bullLockOff = ta.lowestbars(low, lenBull)
+    lenBearRaw = na(validatedLowIdx) ? 1 : math.max(1, bar_index - validatedLowIdx + 1)
+    lenBear = math.min(lenBearRaw, safeWindowMax)
+    bearLockHigh = ta.highest(high, lenBear)
+    bearLockOff = ta.highestbars(high, lenBear)
+    lenFlipBearRaw = na(protectedLowIdx) ? 1 : math.max(1, bar_index - protectedLowIdx + 1)
+    lenFlipBear = math.min(lenFlipBearRaw, safeWindowMax)
+    flipBearHigh = ta.highest(high, lenFlipBear)
+    flipBearHighOff = ta.highestbars(high, lenFlipBear)
+    lenFlipBullRaw = na(protectedHighIdx) ? 1 : math.max(1, bar_index - protectedHighIdx + 1)
+    lenFlipBull = math.min(lenFlipBullRaw, safeWindowMax)
+    flipBullLow = ta.lowest(low, lenFlipBull)
+    flipBullLowOff = ta.lowestbars(low, lenFlipBull)
+    activeBullAnchor = protectedLow
+    activeBearAnchor = protectedHigh
+
+    if processReady and regimeDir == "bullish"
+        if high > candHigh
+            candHigh := high
+            candHighIdx := bar_index
+            candHighLow := low
+
+        if bar_index > candHighIdx and low <= candHighLow and high <= candHigh
+            if na(validatedHighIdx) or validatedHighIdx != candHighIdx
+                validatedHigh := candHigh
+                validatedHighIdx := candHighIdx
+
+        bullPending = na(validatedHighIdx) or candHighIdx != validatedHighIdx
+        if high >= validatedHigh and close <= validatedHigh
+            candHigh := math.max(candHigh, high)
+            if candHigh == high
+                candHighIdx := bar_index
+                candHighLow := low
+
+        canEvaluateStructure = strictGating ? not bullPending : true
+        bosConvUp = convincingBosAbove(validatedHigh)
+        bosFreshUp = freshCrossAbove(validatedHigh)
+        bosSignalUp = bosConvUp and (not bosRequireFreshCross or bosFreshUp)
+        bosAlreadyRecordedUp = not na(lastBosBullRefIdx) and lastBosBullRefIdx == validatedHighIdx
+
+        if enableContinuationBreak and strictGating and bullPending and bosSignalUp and not bosAlreadyRecordedUp
+            cbActive := true
+            cbDir := "bullish"
+            cbLevel := validatedHigh
+            cbFromIdx := validatedHighIdx
+
+        bosPromoteUp = strictGating and not bullPending and cbActive and cbDir == "bullish" and cbFromIdx == validatedHighIdx and not bosAlreadyRecordedUp
+        bosDirectUp = canEvaluateStructure and bosSignalUp and not bosAlreadyRecordedUp
+
+        if bosDirectUp or bosPromoteUp
+            evBos := true
+            bosRefIdx = bosPromoteUp ? cbFromIdx : validatedHighIdx
+            protectedLow := bullLockLow
+            protectedLowIdx := bar_index + bullLockOff
+            lastBosBullRefIdx := bosRefIdx
+            regimeConf := "confirmed"
+            bullLegLow := protectedLow
+            bullLegHigh := high
+            bullLegSourceIdx := protectedLowIdx
+            if cbActive and cbDir == "bullish"
+                cbActive := false
+                cbDir := ""
+                cbLevel := na
+                cbFromIdx := na
+
+        if canEvaluateStructure and convincingChochBelow(activeBullAnchor) and lastChochProtectedLowIdx != protectedLowIdx
+            lastChochProtectedLowIdx := protectedLowIdx
+            regimeDir := "bearish"
+            regimeConf := "transitional"
+            evChochBear := true
+            protectedHigh := flipBearHigh
+            protectedHighIdx := bar_index + flipBearHighOff
+            candLow := low
+            candLowIdx := bar_index
+            candLowHigh := high
+            validatedLow := na
+            validatedLowIdx := na
+            bearLegHigh := protectedHigh
+            bearLegLow := low
+            bearLegSourceIdx := protectedHighIdx
+            if cbActive and cbDir == "bullish"
+                cbActive := false
+                cbDir := ""
+                cbLevel := na
+                cbFromIdx := na
+
+    else if processReady
+        if low < candLow
+            candLow := low
+            candLowIdx := bar_index
+            candLowHigh := high
+
+        if bar_index > candLowIdx and high >= candLowHigh and low >= candLow
+            if na(validatedLowIdx) or validatedLowIdx != candLowIdx
+                validatedLow := candLow
+                validatedLowIdx := candLowIdx
+
+        bearPending = na(validatedLowIdx) or candLowIdx != validatedLowIdx
+        if low <= validatedLow and close >= validatedLow
+            candLow := math.min(candLow, low)
+            if candLow == low
+                candLowIdx := bar_index
+                candLowHigh := high
+
+        canEvaluateStructure = strictGating ? not bearPending : true
+        bosConvDown = convincingBosBelow(validatedLow)
+        bosFreshDown = freshCrossBelow(validatedLow)
+        bosSignalDown = bosConvDown and (not bosRequireFreshCross or bosFreshDown)
+        bosAlreadyRecordedDown = not na(lastBosBearRefIdx) and lastBosBearRefIdx == validatedLowIdx
+
+        if enableContinuationBreak and strictGating and bearPending and bosSignalDown and not bosAlreadyRecordedDown
+            cbActive := true
+            cbDir := "bearish"
+            cbLevel := validatedLow
+            cbFromIdx := validatedLowIdx
+
+        bosPromoteDown = strictGating and not bearPending and cbActive and cbDir == "bearish" and cbFromIdx == validatedLowIdx and not bosAlreadyRecordedDown
+        bosDirectDown = canEvaluateStructure and bosSignalDown and not bosAlreadyRecordedDown
+
+        if bosDirectDown or bosPromoteDown
+            evBos := true
+            bosRefIdx = bosPromoteDown ? cbFromIdx : validatedLowIdx
+            protectedHigh := bearLockHigh
+            protectedHighIdx := bar_index + bearLockOff
+            lastBosBearRefIdx := bosRefIdx
+            regimeConf := "confirmed"
+            bearLegHigh := protectedHigh
+            bearLegLow := low
+            bearLegSourceIdx := protectedHighIdx
+            if cbActive and cbDir == "bearish"
+                cbActive := false
+                cbDir := ""
+                cbLevel := na
+                cbFromIdx := na
+
+        if canEvaluateStructure and convincingChochAbove(activeBearAnchor) and lastChochProtectedHighIdx != protectedHighIdx
+            lastChochProtectedHighIdx := protectedHighIdx
+            regimeDir := "bullish"
+            regimeConf := "transitional"
+            evChochBull := true
+            protectedLow := flipBullLow
+            protectedLowIdx := bar_index + flipBullLowOff
+            candHigh := high
+            candHighIdx := bar_index
+            candHighLow := low
+            validatedHigh := na
+            validatedHighIdx := na
+            bullLegLow := protectedLow
+            bullLegHigh := high
+            bullLegSourceIdx := protectedLowIdx
+            if cbActive and cbDir == "bearish"
+                cbActive := false
+                cbDir := ""
+                cbLevel := na
+                cbFromIdx := na
+
+    if processReady and regimeDir == "bullish"
+        bullLegLow := na(bullLegLow) ? protectedLow : bullLegLow
+        bullLegHigh := na(bullLegHigh) ? high : math.max(bullLegHigh, high)
+        if na(bullLegSourceIdx)
+            bullLegSourceIdx := protectedLowIdx
+    if processReady and regimeDir == "bearish"
+        bearLegHigh := na(bearLegHigh) ? protectedHigh : bearLegHigh
+        bearLegLow := na(bearLegLow) ? low : math.min(bearLegLow, low)
+        if na(bearLegSourceIdx)
+            bearLegSourceIdx := protectedHighIdx
+
+    regimeDirInt = regimeDir == "bullish" ? 1 : -1
+    regimeConfInt = regimeConf == "confirmed" ? 1 : 0
+    bullLegAge = na(bullLegSourceIdx) ? na : bar_index - bullLegSourceIdx
+    bearLegAge = na(bearLegSourceIdx) ? na : bar_index - bearLegSourceIdx
+    [regimeDirInt, regimeConfInt, evBos, evChochBull, evChochBear, activeBullAnchor, activeBearAnchor, bullLegLow, bullLegHigh, bearLegLow, bearLegHigh, bullLegAge, bearLegAge]
+
+chart_is_internal_tf = timeframe.period == internal_structure_tf
+internal_tf_ready = require_internal_tf_match ? chart_is_internal_tf : true
+
+[ltfDir, ltfConf, ltfBos, ltfChochBull, ltfChochBear, ltfBullAnchor, ltfBearAnchor, ltfBullLegLow, ltfBullLegHigh, ltfBearLegLow, ltfBearLegHigh, ltfBullLegAge, ltfBearLegAge] = f_structure_engine()
+[htfDir, htfConf, htfBos, htfChochBull, htfChochBear, htfBullAnchor, htfBearAnchor, htfBullLegLow, htfBullLegHigh, htfBearLegLow, htfBearLegHigh, htfBullLegAge, htfBearLegAge] = request.security(syminfo.tickerid, external_structure_tf, f_structure_engine(), barmerge.gaps_off, barmerge.lookahead_off)
+htfBarTime = request.security(syminfo.tickerid, external_structure_tf, time, barmerge.gaps_off, barmerge.lookahead_off)
+htfHigh = request.security(syminfo.tickerid, external_structure_tf, high, barmerge.gaps_off, barmerge.lookahead_off)
+htfLow = request.security(syminfo.tickerid, external_structure_tf, low, barmerge.gaps_off, barmerge.lookahead_off)
+
+newHtfBar = ta.change(htfBarTime) != 0
+
+var float trackedHtfBullLow = na
+var float trackedHtfBullHigh = na
+var int trackedHtfBullBars = 0
+var float trackedHtfBearHigh = na
+var float trackedHtfBearLow = na
+var int trackedHtfBearBars = 0
+
+if newHtfBar
+    if htfChochBull
+        trackedHtfBullLow := htfBullAnchor
+        trackedHtfBullHigh := htfHigh
+        trackedHtfBullBars := 0
+    else if htfDir == 1
+        if na(trackedHtfBullLow) or na(trackedHtfBullHigh)
+            trackedHtfBullLow := htfBullAnchor
+            trackedHtfBullHigh := htfHigh
+            trackedHtfBullBars := 0
+        else if htfBos
+            // After bullish BoS, the structural swing anchor is VL.
+            trackedHtfBullLow := htfBullAnchor
+            trackedHtfBullHigh := htfHigh
+            trackedHtfBullBars := 0
+        else
+            trackedHtfBullHigh := math.max(trackedHtfBullHigh, htfHigh)
+            trackedHtfBullBars += 1
+
+    if htfChochBear
+        trackedHtfBearHigh := htfBearAnchor
+        trackedHtfBearLow := htfLow
+        trackedHtfBearBars := 0
+    else if htfDir == -1
+        if na(trackedHtfBearHigh) or na(trackedHtfBearLow)
+            trackedHtfBearHigh := htfBearAnchor
+            trackedHtfBearLow := htfLow
+            trackedHtfBearBars := 0
+        else if htfBos
+            // After bearish BoS, the structural swing anchor is VH.
+            trackedHtfBearHigh := htfBearAnchor
+            trackedHtfBearLow := htfLow
+            trackedHtfBearBars := 0
+        else
+            trackedHtfBearLow := math.min(trackedHtfBearLow, htfLow)
+            trackedHtfBearBars += 1
+
+fibMin = math.min(fib_retrace_a, fib_retrace_b)
+fibMax = math.max(fib_retrace_a, fib_retrace_b)
+htfBullLegLowEff = trackedHtfBullLow
+htfBullLegHighEff = trackedHtfBullHigh
+htfBearLegLowEff = trackedHtfBearLow
+htfBearLegHighEff = trackedHtfBearHigh
+htfBullLegRange = htfBullLegHighEff - htfBullLegLowEff
+htfBearLegRange = htfBearLegHighEff - htfBearLegLowEff
+
+bullZoneValid = htfDir == 1 and (not structure_require_confirmed or htfConf == 1) and not na(htfBullLegLowEff) and not na(htfBullLegHighEff) and htfBullLegRange > 0 and trackedHtfBullBars <= max_zone_age_htf_bars
+bearZoneValid = htfDir == -1 and (not structure_require_confirmed or htfConf == 1) and not na(htfBearLegLowEff) and not na(htfBearLegHighEff) and htfBearLegRange > 0 and trackedHtfBearBars <= max_zone_age_htf_bars
+
+bullFibPriceA = bullZoneValid ? htfBullLegHighEff - htfBullLegRange * fibMin : na
+bullFibPriceB = bullZoneValid ? htfBullLegHighEff - htfBullLegRange * fibMax : na
+bullZoneHigh = bullZoneValid ? math.max(bullFibPriceA, bullFibPriceB) : na
+bullZoneLow = bullZoneValid ? math.min(bullFibPriceA, bullFibPriceB) : na
+
+bearFibPriceA = bearZoneValid ? htfBearLegLowEff + htfBearLegRange * fibMin : na
+bearFibPriceB = bearZoneValid ? htfBearLegLowEff + htfBearLegRange * fibMax : na
+bearZoneHigh = bearZoneValid ? math.max(bearFibPriceA, bearFibPriceB) : na
+bearZoneLow = bearZoneValid ? math.min(bearFibPriceA, bearFibPriceB) : na
+
+priceInBullZone = bullZoneValid and high >= bullZoneLow and low <= bullZoneHigh
+priceInBearZone = bearZoneValid and high >= bearZoneLow and low <= bearZoneHigh
+
+var bool longWatchActive = false
+var bool shortWatchActive = false
+var bool longCycleConsumed = false
+var bool shortCycleConsumed = false
+var int longTouchBar = na
+var int shortTouchBar = na
+
+if not bullZoneValid
+    longWatchActive := false
+    longCycleConsumed := false
+else
+    if not priceInBullZone and longCycleConsumed
+        longCycleConsumed := false
+    if priceInBullZone and not longWatchActive and (not require_first_touch or not longCycleConsumed)
+        longWatchActive := true
+        longTouchBar := bar_index
+    if longWatchActive and (bar_index - longTouchBar > max_bars_after_touch)
+        longWatchActive := false
+
+if not bearZoneValid
+    shortWatchActive := false
+    shortCycleConsumed := false
+else
+    if not priceInBearZone and shortCycleConsumed
+        shortCycleConsumed := false
+    if priceInBearZone and not shortWatchActive and (not require_first_touch or not shortCycleConsumed)
+        shortWatchActive := true
+        shortTouchBar := bar_index
+    if shortWatchActive and (bar_index - shortTouchBar > max_bars_after_touch)
+        shortWatchActive := false
+
+atr = ta.atr(atr_len)
+stopBuffer = math.max(atr * atr_stop_mult, close * min_stop_pct * 0.01)
+
+var int activeTradeSide = 0
+var float activeEntryPrice = na
+var float activeStopPrice = na
+var float activeRisk = na
+var float activeTp1 = na
+var float activeTp2 = na
+var float activeTp3 = na
+var bool beMoved = false
+
+longSignal = internal_tf_ready and bullZoneValid and longWatchActive and ltfChochBull and strategy.position_size <= 0
+shortSignal = internal_tf_ready and bearZoneValid and shortWatchActive and ltfChochBear and strategy.position_size >= 0
+
+if longSignal
+    rawStop = math.min(bullZoneLow, nz(ltfBullAnchor, bullZoneLow))
+    longStop = rawStop - stopBuffer
+    longRisk = close - longStop
+    if longRisk > syminfo.mintick
+        strategy.entry("Long", strategy.long)
+        activeTradeSide := 1
+        activeEntryPrice := close
+        activeStopPrice := longStop
+        activeRisk := longRisk
+        activeTp1 := close + longRisk * tp1_r
+        activeTp2 := close + longRisk * tp2_r
+        activeTp3 := close + longRisk * tp3_r
+        beMoved := false
+        longWatchActive := false
+        longCycleConsumed := true
+
+if shortSignal
+    rawStop = math.max(bearZoneHigh, nz(ltfBearAnchor, bearZoneHigh))
+    shortStop = rawStop + stopBuffer
+    shortRisk = shortStop - close
+    if shortRisk > syminfo.mintick
+        strategy.entry("Short", strategy.short)
+        activeTradeSide := -1
+        activeEntryPrice := close
+        activeStopPrice := shortStop
+        activeRisk := shortRisk
+        activeTp1 := close - shortRisk * tp1_r
+        activeTp2 := close - shortRisk * tp2_r
+        activeTp3 := close - shortRisk * tp3_r
+        beMoved := false
+        shortWatchActive := false
+        shortCycleConsumed := true
+
+if activeTradeSide == 1 and strategy.position_size > 0 and not beMoved and high >= activeTp1
+    activeStopPrice := activeEntryPrice
+    beMoved := true
+
+if activeTradeSide == -1 and strategy.position_size < 0 and not beMoved and low <= activeTp1
+    activeStopPrice := activeEntryPrice
+    beMoved := true
+
+if strategy.position_size > 0 and activeTradeSide == 1
+    strategy.exit("Long TP1", "Long", stop=activeStopPrice, limit=activeTp1, qty_percent=tp1_qty_pct)
+    strategy.exit("Long TP2", "Long", stop=activeStopPrice, limit=activeTp2, qty_percent=tp2_qty_pct)
+    strategy.exit("Long TP3", "Long", stop=activeStopPrice, limit=activeTp3, qty_percent=tp3_qty_pct)
+
+if strategy.position_size < 0 and activeTradeSide == -1
+    strategy.exit("Short TP1", "Short", stop=activeStopPrice, limit=activeTp1, qty_percent=tp1_qty_pct)
+    strategy.exit("Short TP2", "Short", stop=activeStopPrice, limit=activeTp2, qty_percent=tp2_qty_pct)
+    strategy.exit("Short TP3", "Short", stop=activeStopPrice, limit=activeTp3, qty_percent=tp3_qty_pct)
+
+if strategy.position_size == 0
+    activeTradeSide := 0
+    activeEntryPrice := na
+    activeStopPrice := na
+    activeRisk := na
+    activeTp1 := na
+    activeTp2 := na
+    activeTp3 := na
+    beMoved := false
+
+bullTopPlot = plot(show_htf_zone ? bullZoneHigh : na, "HTF Bull Zone High", color=color.new(color.green, 0), linewidth=1, style=plot.style_linebr)
+bullBotPlot = plot(show_htf_zone ? bullZoneLow : na, "HTF Bull Zone Low", color=color.new(color.green, 0), linewidth=1, style=plot.style_linebr)
+bearTopPlot = plot(show_htf_zone ? bearZoneHigh : na, "HTF Bear Zone High", color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr)
+bearBotPlot = plot(show_htf_zone ? bearZoneLow : na, "HTF Bear Zone Low", color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr)
+fill(bullTopPlot, bullBotPlot, color=color.new(color.green, 90), title="Bull Zone Fill")
+fill(bearTopPlot, bearBotPlot, color=color.new(color.red, 90), title="Bear Zone Fill")
+
+plotshape(ltfChochBull, title="Internal Bull CHoCH", style=shape.triangleup, location=location.belowbar, color=color.new(color.yellow, 0), size=size.tiny, text="CH")
+plotshape(ltfChochBear, title="Internal Bear CHoCH", style=shape.triangledown, location=location.abovebar, color=color.new(color.yellow, 0), size=size.tiny, text="CH")
+plotshape(show_signal_markers and priceInBullZone, title="Bull Zone Touch", style=shape.circle, location=location.belowbar, color=color.new(color.green, 0), size=size.tiny, text="Z")
+plotshape(show_signal_markers and priceInBearZone, title="Bear Zone Touch", style=shape.circle, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="Z")
+plotshape(show_signal_markers and longSignal, title="Long Entry Signal", style=shape.arrowup, location=location.belowbar, color=color.new(color.lime, 0), size=size.small, text="L")
+plotshape(show_signal_markers and shortSignal, title="Short Entry Signal", style=shape.arrowdown, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="S")
+bgcolor(show_state_bg and longWatchActive ? color.new(color.green, 88) : na)
+bgcolor(show_state_bg and shortWatchActive ? color.new(color.red, 88) : na)
+bgcolor(require_internal_tf_match and not chart_is_internal_tf ? color.new(color.orange, 82) : na)
+
+var table diag = table.new(position.bottom_right, 1, 11, border_width=1)
+if barstate.islast and show_diag_table
+    for r = 0 to 10
+        table.cell(diag, 0, r, "", text_color=color.white, bgcolor=color.new(color.black, 85))
+    table.cell(diag, 0, 0, "Chart/Internal TF ok: " + str.tostring(internal_tf_ready), text_color=color.white, bgcolor=color.new(internal_tf_ready ? color.green : color.orange, 65))
+    table.cell(diag, 0, 1, "HTF dir/conf: " + str.tostring(htfDir) + " / " + str.tostring(htfConf), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 2, "Bull zone valid: " + str.tostring(bullZoneValid), text_color=color.white, bgcolor=color.new(bullZoneValid ? color.green : color.red, 75))
+    table.cell(diag, 0, 3, "Bear zone valid: " + str.tostring(bearZoneValid), text_color=color.white, bgcolor=color.new(bearZoneValid ? color.green : color.red, 75))
+    table.cell(diag, 0, 4, "In bull/bear zone: " + str.tostring(priceInBullZone) + " / " + str.tostring(priceInBearZone), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 5, "Watch long/short: " + str.tostring(longWatchActive) + " / " + str.tostring(shortWatchActive), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 6, "LTF CH bull/bear: " + str.tostring(ltfChochBull) + " / " + str.tostring(ltfChochBear), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 7, "Long/Short signal: " + str.tostring(longSignal) + " / " + str.tostring(shortSignal), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 8, "Bull zone: " + (na(bullZoneLow) ? "na" : str.tostring(bullZoneLow, format.mintick)) + " - " + (na(bullZoneHigh) ? "na" : str.tostring(bullZoneHigh, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 9, "Bear zone: " + (na(bearZoneLow) ? "na" : str.tostring(bearZoneLow, format.mintick)) + " - " + (na(bearZoneHigh) ? "na" : str.tostring(bearZoneHigh, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 10, "Touch bars L/S: " + (na(longTouchBar) ? "-" : str.tostring(bar_index - longTouchBar)) + " / " + (na(shortTouchBar) ? "-" : str.tostring(bar_index - shortTouchBar)), text_color=color.white, bgcolor=color.new(color.black, 0))
+
+plotchar(show_signal_markers ? (bullZoneValid ? 1 : 0) : na, title="Diag Bull Zone Valid", char="B", location=location.bottom, color=color.new(color.green, 0), size=size.tiny)
+plotchar(show_signal_markers ? (bearZoneValid ? 1 : 0) : na, title="Diag Bear Zone Valid", char="R", location=location.bottom, color=color.new(color.red, 0), size=size.tiny)
+plotchar(show_signal_markers ? (longWatchActive ? 1 : 0) : na, title="Diag Long Watch", char="L", location=location.bottom, color=color.new(color.lime, 0), size=size.tiny)
+plotchar(show_signal_markers ? (shortWatchActive ? 1 : 0) : na, title="Diag Short Watch", char="S", location=location.bottom, color=color.new(color.maroon, 0), size=size.tiny)
+plotchar(show_signal_markers ? (ltfChochBull ? 1 : 0) : na, title="Diag Bull CHoCH", char="U", location=location.bottom, color=color.new(color.yellow, 0), size=size.tiny)
+plotchar(show_signal_markers ? (ltfChochBear ? 1 : 0) : na, title="Diag Bear CHoCH", char="D", location=location.bottom, color=color.new(color.orange, 0), size=size.tiny)
