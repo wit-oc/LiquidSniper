@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from liquidsniper.core.db import init_db
+from liquidsniper.core.pair_analytics import summarize_zone_for_pair_analytics
 from liquidsniper.core.sr_engine_v2 import build_zones_for_tf, persist_sr_state
 from liquidsniper.core.sr_universe import (
     CANONICAL_SR_SOURCE,
@@ -142,6 +143,58 @@ def _shadow_artifact_dir(artifact_root: str) -> Path:
     return Path(artifact_root) / "sr" / "shadow" / "v3"
 
 
+def _authoritative_group_key(zone: dict[str, Any]) -> tuple[float, float, str]:
+    bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
+
+    def _num(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float("inf")
+
+    low = bounds.get("low", zone.get("zone_low"))
+    mid = bounds.get("mid", zone.get("zone_mid"))
+    zone_id = str(zone.get("zone_id") or "")
+    return (_num(low), _num(mid), zone_id)
+
+
+
+def _build_authoritative_surface(
+    zones: list[dict[str, Any]],
+    *,
+    entry: float | None,
+    tf: str,
+    selector_surface: str,
+) -> dict[str, Any]:
+    normalized: list[dict[str, Any]] = []
+    for zone in zones:
+        row = summarize_zone_for_pair_analytics(dict(zone), reference_price=entry)
+        if not row:
+            continue
+        row["tf"] = tf
+        row["selector_surface"] = selector_surface
+        normalized.append(row)
+
+    grouped: dict[str, list[dict[str, Any]]] = {"above": [], "inside": [], "below": []}
+    for row in normalized:
+        position = str(row.get("relative_position") or "unknown").strip().lower()
+        if position in grouped:
+            grouped[position].append(row)
+
+    return {
+        "contract": "authoritative_levels_view_v1",
+        "tf": tf,
+        "selector_surface": selector_surface,
+        "entry": entry,
+        "groups": {
+            "below_price": sorted(grouped["above"], key=_authoritative_group_key),
+            "contains_price": sorted(grouped["inside"], key=_authoritative_group_key),
+            "above_price": sorted(grouped["below"], key=_authoritative_group_key),
+        },
+    }
+
+
+
 def _build_v3_shadow_snapshot(
     *,
     run_id: str,
@@ -237,6 +290,25 @@ def _build_v3_shadow_snapshot(
             entry=float(last_price or 0.0),
             zones=symbol_zones,
         )
+        authoritative_view = {
+            "contract": "authoritative_levels_view_v1",
+            "source": "shadow_selected_surfaces",
+            "entry": last_price,
+            "timeframes": {
+                "1D": _build_authoritative_surface(
+                    major_surface,
+                    entry=float(last_price) if last_price is not None else None,
+                    tf="1D",
+                    selector_surface="daily_major",
+                ),
+                "4H": _build_authoritative_surface(
+                    operational_surface,
+                    entry=float(last_price) if last_price is not None else None,
+                    tf="4H",
+                    selector_surface="operational",
+                ),
+            },
+        }
         shadow_snapshot["symbols"][symbol] = {
             "last_price": last_price,
             "zone_count": len(symbol_zones),
@@ -245,6 +317,7 @@ def _build_v3_shadow_snapshot(
                 "majors": major_surface,
                 "operational": operational_surface,
             },
+            "authoritative_view": authoritative_view,
             "nearest": nearest_payload,
         }
 

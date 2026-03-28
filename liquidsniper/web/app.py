@@ -429,6 +429,122 @@ def _render_shadow_surface_list(label: str, zones: list[dict[str, Any]]) -> None
         st.write(_format_zone_summary(zone))
 
 
+def _authoritative_group_title(group_key: str) -> str:
+    titles = {
+        "below_price": "Below current price / support",
+        "contains_price": "Contains current price / active band",
+        "above_price": "Above current price / resistance",
+    }
+    return titles.get(str(group_key), str(group_key))
+
+
+def _format_authoritative_zone_line(zone: dict[str, Any]) -> str:
+    bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
+    core_bounds = zone.get("core_bounds") if isinstance(zone.get("core_bounds"), dict) else {}
+    low = bounds.get("low")
+    mid = bounds.get("mid")
+    high = bounds.get("high")
+    core_low = core_bounds.get("low")
+    core_mid = core_bounds.get("mid")
+    core_high = core_bounds.get("high")
+    core_definition = zone.get("core_definition")
+    current_role = zone.get("current_role") or zone.get("kind") or zone.get("zone_kind") or "n/a"
+    origin_kind = zone.get("origin_kind") or zone.get("zone_kind") or "n/a"
+    families = ", ".join(str(item) for item in (zone.get("candidate_families") or []) if str(item).strip()) or "n/a"
+    selection = zone.get("selection_score")
+    tf = zone.get("tf") or "?"
+    span = f"{float(low):,.4f} -> {float(high):,.4f}" if low is not None and high is not None else "n/a"
+    mid_text = f"{float(mid):,.4f}" if mid is not None else "n/a"
+    selection_text = f"{float(selection):.1f}" if selection is not None else "n/a"
+    core_span = f"{float(core_low):,.4f} -> {float(core_high):,.4f}" if core_low is not None and core_high is not None else None
+    core_mid_text = f"{float(core_mid):,.4f}" if core_mid is not None else None
+    core_text = None
+    if core_span:
+        core_label = f"core {core_span}"
+        if core_mid_text:
+            core_label += f" · core mid {core_mid_text}"
+        if core_definition:
+            core_label += f" · core rule {core_definition}"
+        core_text = core_label
+    return (
+        f"band {span} · mid {mid_text}"
+        f"{' · ' + core_text if core_text else ''}"
+        f" · role {current_role} · tf {tf} · families {families} · sel {selection_text} · origin {origin_kind}"
+    )
+
+
+def _render_authoritative_tf_surface(label: str, payload: dict[str, Any] | None) -> None:
+    st.markdown(f"**{label}**")
+    if not isinstance(payload, dict):
+        st.write("(none)")
+        return
+
+    selector_surface = payload.get("selector_surface") or "unknown"
+    st.caption(f"Shadow authoritative source · selector surface `{selector_surface}`")
+
+    groups = payload.get("groups") if isinstance(payload.get("groups"), dict) else {}
+    for group_key in ["below_price", "contains_price", "above_price"]:
+        bucket = groups.get(group_key) or []
+        st.caption(f"{_authoritative_group_title(group_key)} · {len(bucket)} level(s) · sorted low → high")
+        if not bucket:
+            st.write("(none)")
+            continue
+        for zone in bucket:
+            st.caption(_format_zone_badges(zone))
+            st.write(_format_authoritative_zone_line(zone))
+
+
+def _authoritative_view_scope_caption() -> str:
+    return (
+        "Authoritative = shadow-selected levels only. "
+        "This tab is the operator-facing truth-check surface; baseline and debug payloads live in the other tabs."
+    )
+
+
+
+def _review_surface_scope_caption() -> str:
+    return (
+        "Review = comparison surface. Use this tab to compare baseline vs shadow and raw/merged candidate counts vs selected surfaces. "
+        "This is explanatory, not the authoritative chart-validation view."
+    )
+
+
+
+def _debug_payload_scope_caption() -> str:
+    return (
+        "Debug = raw payload inspection. Use this only when you need contract-level details; it is not the primary operator review surface."
+    )
+
+
+
+def _render_authoritative_levels_view(symbol: str, shadow_snapshot: dict[str, Any] | None) -> None:
+    st.markdown("**Authoritative Levels View (shadow V3)**")
+    if not shadow_snapshot or not isinstance(shadow_snapshot.get("symbols"), dict):
+        st.info("No shadow authoritative snapshot found yet.")
+        return
+
+    shadow_payload = shadow_snapshot["symbols"].get(symbol)
+    if not isinstance(shadow_payload, dict):
+        st.info("No shadow authoritative payload found for this symbol.")
+        return
+
+    authoritative_view = shadow_payload.get("authoritative_view") if isinstance(shadow_payload.get("authoritative_view"), dict) else {}
+    if authoritative_view.get("contract") != "authoritative_levels_view_v1":
+        st.info("Shadow authoritative view contract is not available yet.")
+        return
+
+    st.info(_authoritative_view_scope_caption())
+    st.caption(
+        "Source contract: shadow-selected surfaces only (`authoritative_levels_view_v1`). "
+        "`current_role` is primary; `origin_kind` remains secondary/diagnostic."
+    )
+    left, right = st.columns(2)
+    with left:
+        _render_authoritative_tf_surface("1D Authoritative Levels", (authoritative_view.get("timeframes") or {}).get("1D"))
+    with right:
+        _render_authoritative_tf_surface("4H Authoritative Levels", (authoritative_view.get("timeframes") or {}).get("4H"))
+
+
 def _surface_group_label(position: str) -> str:
     normalized = str(position or "unknown").strip().lower()
     if normalized == "above":
@@ -829,31 +945,44 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
     else:
         st.info(f"No canonical {chart_tf} flat file found for {symbol}.")
 
-    st.markdown("**Nearest / next ladder**")
-    c1, c2 = st.columns(2)
-    with c1:
-        _render_zone_block("Nearest support", sr_levels.get("nearest_support"))
-        _render_zone_block("Next support", sr_levels.get("next_support"))
-    with c2:
-        _render_zone_block("Nearest resistance", sr_levels.get("nearest_resistance"))
-        _render_zone_block("Next resistance", sr_levels.get("next_resistance"))
+    authoritative_tab, review_tab, debug_tab = st.tabs([
+        "Authoritative Levels View (shadow-selected)",
+        "Review Surfaces (baseline ↔ shadow)",
+        "Debug Payloads (raw contracts)",
+    ])
 
-    st.markdown("**Review surfaces**")
-    majors = analytics.get("sr", {}).get("majors", [])
-    operational = analytics.get("sr", {}).get("operational", [])
-    left, right = st.columns(2)
-    with left:
-        _render_grouped_zone_surface("Daily majors grouped by side of price", majors)
-    with right:
-        _render_shadow_surface_list("Operational / selected 4H surface", operational)
+    with authoritative_tab:
+        _render_authoritative_levels_view(symbol=symbol, shadow_snapshot=shadow_snapshot)
 
-    _render_shadow_comparison(symbol=symbol, baseline_snapshot=snapshot, shadow_snapshot=shadow_snapshot)
+    with review_tab:
+        st.info(_review_surface_scope_caption())
+        st.markdown("**Nearest / next ladder**")
+        c1, c2 = st.columns(2)
+        with c1:
+            _render_zone_block("Nearest support", sr_levels.get("nearest_support"))
+            _render_zone_block("Next support", sr_levels.get("next_support"))
+        with c2:
+            _render_zone_block("Nearest resistance", sr_levels.get("nearest_resistance"))
+            _render_zone_block("Next resistance", sr_levels.get("next_resistance"))
 
-    with st.expander("nearest_sr_v1 payload", expanded=False):
-        st.json(nearest)
+        st.markdown("**Review surfaces**")
+        majors = analytics.get("sr", {}).get("majors", [])
+        operational = analytics.get("sr", {}).get("operational", [])
+        left, right = st.columns(2)
+        with left:
+            _render_grouped_zone_surface("Daily majors grouped by side of price", majors)
+        with right:
+            _render_shadow_surface_list("Operational / selected 4H surface", operational)
 
-    with st.expander("Per-pair analytics contract", expanded=False):
-        st.json(analytics)
+        _render_shadow_comparison(symbol=symbol, baseline_snapshot=snapshot, shadow_snapshot=shadow_snapshot)
+
+    with debug_tab:
+        st.info(_debug_payload_scope_caption())
+        with st.expander("nearest_sr_v1 payload", expanded=False):
+            st.json(nearest)
+
+        with st.expander("Per-pair analytics contract", expanded=False):
+            st.json(analytics)
 
     availability_rows = analytics.get("market_structure", {}).get("availability", [])
     if availability_rows:

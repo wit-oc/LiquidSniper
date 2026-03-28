@@ -1009,6 +1009,59 @@ def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, 
     }
 
 
+_BASE_SCORE_ZONE = score_zone
+
+
+def _derive_operator_core_bounds(zone: dict[str, Any]) -> dict[str, float | str] | None:
+    tf = str(zone.get("tf") or "")
+    low, high, mid = _zone_bounds(zone)
+    span = max(high - low, 0.0)
+    if span <= 0.0:
+        return None
+
+    if tf != "1D":
+        return {
+            "core_low": round(low, 8),
+            "core_high": round(high, 8),
+            "core_mid": round(mid, 8),
+            "display_bounds_kind": "macro",
+        }
+
+    families = zone.get("candidate_families") or zone.get("candidate_sources") or []
+    family_count = len({str(f) for f in families})
+    if family_count >= 3:
+        factor = 0.38
+    elif family_count == 2:
+        factor = 0.5
+    else:
+        factor = 0.62
+
+    atr_ref = max(float(zone.get("atr_local") or zone.get("atr_ref") or 0.0), 0.0)
+    target_span = span * factor
+    if atr_ref > 0.0:
+        target_span = max(min(span, atr_ref * 2.5), target_span)
+    target_span = min(target_span, span)
+    core_low = max(low, mid - (target_span / 2.0))
+    core_high = min(high, mid + (target_span / 2.0))
+    if core_high <= core_low:
+        core_low, core_high = low, high
+    core_mid = (core_low + core_high) / 2.0
+    return {
+        "core_low": round(core_low, 8),
+        "core_high": round(core_high, 8),
+        "core_mid": round(core_mid, 8),
+        "display_bounds_kind": "core",
+    }
+
+
+def score_zone(zone: dict[str, Any], *, last_price: float | None = None, atr: float | None = None) -> dict[str, Any]:
+    scored = _BASE_SCORE_ZONE(zone, last_price=last_price, atr=atr)
+    core = _derive_operator_core_bounds(scored)
+    if core:
+        scored.update(core)
+    return scored
+
+
 __all__ = [
     "V3A_CONTRACT",
     "V3B_CONTRACT",

@@ -35,6 +35,10 @@ def summarize_zone_for_pair_analytics(
     low = bounds.get("low", zone.get("zone_low"))
     mid = bounds.get("mid", zone.get("zone_mid"))
     high = bounds.get("high", zone.get("zone_high"))
+    core_low = _as_float(zone.get("core_low"))
+    core_high = _as_float(zone.get("core_high"))
+    core_mid = _as_float(zone.get("core_mid"))
+    core_definition = zone.get("core_definition")
     source_family = zone.get("source_family") or diagnostics.get("source_family")
     candidate_families = zone.get("candidate_families") or diagnostics.get("candidate_families") or zone.get("candidate_sources") or ([] if source_family is None else [source_family])
     family_provenance = zone.get("family_provenance") if isinstance(zone.get("family_provenance"), dict) else diagnostics.get("family_provenance")
@@ -55,6 +59,27 @@ def summarize_zone_for_pair_analytics(
             "role_semantics_contract": semantics["role_semantics_contract"] or derived.get("role_semantics_contract") or ROLE_SEMANTICS_CONTRACT,
         }
     primary_role = semantics["current_role"] or zone.get("kind") or zone.get("zone_kind")
+    macro_bounds = {
+        "low": _as_float(zone.get("zone_low")),
+        "mid": _as_float(zone.get("zone_mid")),
+        "high": _as_float(zone.get("zone_high")),
+    }
+    display_bounds_kind = zone.get("display_bounds_kind")
+    if display_bounds_kind not in {"core", "macro"}:
+        tf = str(zone.get("tf") or "").upper()
+        display_bounds_kind = "core" if tf == "1D" and core_low is not None and core_high is not None else "macro"
+    effective_bounds = {
+        "low": low,
+        "mid": mid,
+        "high": high,
+    }
+    if display_bounds_kind == "core" and core_low is not None and core_high is not None:
+        effective_bounds = {
+            "low": core_low,
+            "mid": core_mid,
+            "high": core_high,
+        }
+
     return {
         "zone_id": zone.get("zone_id"),
         "tf": zone.get("tf"),
@@ -72,11 +97,17 @@ def summarize_zone_for_pair_analytics(
             "contract": semantics["role_semantics_contract"],
         },
         "distance_bps": zone.get("distance_bps"),
-        "bounds": {
-            "low": low,
-            "mid": mid,
-            "high": high,
-        },
+        "bounds": effective_bounds,
+        "macro_bounds": macro_bounds,
+        "core_bounds": {
+            "low": core_low,
+            "mid": core_mid,
+            "high": core_high,
+        }
+        if any(value is not None for value in (core_low, core_mid, core_high))
+        else None,
+        "display_bounds_kind": display_bounds_kind,
+        "core_definition": core_definition,
         "strength": zone.get("strength") or zone.get("strength_score"),
         "selection_score": zone.get("selection_score") or diagnostics.get("selection_score"),
         "touch_count": zone.get("touch_count"),
@@ -278,3 +309,4 @@ def load_candles_from_csv(path: str | Path, *, limit: int = 600) -> list[dict[st
     if limit > 0 and len(rows) > limit:
         rows = rows[-limit:]
     return rows
+

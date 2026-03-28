@@ -227,6 +227,76 @@ def select_daily_local_band_representatives(
     return sorted(selected, key=lambda z: float(z.get("zone_mid") or 0.0))
 
 
+def _daily_core_from_arbitration(zone: dict[str, Any]) -> tuple[tuple[float, float] | None, str | None]:
+    diagnostics = zone.get("arbitration_diagnostics") if isinstance(zone.get("arbitration_diagnostics"), dict) else {}
+    candidates = diagnostics.get("candidates") if isinstance(diagnostics.get("candidates"), list) else []
+    intervals: list[tuple[float, float, float]] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        try:
+            low = float(candidate.get("low"))
+            high = float(candidate.get("high"))
+            score = float(candidate.get("base_score") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if high <= low:
+            continue
+        intervals.append((low, high, score))
+    if len(intervals) < 2:
+        return None, None
+
+    intervals.sort(key=lambda row: row[2], reverse=True)
+    top_score = max(intervals[0][2], 1e-9)
+    strong = [row for row in intervals if row[2] >= (top_score * 0.82)]
+    if len(strong) < 2:
+        strong = intervals[:2]
+    overlap_low = max(row[0] for row in strong)
+    overlap_high = min(row[1] for row in strong)
+    if overlap_high > overlap_low:
+        return (overlap_low, overlap_high), "overlap_density_core"
+
+    representative_low, representative_high, _ = intervals[0]
+    return (representative_low, representative_high), "representative_family_core"
+
+
+def _apply_daily_operator_core(zone: dict[str, Any]) -> dict[str, Any]:
+    refined = dict(zone)
+    try:
+        zone_low = float(refined.get("zone_low"))
+        zone_high = float(refined.get("zone_high"))
+    except (TypeError, ValueError):
+        return refined
+    if zone_high <= zone_low:
+        return refined
+
+    macro_width = zone_high - zone_low
+    core_bounds, core_definition = _daily_core_from_arbitration(refined)
+    if core_bounds is None:
+        midpoint = float(refined.get("zone_mid") or ((zone_low + zone_high) / 2.0))
+        half_width = macro_width * 0.275
+        core_low = max(zone_low, midpoint - half_width)
+        core_high = min(zone_high, midpoint + half_width)
+        core_definition = "midpoint_narrowed_core"
+    else:
+        core_low, core_high = core_bounds
+        core_low = max(zone_low, min(core_low, zone_high))
+        core_high = max(core_low, min(core_high, zone_high))
+        core_width = core_high - core_low
+        if core_width >= (macro_width * 0.9):
+            midpoint = float(refined.get("zone_mid") or ((zone_low + zone_high) / 2.0))
+            half_width = macro_width * 0.275
+            core_low = max(zone_low, midpoint - half_width)
+            core_high = min(zone_high, midpoint + half_width)
+            core_definition = "midpoint_narrowed_core"
+
+    refined["core_low"] = round(core_low, 8)
+    refined["core_high"] = round(core_high, 8)
+    refined["core_mid"] = round((core_low + core_high) / 2.0, 8)
+    refined["core_definition"] = core_definition
+    return refined
+
+
 def select_daily_majors(
     zones: list[dict[str, Any]],
     *,
@@ -248,7 +318,63 @@ def select_daily_majors(
         min_zone_separation_bps=min_zone_separation_bps,
         max_zones_per_symbol=max_zones,
     )
-    return select_spatially_diverse_zones(collapsed, max_zones=max_zones)
+    selected = select_spatially_diverse_zones(collapsed, max_zones=max_zones)
+    return [_apply_daily_operator_core(zone) for zone in selected]
+
+
+def _operational_role_key(zone: dict[str, Any]) -> str:
+    role = str(zone.get("current_role") or zone.get("kind") or zone.get("zone_kind") or "unknown").strip().lower()
+    if role in {"support", "resistance", "containing"}:
+        return role
+    origin = str(zone.get("origin_kind") or zone.get("zone_kind") or role).strip().lower()
+    if origin in {"support", "resistance"}:
+        return origin
+    return role or "unknown"
+
+
+
+def _select_operational_local_representatives(
+    zones: list[dict[str, Any]],
+    *,
+    min_zone_separation_bps: float,
+) -> list[dict[str, Any]]:
+    ordered = sorted([z for z in zones if float(z.get("zone_mid") or 0.0) > 0.0], key=lambda z: float(z.get("zone_mid") or 0.0))
+    if not ordered:
+        return []
+
+    neighborhood_bps = max(float(min_zone_separation_bps) * 1.6, 120.0)
+    by_role: dict[str, list[dict[str, Any]]] = {}
+    for zone in ordered:
+        by_role.setdefault(_operational_role_key(zone), []).append(zone)
+
+    selected: list[dict[str, Any]] = []
+    for role_zones in by_role.values():
+        neighborhoods: list[list[dict[str, Any]]] = [[role_zones[0]]]
+        for zone in role_zones[1:]:
+            cur_mid = float(zone.get("zone_mid") or 0.0)
+            last_group = neighborhoods[-1]
+            center = sum(float(x.get("zone_mid") or 0.0) for x in last_group) / len(last_group)
+            dist_bps = abs(cur_mid - center) / max(abs(center), 1e-9) * 10000.0
+            if dist_bps <= neighborhood_bps:
+                last_group.append(zone)
+            else:
+                neighborhoods.append([zone])
+
+        for idx, group in enumerate(neighborhoods, start=1):
+            ranked = sorted(group, key=lambda z: zone_rank_key(z), reverse=True)
+            representative = dict(ranked[0])
+            representative["local_cluster_contract"] = "operational_local_representative_v1"
+            representative["local_cluster_role"] = _operational_role_key(representative)
+            representative["local_cluster_id"] = f"{representative.get('tf') or 'tf'}:{representative['local_cluster_role']}:{idx}"
+            representative["local_cluster_member_count"] = len(group)
+            representative["local_cluster_member_ids"] = [str(z.get("zone_id") or "") for z in sorted(group, key=lambda z: float(z.get("zone_mid") or 0.0))]
+            representative["local_cluster_bounds"] = {
+                "low": round(min(float(z.get("zone_low") or z.get("zone_mid") or 0.0) for z in group), 8),
+                "high": round(max(float(z.get("zone_high") or z.get("zone_mid") or 0.0) for z in group), 8),
+            }
+            selected.append(representative)
+    return selected
+
 
 
 def select_operational_zones(
@@ -260,11 +386,26 @@ def select_operational_zones(
 ) -> list[dict[str, Any]]:
     confirmed = [z for z in zones if z.get("status") == "confirmed"]
     prefilter = [z for z in confirmed if float(z.get("strength_score") or 0.0) >= min_strength]
-    return collapse_zones_by_distance(
+    representatives = _select_operational_local_representatives(
         prefilter,
         min_zone_separation_bps=min_zone_separation_bps,
-        max_zones_per_symbol=max_zones,
     )
+    by_role: dict[str, list[dict[str, Any]]] = {}
+    for zone in representatives:
+        by_role.setdefault(_operational_role_key(zone), []).append(zone)
+
+    collapsed: list[dict[str, Any]] = []
+    for role_zones in by_role.values():
+        collapsed.extend(
+            collapse_zones_by_distance(
+                role_zones,
+                min_zone_separation_bps=min_zone_separation_bps,
+                max_zones_per_symbol=max_zones,
+            )
+        )
+
+    collapsed = sorted(collapsed, key=lambda z: zone_rank_key(z), reverse=True)[:max_zones]
+    return sorted(collapsed, key=lambda z: float(z.get("zone_mid") or 0.0))
 
 
 def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:

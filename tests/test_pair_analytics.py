@@ -142,3 +142,30 @@ def test_build_pair_analytics_snapshot_combines_sr_and_structure_contracts():
     assert availability["1D"]["status"] == "ready"
     assert availability["4H"]["status"] == "ready"
     assert availability["1H"]["status"] == "missing_source"
+
+
+
+def test_pair_analytics_prefers_core_bounds_for_daily_summary():
+    from liquidsniper.core.pair_analytics import summarize_zone_for_pair_analytics
+    zone = {
+        "zone_id": "BTCUSDT:1D:test",
+        "symbol": "BTCUSDT",
+        "tf": "1D",
+        "status": "confirmed",
+        "zone_low": 100.0,
+        "zone_high": 140.0,
+        "zone_mid": 120.0,
+        "core_low": 112.0,
+        "core_high": 128.0,
+        "core_mid": 120.0,
+        "display_bounds_kind": "core",
+        "current_role": "support",
+        "origin_kind": "resistance",
+        "relative_position": "below",
+    }
+    payload = summarize_zone_for_pair_analytics(zone)
+    assert payload["bounds"]["low"] == 112.0
+    assert payload["bounds"]["high"] == 128.0
+    assert payload["macro_bounds"]["low"] == 100.0
+    assert payload["macro_bounds"]["high"] == 140.0
+    assert payload["display_bounds_kind"] == "core"

@@ -102,6 +102,9 @@ Rules:
 - core bounds are optional in Phase 2 shadow mode
 - if present, core bounds must lie inside the outer structural envelope unless explicitly marked otherwise
 - selectors may use structural or core bounds depending on policy, but they must state which one they used
+- **1D refinement doctrine:** the outer `zone_low/zone_high` remains the macro-truth envelope; `core_low/core_high` is the narrower operator-facing anchor band extracted inside that envelope rather than a replacement for it
+- **1D surfacing rule:** when a Daily zone carries core bounds, authoritative/operator views should render both the macro band and the core band so reviewers can validate macro context separately from the narrower actionable center
+- `core_definition` should name the narrowing rule used (for example `overlap_density_core`, `midpoint_narrowed_core`, or `active_containing_core`) so operator review can distinguish structural truth from presentation refinement
 
 ## 4) Source family model
 

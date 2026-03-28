@@ -174,6 +174,59 @@ def test_select_daily_majors_prefers_corroborated_structure_participation_over_p
     assert selected[0]["daily_major_diagnostics"]["has_structure"] is True
 
 
+def test_select_daily_majors_adds_overlap_density_core_when_family_bounds_overlap():
+    overlapped = {
+        **_zone("doverlap", 100.0, tf="1D", strength=85.0, retest="reject"),
+        "zone_low": 94.0,
+        "zone_high": 106.0,
+        "zone_mid": 100.0,
+        "arbitration_diagnostics": {
+            "candidates": [
+                {"zone_id": "c1", "low": 96.0, "high": 104.0, "base_score": 88.0},
+                {"zone_id": "c2", "low": 98.0, "high": 102.0, "base_score": 84.0},
+            ]
+        },
+    }
+    selected = select_daily_majors(
+        [overlapped],
+        min_strength=70.0,
+        min_zone_separation_bps=120.0,
+        max_zones=1,
+        strict_retest_quality=True,
+    )
+    assert selected[0]["core_low"] == 98.0
+    assert selected[0]["core_high"] == 102.0
+    assert selected[0]["core_mid"] == 100.0
+    assert selected[0]["core_definition"] == "overlap_density_core"
+
+
+
+def test_select_daily_majors_falls_back_to_midpoint_narrowed_core_when_no_overlap_exists():
+    broad = {
+        **_zone("dbroad", 100.0, tf="1D", strength=85.0, retest="reject"),
+        "zone_low": 90.0,
+        "zone_high": 110.0,
+        "zone_mid": 100.0,
+        "arbitration_diagnostics": {
+            "candidates": [
+                {"zone_id": "c1", "low": 90.0, "high": 110.0, "base_score": 88.0},
+            ]
+        },
+    }
+    selected = select_daily_majors(
+        [broad],
+        min_strength=70.0,
+        min_zone_separation_bps=120.0,
+        max_zones=1,
+        strict_retest_quality=True,
+    )
+    assert selected[0]["core_low"] == 94.5
+    assert selected[0]["core_high"] == 105.5
+    assert selected[0]["core_mid"] == 100.0
+    assert selected[0]["core_definition"] == "midpoint_narrowed_core"
+
+
+
 def test_select_operational_zones_collapses_nearby_levels():
     zones = [
         _zone("o1", 100.0, tf="4H", strength=82.0),
@@ -187,6 +240,43 @@ def test_select_operational_zones_collapses_nearby_levels():
         max_zones=4,
     )
     assert [z["zone_id"] for z in selected] == ["o1", "o3"]
+    assert selected[0]["local_cluster_member_ids"] == ["o1", "o2"]
+    assert selected[0]["local_cluster_member_count"] == 2
+    assert selected[0]["local_cluster_role"] == "support"
+
+
+
+def test_select_operational_zones_keeps_opposite_side_levels_separate_inside_local_neighborhood():
+    support = _zone("sup", 100.0, tf="4H", kind="support", strength=82.0)
+    resistance = {
+        **_zone("res", 100.4, tf="4H", kind="resistance", strength=88.0),
+        "current_role": "resistance",
+        "origin_kind": "resistance",
+    }
+    selected = select_operational_zones(
+        [support, resistance],
+        min_strength=70.0,
+        min_zone_separation_bps=80.0,
+        max_zones=4,
+    )
+    assert [z["zone_id"] for z in selected] == ["sup", "res"]
+    assert [z["local_cluster_role"] for z in selected] == ["support", "resistance"]
+
+
+
+def test_select_operational_zones_prefers_best_evidence_within_local_same_side_cluster():
+    zones = [
+        _zone("nearer", 100.0, tf="4H", kind="support", strength=80.0, selection=80.0),
+        _zone("better", 100.9, tf="4H", kind="support", strength=92.0, selection=92.0),
+    ]
+    selected = select_operational_zones(
+        zones,
+        min_strength=70.0,
+        min_zone_separation_bps=80.0,
+        max_zones=4,
+    )
+    assert [z["zone_id"] for z in selected] == ["better"]
+    assert selected[0]["local_cluster_member_ids"] == ["nearer", "better"]
 
 
 def test_nearest_four_levels_adds_side_aware_payloads():
@@ -362,3 +452,51 @@ def test_zone_candidates_from_reaction_emits_touch_and_retest_provenance():
         "2026-03-13T00:00:00Z",
         "2026-03-13T04:00:00Z",
     ]
+
+
+
+def test_score_zone_adds_core_bounds_for_daily_operator_view():
+    from liquidsniper.core.zone_engine_v3 import score_zone
+    zone = {
+        "zone_id": "BTCUSDT:1D:test",
+        "symbol": "BTCUSDT",
+        "tf": "1D",
+        "status": "confirmed",
+        "zone_low": 100.0,
+        "zone_high": 140.0,
+        "zone_mid": 120.0,
+        "strength_score": 80.0,
+        "reaction_score": 70.0,
+        "reaction_efficiency_score": 65.0,
+        "carry_score": 60.0,
+        "candidate_sources": ["base", "reaction", "structure"],
+        "atr_local": 5.0,
+    }
+    scored = score_zone(zone, last_price=130.0)
+    assert scored["core_low"] >= scored["zone_low"]
+    assert scored["core_high"] <= scored["zone_high"]
+    assert scored["core_high"] - scored["core_low"] < scored["zone_high"] - scored["zone_low"]
+    assert scored["display_bounds_kind"] == "core"
+
+
+def test_score_zone_keeps_macro_bounds_for_4h_operator_view():
+    from liquidsniper.core.zone_engine_v3 import score_zone
+    zone = {
+        "zone_id": "BTCUSDT:4H:test",
+        "symbol": "BTCUSDT",
+        "tf": "4H",
+        "status": "confirmed",
+        "zone_low": 100.0,
+        "zone_high": 110.0,
+        "zone_mid": 105.0,
+        "strength_score": 80.0,
+        "reaction_score": 70.0,
+        "reaction_efficiency_score": 65.0,
+        "carry_score": 60.0,
+        "candidate_sources": ["reaction"],
+        "atr_local": 3.0,
+    }
+    scored = score_zone(zone, last_price=106.0)
+    assert scored["core_low"] == scored["zone_low"]
+    assert scored["core_high"] == scored["zone_high"]
+    assert scored["display_bounds_kind"] == "macro"
