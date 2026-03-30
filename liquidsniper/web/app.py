@@ -431,9 +431,9 @@ def _render_shadow_surface_list(label: str, zones: list[dict[str, Any]]) -> None
 
 def _authoritative_group_title(group_key: str) -> str:
     titles = {
-        "below_price": "Below current price / support",
-        "contains_price": "Contains current price / active band",
-        "above_price": "Above current price / resistance",
+        "below_price": "Zones below current price / support context",
+        "contains_price": "Zones containing current price / active band",
+        "above_price": "Zones above current price / resistance context",
     }
     return titles.get(str(group_key), str(group_key))
 
@@ -452,7 +452,11 @@ def _format_authoritative_zone_line(zone: dict[str, Any]) -> str:
     origin_kind = zone.get("origin_kind") or zone.get("zone_kind") or "n/a"
     families = ", ".join(str(item) for item in (zone.get("candidate_families") or []) if str(item).strip()) or "n/a"
     selection = zone.get("selection_score")
+    selector_reason = zone.get("selector_reason")
+    selector_rank = zone.get("selector_rank")
     tf = zone.get("tf") or "?"
+    cluster_member_count = zone.get("local_cluster_member_count")
+    cluster_demoted = zone.get("local_cluster_demoted_ids") or []
     span = f"{float(low):,.4f} -> {float(high):,.4f}" if low is not None and high is not None else "n/a"
     mid_text = f"{float(mid):,.4f}" if mid is not None else "n/a"
     selection_text = f"{float(selection):.1f}" if selection is not None else "n/a"
@@ -466,10 +470,23 @@ def _format_authoritative_zone_line(zone: dict[str, Any]) -> str:
         if core_definition:
             core_label += f" · core rule {core_definition}"
         core_text = core_label
+    selector_text = None
+    if selector_rank is not None or selector_reason:
+        selector_text = f"rank {selector_rank}" if selector_rank is not None else "selector kept"
+        if selector_reason:
+            selector_text += f" · {selector_reason}"
+    cluster_text = None
+    if cluster_member_count:
+        cluster_text = f"cluster members {cluster_member_count}"
+        if cluster_demoted:
+            cluster_text += f" · demoted {', '.join(str(item) for item in cluster_demoted[:4])}"
     return (
         f"band {span} · mid {mid_text}"
         f"{' · ' + core_text if core_text else ''}"
-        f" · role {current_role} · tf {tf} · families {families} · sel {selection_text} · origin {origin_kind}"
+        f" · role {current_role} · tf {tf} · families {families} · sel {selection_text}"
+        f"{' · ' + selector_text if selector_text else ''}"
+        f"{' · ' + cluster_text if cluster_text else ''}"
+        f" · origin {origin_kind}"
     )
 
 
@@ -548,11 +565,11 @@ def _render_authoritative_levels_view(symbol: str, shadow_snapshot: dict[str, An
 def _surface_group_label(position: str) -> str:
     normalized = str(position or "unknown").strip().lower()
     if normalized == "above":
-        return "Below price / support"
+        return "Zones below current price / support context"
     if normalized == "inside":
-        return "Contains price / active band"
+        return "Zones containing current price / active band"
     if normalized == "below":
-        return "Above price / resistance"
+        return "Zones above current price / resistance context"
     return "Unknown side"
 
 

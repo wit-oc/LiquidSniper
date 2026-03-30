@@ -47,6 +47,7 @@ def test_build_authoritative_surface_groups_shadow_selected_levels_for_review() 
 
     assert surface["contract"] == "authoritative_levels_view_v1"
     assert surface["selector_surface"] == "daily_major"
+    assert surface["group_perspective"] == "zone_relative_to_price"
     assert [z["zone_id"] for z in surface["groups"]["below_price"]] == ["support-low", "support-high"]
     assert [z["zone_id"] for z in surface["groups"]["contains_price"]] == ["active-band"]
     assert [z["zone_id"] for z in surface["groups"]["above_price"]] == ["resistance-low", "resistance-high"]

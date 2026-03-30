@@ -243,6 +243,10 @@ def test_select_operational_zones_collapses_nearby_levels():
     assert selected[0]["local_cluster_member_ids"] == ["o1", "o2"]
     assert selected[0]["local_cluster_member_count"] == 2
     assert selected[0]["local_cluster_role"] == "support"
+    assert selected[0]["local_cluster_demoted_ids"] == ["o2"]
+    assert selected[0]["selector_surface"] == "operational_4h"
+    assert selected[0]["selector_status"] == "kept"
+    assert selected[0]["selector_rank"] == 1
 
 
 
@@ -277,6 +281,67 @@ def test_select_operational_zones_prefers_best_evidence_within_local_same_side_c
     )
     assert [z["zone_id"] for z in selected] == ["better"]
     assert selected[0]["local_cluster_member_ids"] == ["nearer", "better"]
+
+
+def test_select_operational_zones_collapses_overlapping_same_side_intervals_even_when_mid_gap_is_wide():
+    left = {
+        **_zone("wide-left", 101.0, tf="4H", kind="resistance", strength=87.0, selection=87.0),
+        "zone_low": 99.0,
+        "zone_high": 103.0,
+        "zone_mid": 101.0,
+        "zone_width_bps": 400.0,
+        "current_role": "resistance",
+        "origin_kind": "resistance",
+    }
+    right = {
+        **_zone("wide-right", 104.5, tf="4H", kind="resistance", strength=84.0, selection=84.0),
+        "zone_low": 102.5,
+        "zone_high": 106.5,
+        "zone_mid": 104.5,
+        "zone_width_bps": 382.0,
+        "current_role": "resistance",
+        "origin_kind": "resistance",
+    }
+    selected = select_operational_zones(
+        [left, right],
+        min_strength=70.0,
+        min_zone_separation_bps=80.0,
+        max_zones=4,
+    )
+    assert [z["zone_id"] for z in selected] == ["wide-left"]
+    assert selected[0]["local_cluster_member_ids"] == ["wide-left", "wide-right"]
+    assert selected[0]["local_cluster_demoted_ids"] == ["wide-right"]
+    assert selected[0]["local_cluster_competition_basis"] == "interval_overlap_or_edge_gap_with_provenance_bias"
+
+
+def test_select_operational_zones_prefers_corroborated_provenance_within_local_same_side_cluster():
+    base_only = {
+        **_zone("base-only", 100.0, tf="4H", kind="support", strength=91.0, selection=91.0),
+        "candidate_family": "base",
+        "candidate_sources": ["base"],
+        "candidate_families": ["base"],
+        "source_family": "base",
+        "merge_family_count": 1,
+    }
+    corroborated = {
+        **_zone("corroborated", 100.9, tf="4H", kind="support", strength=89.0, selection=89.0),
+        "candidate_family": "structure",
+        "candidate_sources": ["structure", "reaction"],
+        "candidate_families": ["structure", "reaction"],
+        "source_family": "structure",
+        "merge_family_count": 2,
+        "structure_provenance": {"family": "structure"},
+    }
+    selected = select_operational_zones(
+        [base_only, corroborated],
+        min_strength=70.0,
+        min_zone_separation_bps=80.0,
+        max_zones=4,
+    )
+    assert [z["zone_id"] for z in selected] == ["corroborated"]
+    assert selected[0]["local_cluster_demoted_ids"] == ["base-only"]
+    assert selected[0]["local_cluster_representative_diagnostics"]["has_structure"] is True
+    assert selected[0]["local_cluster_representative_diagnostics"]["merge_family_count"] == 2
 
 
 def test_nearest_four_levels_adds_side_aware_payloads():

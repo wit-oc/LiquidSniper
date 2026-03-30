@@ -110,6 +110,10 @@ def summarize_zone_for_pair_analytics(
         "core_definition": core_definition,
         "strength": zone.get("strength") or zone.get("strength_score"),
         "selection_score": zone.get("selection_score") or diagnostics.get("selection_score"),
+        "selector_surface": zone.get("selector_surface"),
+        "selector_status": zone.get("selector_status"),
+        "selector_reason": zone.get("selector_reason"),
+        "selector_rank": zone.get("selector_rank"),
         "touch_count": zone.get("touch_count"),
         "meaningful_touch_count": zone.get("meaningful_touch_count"),
         "first_retest_status": zone.get("first_retest_status") or zone.get("first_retest_result"),
@@ -130,6 +134,17 @@ def summarize_zone_for_pair_analytics(
         "source_versions": zone.get("source_versions") or diagnostics.get("source_versions") or {},
         "generator_contracts": zone.get("generator_contracts") or diagnostics.get("generator_contracts") or {},
         "family_badges": [badge for badge in [source_family, *candidate_families] if badge],
+        "local_cluster_contract": zone.get("local_cluster_contract"),
+        "local_cluster_role": zone.get("local_cluster_role"),
+        "local_cluster_id": zone.get("local_cluster_id"),
+        "local_cluster_member_count": zone.get("local_cluster_member_count"),
+        "local_cluster_member_ids": zone.get("local_cluster_member_ids"),
+        "local_cluster_demoted_ids": zone.get("local_cluster_demoted_ids"),
+        "local_cluster_bounds": zone.get("local_cluster_bounds"),
+        "local_cluster_demotions": zone.get("local_cluster_demotions"),
+        "local_cluster_competition_basis": zone.get("local_cluster_competition_basis"),
+        "local_cluster_representative_weight": zone.get("local_cluster_representative_weight"),
+        "local_cluster_representative_diagnostics": zone.get("local_cluster_representative_diagnostics"),
         "price_anchor": price_anchor or {
             "kind": "zone_mid",
             "zone_mid": mid,
@@ -309,4 +324,3 @@ def load_candles_from_csv(path: str | Path, *, limit: int = 600) -> list[dict[st
     if limit > 0 and len(rows) > limit:
         rows = rows[-limit:]
     return rows
-

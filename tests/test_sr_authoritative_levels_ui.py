@@ -10,9 +10,9 @@ from liquidsniper.web.app import (
 
 
 def test_authoritative_group_title_matches_review_contract() -> None:
-    assert _authoritative_group_title("below_price") == "Below current price / support"
-    assert _authoritative_group_title("contains_price") == "Contains current price / active band"
-    assert _authoritative_group_title("above_price") == "Above current price / resistance"
+    assert _authoritative_group_title("below_price") == "Zones below current price / support context"
+    assert _authoritative_group_title("contains_price") == "Zones containing current price / active band"
+    assert _authoritative_group_title("above_price") == "Zones above current price / resistance context"
 
 
 def test_format_authoritative_zone_line_keeps_current_role_primary_and_origin_secondary() -> None:

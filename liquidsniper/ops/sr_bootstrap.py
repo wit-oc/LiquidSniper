@@ -185,6 +185,7 @@ def _build_authoritative_surface(
         "contract": "authoritative_levels_view_v1",
         "tf": tf,
         "selector_surface": selector_surface,
+        "group_perspective": "zone_relative_to_price",
         "entry": entry,
         "groups": {
             "below_price": sorted(grouped["above"], key=_authoritative_group_key),
@@ -305,7 +306,7 @@ def _build_v3_shadow_snapshot(
                     operational_surface,
                     entry=float(last_price) if last_price is not None else None,
                     tf="4H",
-                    selector_surface="operational",
+                    selector_surface="operational_4h",
                 ),
             },
         }

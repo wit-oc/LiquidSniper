@@ -16,6 +16,161 @@ def zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float, float, float,
     )
 
 
+def _zone_interval(zone: dict[str, Any]) -> tuple[float, float, float] | None:
+    low = as_float(zone.get("zone_low"))
+    high = as_float(zone.get("zone_high"))
+    mid = as_float(zone.get("zone_mid"))
+    if low is None or high is None:
+        bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
+        low = low if low is not None else as_float(bounds.get("low"))
+        high = high if high is not None else as_float(bounds.get("high"))
+        mid = mid if mid is not None else as_float(bounds.get("mid"))
+    if low is None or high is None or high <= low:
+        return None
+    if mid is None:
+        mid = (low + high) / 2.0
+    return low, high, mid
+
+
+def _mid_gap_bps(a: dict[str, Any], b: dict[str, Any]) -> float:
+    ia = _zone_interval(a)
+    ib = _zone_interval(b)
+    if ia is None or ib is None:
+        return float("inf")
+    _, _, amid = ia
+    _, _, bmid = ib
+    anchor = max(abs(amid), abs(bmid), 1e-9)
+    return abs(amid - bmid) / anchor * 10000.0
+
+
+def _edge_gap_bps(a: dict[str, Any], b: dict[str, Any]) -> float:
+    ia = _zone_interval(a)
+    ib = _zone_interval(b)
+    if ia is None or ib is None:
+        return float("inf")
+    alow, ahigh, amid = ia
+    blow, bhigh, bmid = ib
+    if ahigh < blow:
+        gap = blow - ahigh
+    elif bhigh < alow:
+        gap = alow - bhigh
+    else:
+        gap = -min(ahigh, bhigh) + max(alow, blow)
+    anchor = max(abs(amid), abs(bmid), 1e-9)
+    return gap / anchor * 10000.0
+
+
+def _interval_overlap_ratio(a: dict[str, Any], b: dict[str, Any]) -> float:
+    ia = _zone_interval(a)
+    ib = _zone_interval(b)
+    if ia is None or ib is None:
+        return 0.0
+    alow, ahigh, _ = ia
+    blow, bhigh, _ = ib
+    overlap = min(ahigh, bhigh) - max(alow, blow)
+    if overlap <= 0:
+        return 0.0
+    aw = max(ahigh - alow, 1e-9)
+    bw = max(bhigh - blow, 1e-9)
+    return overlap / max(min(aw, bw), 1e-9)
+
+
+def _sources_for_zone(zone: dict[str, Any]) -> list[str]:
+    sources = [str(src).strip().lower() for src in (zone.get("candidate_sources") or []) if str(src).strip()]
+    families = [str(src).strip().lower() for src in (zone.get("candidate_families") or []) if str(src).strip()]
+    source_family = str(zone.get("source_family") or "").strip().lower()
+    candidate_family = str(zone.get("candidate_family") or "").strip().lower()
+    merged = []
+    for item in [*sources, *families, source_family, candidate_family]:
+        if item and item not in merged:
+            merged.append(item)
+    return merged
+
+
+def _operational_provenance_weight(zone: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+    sources = set(_sources_for_zone(zone))
+    merge_family_count = int(zone.get("merge_family_count") or len(sources) or 1)
+    has_structure = "structure" in sources or bool(zone.get("structure_provenance"))
+    has_reaction = "reaction" in sources
+    has_base = "base" in sources
+    pure_base_only = bool(sources) and sources == {"base"}
+
+    weight = 1.0
+    if has_structure:
+        weight += 0.06
+    if has_reaction:
+        weight += 0.02
+    if merge_family_count >= 2:
+        weight += min(0.05, 0.02 * float(merge_family_count - 1))
+    if pure_base_only:
+        weight -= 0.05
+
+    diagnostics = {
+        "sources": sorted(sources),
+        "merge_family_count": merge_family_count,
+        "has_structure": has_structure,
+        "has_reaction": has_reaction,
+        "has_base": has_base,
+        "pure_base_only": pure_base_only,
+        "weight": round(max(0.88, min(1.15, weight)), 4),
+    }
+    return max(0.88, min(1.15, weight)), diagnostics
+
+
+def _operational_representative_rank_key(zone: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
+    provenance_weight, _ = _operational_provenance_weight(zone)
+    base_score = float(zone.get("selection_score") or zone.get("strength_score") or 0.0)
+    weighted_score = base_score * provenance_weight
+    reaction_efficiency = float(zone.get("reaction_efficiency_score") or 0.0)
+    touch_count = float(zone.get("meaningful_touch_count") or 0.0)
+    width_bps = float(zone.get("zone_width_bps") or 0.0)
+    merge_family_count = float(zone.get("merge_family_count") or len(_sources_for_zone(zone)) or 1.0)
+    return (
+        weighted_score,
+        merge_family_count,
+        reaction_efficiency,
+        touch_count,
+        -width_bps,
+        base_score,
+    )
+
+
+def _neighborhood_envelope(group: list[dict[str, Any]]) -> dict[str, Any] | None:
+    intervals = [_zone_interval(zone) for zone in group]
+    valid = [row for row in intervals if row is not None]
+    if not valid:
+        return None
+    lows = [row[0] for row in valid]
+    highs = [row[1] for row in valid]
+    mids = [row[2] for row in valid]
+    return {
+        "zone_low": min(lows),
+        "zone_high": max(highs),
+        "zone_mid": sum(mids) / len(mids),
+    }
+
+
+def _belongs_to_same_side_neighborhood(
+    group: list[dict[str, Any]],
+    zone: dict[str, Any],
+    *,
+    min_zone_separation_bps: float,
+) -> bool:
+    envelope = _neighborhood_envelope(group)
+    if envelope is None:
+        return False
+    overlap_ratio = _interval_overlap_ratio(envelope, zone)
+    edge_gap_bps = _edge_gap_bps(envelope, zone)
+    mid_gap_bps = _mid_gap_bps(envelope, zone)
+    edge_threshold_bps = max(float(min_zone_separation_bps) * 1.35, 220.0)
+    mid_threshold_bps = max(float(min_zone_separation_bps) * 2.0, 340.0)
+    return (
+        overlap_ratio >= 0.18
+        or edge_gap_bps <= edge_threshold_bps
+        or (mid_gap_bps <= mid_threshold_bps and edge_gap_bps <= (edge_threshold_bps * 2.2))
+    )
+
+
 def collapse_zones_by_distance(
     zones: list[dict[str, Any]],
     *,
@@ -319,7 +474,18 @@ def select_daily_majors(
         max_zones_per_symbol=max_zones,
     )
     selected = select_spatially_diverse_zones(collapsed, max_zones=max_zones)
-    return [_apply_daily_operator_core(zone) for zone in selected]
+    surfaced = [_apply_daily_operator_core(zone) for zone in selected]
+    ranked = sorted(surfaced, key=lambda z: zone_rank_key(z), reverse=True)
+    rank_map = {str(zone.get("zone_id") or ""): idx for idx, zone in enumerate(ranked, start=1)}
+    out: list[dict[str, Any]] = []
+    for zone in surfaced:
+        zz = dict(zone)
+        zz["selector_surface"] = "daily_major"
+        zz["selector_status"] = "kept"
+        zz["selector_reason"] = "kept: daily major anchor after local-band selection"
+        zz["selector_rank"] = rank_map.get(str(zone.get("zone_id") or ""))
+        out.append(zz)
+    return out
 
 
 def _operational_role_key(zone: dict[str, Any]) -> str:
@@ -338,11 +504,13 @@ def _select_operational_local_representatives(
     *,
     min_zone_separation_bps: float,
 ) -> list[dict[str, Any]]:
-    ordered = sorted([z for z in zones if float(z.get("zone_mid") or 0.0) > 0.0], key=lambda z: float(z.get("zone_mid") or 0.0))
+    ordered = sorted(
+        [z for z in zones if _zone_interval(z) is not None],
+        key=lambda z: float((_zone_interval(z) or (0.0, 0.0, 0.0))[0]),
+    )
     if not ordered:
         return []
 
-    neighborhood_bps = max(float(min_zone_separation_bps) * 1.6, 120.0)
     by_role: dict[str, list[dict[str, Any]]] = {}
     for zone in ordered:
         by_role.setdefault(_operational_role_key(zone), []).append(zone)
@@ -351,27 +519,47 @@ def _select_operational_local_representatives(
     for role_zones in by_role.values():
         neighborhoods: list[list[dict[str, Any]]] = [[role_zones[0]]]
         for zone in role_zones[1:]:
-            cur_mid = float(zone.get("zone_mid") or 0.0)
             last_group = neighborhoods[-1]
-            center = sum(float(x.get("zone_mid") or 0.0) for x in last_group) / len(last_group)
-            dist_bps = abs(cur_mid - center) / max(abs(center), 1e-9) * 10000.0
-            if dist_bps <= neighborhood_bps:
+            if _belongs_to_same_side_neighborhood(
+                last_group,
+                zone,
+                min_zone_separation_bps=min_zone_separation_bps,
+            ):
                 last_group.append(zone)
             else:
                 neighborhoods.append([zone])
 
         for idx, group in enumerate(neighborhoods, start=1):
-            ranked = sorted(group, key=lambda z: zone_rank_key(z), reverse=True)
+            ranked = sorted(group, key=lambda z: _operational_representative_rank_key(z), reverse=True)
             representative = dict(ranked[0])
+            provenance_weight, provenance_diag = _operational_provenance_weight(representative)
             representative["local_cluster_contract"] = "operational_local_representative_v1"
             representative["local_cluster_role"] = _operational_role_key(representative)
             representative["local_cluster_id"] = f"{representative.get('tf') or 'tf'}:{representative['local_cluster_role']}:{idx}"
             representative["local_cluster_member_count"] = len(group)
             representative["local_cluster_member_ids"] = [str(z.get("zone_id") or "") for z in sorted(group, key=lambda z: float(z.get("zone_mid") or 0.0))]
+            representative["local_cluster_demoted_ids"] = [
+                str(z.get("zone_id") or "") for z in sorted(group, key=lambda z: float(z.get("zone_mid") or 0.0)) if str(z.get("zone_id") or "") != str(representative.get("zone_id") or "")
+            ]
             representative["local_cluster_bounds"] = {
                 "low": round(min(float(z.get("zone_low") or z.get("zone_mid") or 0.0) for z in group), 8),
                 "high": round(max(float(z.get("zone_high") or z.get("zone_mid") or 0.0) for z in group), 8),
             }
+            representative["local_cluster_demotions"] = [
+                {
+                    "zone_id": str(z.get("zone_id") or ""),
+                    "reason": "too close to stronger same-side representative",
+                    "competition_basis": "interval_overlap_or_edge_gap_with_provenance_bias",
+                }
+                for z in sorted(group, key=lambda z: float(z.get("zone_mid") or 0.0))
+                if str(z.get("zone_id") or "") != str(representative.get("zone_id") or "")
+            ]
+            representative["local_cluster_competition_basis"] = "interval_overlap_or_edge_gap_with_provenance_bias"
+            representative["local_cluster_representative_weight"] = round(provenance_weight, 4)
+            representative["local_cluster_representative_diagnostics"] = provenance_diag
+            representative["selector_surface"] = "operational_4h"
+            representative["selector_status"] = "kept"
+            representative["selector_reason"] = "kept: representative of same-side local neighborhood"
             selected.append(representative)
     return selected
 
@@ -390,22 +578,16 @@ def select_operational_zones(
         prefilter,
         min_zone_separation_bps=min_zone_separation_bps,
     )
-    by_role: dict[str, list[dict[str, Any]]] = {}
-    for zone in representatives:
-        by_role.setdefault(_operational_role_key(zone), []).append(zone)
-
-    collapsed: list[dict[str, Any]] = []
-    for role_zones in by_role.values():
-        collapsed.extend(
-            collapse_zones_by_distance(
-                role_zones,
-                min_zone_separation_bps=min_zone_separation_bps,
-                max_zones_per_symbol=max_zones,
-            )
-        )
-
-    collapsed = sorted(collapsed, key=lambda z: zone_rank_key(z), reverse=True)[:max_zones]
-    return sorted(collapsed, key=lambda z: float(z.get("zone_mid") or 0.0))
+    ranked = sorted(representatives, key=lambda z: _operational_representative_rank_key(z), reverse=True)[:max_zones]
+    out: list[dict[str, Any]] = []
+    for idx, zone in enumerate(ranked, start=1):
+        zz = dict(zone)
+        zz["selector_surface"] = "operational_4h"
+        zz["selector_status"] = "kept"
+        zz["selector_reason"] = zz.get("selector_reason") or "kept: representative of same-side local neighborhood"
+        zz["selector_rank"] = idx
+        out.append(zz)
+    return sorted(out, key=lambda z: float(z.get("zone_mid") or 0.0))
 
 
 def nearest_four_levels(*, profile_id: str, entry: float, zones: list[dict[str, Any]]) -> dict[str, Any]:
