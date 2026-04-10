@@ -253,6 +253,7 @@ def _build_v3_shadow_snapshot(
                     min_zone_separation_bps=float(daily_min_zone_separation_bps),
                     max_zones=int(daily_max_zones),
                     strict_retest_quality=bool(daily_require_first_retest_quality),
+                    reference_price=float(last_price) if last_price is not None else None,
                 )
                 major_surface = [dict(zone) for zone in kept]
                 selection_mode = "shadow_daily_major_v3"
@@ -473,6 +474,7 @@ def run_bootstrap(
                     min_zone_separation_bps=tf_min_sep_bps,
                     max_zones=tf_max_zones,
                     strict_retest_quality=tf_require_first_retest_quality,
+                    reference_price=float(last_price) if last_price is not None else None,
                 )
                 zones_tf_scored = [z for z in zones_tf_kept if "selection_score" in z]
                 strength_min = float(daily_min_strength)

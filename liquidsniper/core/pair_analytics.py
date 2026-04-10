@@ -11,6 +11,7 @@ from liquidsniper.core.zone_primitives import ROLE_SEMANTICS_CONTRACT, derive_ro
 
 PAIR_ANALYTICS_CONTRACT = "pair_analytics_v3"
 STRUCTURE_DIAGNOSTIC_CONTRACT = "market_structure_diagnostic_v2"
+DISPLAY_WIDTH_FLOOR_CONTRACT = "display_width_floor_v1"
 
 
 def _as_float(value: Any) -> float | None:
@@ -20,6 +21,68 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _apply_low_price_daily_display_floor(
+    *,
+    tf: str | None,
+    display_bounds_kind: str | None,
+    effective_bounds: dict[str, Any],
+    macro_bounds: dict[str, Any],
+    reference_price: float | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    normalized_tf = str(tf or "").upper()
+    if normalized_tf != "1D" or display_bounds_kind != "core":
+        return effective_bounds, None
+
+    price_anchor = _as_float(reference_price)
+    if price_anchor is None or price_anchor <= 0 or price_anchor > 1.0:
+        return effective_bounds, None
+
+    low = _as_float(effective_bounds.get("low"))
+    high = _as_float(effective_bounds.get("high"))
+    mid = _as_float(effective_bounds.get("mid"))
+    macro_low = _as_float(macro_bounds.get("low"))
+    macro_high = _as_float(macro_bounds.get("high"))
+    macro_mid = _as_float(macro_bounds.get("mid"))
+    if None in {low, high, macro_low, macro_high}:
+        return effective_bounds, None
+    if high <= low or macro_high <= macro_low:
+        return effective_bounds, None
+
+    core_width_bps = (high - low) / price_anchor * 10000.0
+    macro_width_bps = (macro_high - macro_low) / price_anchor * 10000.0
+    if core_width_bps >= 120.0 or macro_width_bps < 1000.0:
+        return effective_bounds, None
+
+    target_width_bps = min(180.0, max(120.0, macro_width_bps * 0.05))
+    target_half_width = (target_width_bps / 10000.0 * price_anchor) / 2.0
+    center = mid if mid is not None else (macro_mid if macro_mid is not None else ((low + high) / 2.0))
+    floored_low = max(macro_low, center - target_half_width)
+    floored_high = min(macro_high, center + target_half_width)
+    if floored_high <= floored_low:
+        return effective_bounds, None
+
+    adjusted = {
+        "low": round(floored_low, 8),
+        "mid": round((floored_low + floored_high) / 2.0, 8),
+        "high": round(floored_high, 8),
+    }
+    diagnostics = {
+        "contract": DISPLAY_WIDTH_FLOOR_CONTRACT,
+        "applied": True,
+        "reason": "low_price_daily_core_floor",
+        "target_width_bps": round(target_width_bps, 4),
+        "original_width_bps": round(core_width_bps, 4),
+        "macro_width_bps": round(macro_width_bps, 4),
+        "price_anchor": round(price_anchor, 8),
+        "raw_display_bounds": {
+            "low": round(low, 8),
+            "mid": round(mid if mid is not None else ((low + high) / 2.0), 8),
+            "high": round(high, 8),
+        },
+    }
+    return adjusted, diagnostics
 
 
 def summarize_zone_for_pair_analytics(
@@ -79,6 +142,13 @@ def summarize_zone_for_pair_analytics(
             "mid": core_mid,
             "high": core_high,
         }
+    effective_bounds, display_width_floor = _apply_low_price_daily_display_floor(
+        tf=zone.get("tf"),
+        display_bounds_kind=display_bounds_kind,
+        effective_bounds=effective_bounds,
+        macro_bounds=macro_bounds,
+        reference_price=reference_price,
+    )
 
     return {
         "zone_id": zone.get("zone_id"),
@@ -107,6 +177,8 @@ def summarize_zone_for_pair_analytics(
         if any(value is not None for value in (core_low, core_mid, core_high))
         else None,
         "display_bounds_kind": display_bounds_kind,
+        "display_width_floor": display_width_floor,
+        "display_width_floor_applied": bool(display_width_floor),
         "core_definition": core_definition,
         "strength": zone.get("strength") or zone.get("strength_score"),
         "selection_score": zone.get("selection_score") or diagnostics.get("selection_score"),
@@ -145,6 +217,12 @@ def summarize_zone_for_pair_analytics(
         "local_cluster_competition_basis": zone.get("local_cluster_competition_basis"),
         "local_cluster_representative_weight": zone.get("local_cluster_representative_weight"),
         "local_cluster_representative_diagnostics": zone.get("local_cluster_representative_diagnostics"),
+        "daily_pocket_contract": zone.get("daily_pocket_contract"),
+        "daily_pocket_id": zone.get("daily_pocket_id"),
+        "daily_pocket_member_count": zone.get("daily_pocket_member_count"),
+        "daily_pocket_member_ids": zone.get("daily_pocket_member_ids"),
+        "daily_pocket_demoted_ids": zone.get("daily_pocket_demoted_ids"),
+        "daily_pocket_reason": zone.get("daily_pocket_reason"),
         "price_anchor": price_anchor or {
             "kind": "zone_mid",
             "zone_mid": mid,

@@ -457,6 +457,9 @@ def _format_authoritative_zone_line(zone: dict[str, Any]) -> str:
     tf = zone.get("tf") or "?"
     cluster_member_count = zone.get("local_cluster_member_count")
     cluster_demoted = zone.get("local_cluster_demoted_ids") or []
+    pocket_member_count = zone.get("daily_pocket_member_count")
+    pocket_demoted = zone.get("daily_pocket_demoted_ids") or []
+    display_width_floor = zone.get("display_width_floor") if isinstance(zone.get("display_width_floor"), dict) else None
     span = f"{float(low):,.4f} -> {float(high):,.4f}" if low is not None and high is not None else "n/a"
     mid_text = f"{float(mid):,.4f}" if mid is not None else "n/a"
     selection_text = f"{float(selection):.1f}" if selection is not None else "n/a"
@@ -480,12 +483,22 @@ def _format_authoritative_zone_line(zone: dict[str, Any]) -> str:
         cluster_text = f"cluster members {cluster_member_count}"
         if cluster_demoted:
             cluster_text += f" · demoted {', '.join(str(item) for item in cluster_demoted[:4])}"
+    pocket_text = None
+    if pocket_member_count:
+        pocket_text = f"daily pocket members {pocket_member_count}"
+        if pocket_demoted:
+            pocket_text += f" · demoted {', '.join(str(item) for item in pocket_demoted[:4])}"
+    display_floor_text = None
+    if display_width_floor:
+        display_floor_text = f"display floor {float(display_width_floor.get('target_width_bps') or 0.0):.0f} bps"
     return (
         f"band {span} · mid {mid_text}"
         f"{' · ' + core_text if core_text else ''}"
         f" · role {current_role} · tf {tf} · families {families} · sel {selection_text}"
         f"{' · ' + selector_text if selector_text else ''}"
         f"{' · ' + cluster_text if cluster_text else ''}"
+        f"{' · ' + pocket_text if pocket_text else ''}"
+        f"{' · ' + display_floor_text if display_floor_text else ''}"
         f" · origin {origin_kind}"
     )
 

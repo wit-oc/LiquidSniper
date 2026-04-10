@@ -17,6 +17,7 @@ from liquidsniper.core.zone_engine_v3 import (
     zone_candidates_from_structure,
 )
 from liquidsniper.core.zone_primitives import ROLE_SEMANTICS_CONTRACT, derive_role_semantics, local_atr, side_aware_interaction
+from liquidsniper.core.zone_selectors import _apply_daily_current_regime_coverage
 
 
 def _zone(zone_id: str, mid: float, *, tf: str = "1D", kind: str = "support", status: str = "confirmed", strength: float = 80.0, selection: float | None = None, retest: str = "reject") -> dict:
@@ -224,6 +225,166 @@ def test_select_daily_majors_falls_back_to_midpoint_narrowed_core_when_no_overla
     assert selected[0]["core_high"] == 105.5
     assert selected[0]["core_mid"] == 100.0
     assert selected[0]["core_definition"] == "midpoint_narrowed_core"
+
+
+def test_select_daily_majors_consolidates_nested_macro_pocket_representatives():
+    lower = {
+        **_zone("d-low", 210.0, tf="1D", strength=84.0, selection=84.0, retest="reject"),
+        "zone_low": 170.0,
+        "zone_high": 230.0,
+        "zone_mid": 210.0,
+        "zone_width_bps": 900.0,
+        "candidate_sources": ["base", "structure"],
+        "merge_family_count": 2,
+        "structure_provenance": {"family": "structure"},
+    }
+    upper = {
+        **_zone("d-upper", 270.0, tf="1D", strength=91.0, selection=91.0, retest="reject"),
+        "zone_low": 236.0,
+        "zone_high": 304.0,
+        "zone_mid": 270.0,
+        "zone_width_bps": 1100.0,
+        "candidate_sources": ["base", "reaction", "structure"],
+        "merge_family_count": 3,
+        "structure_provenance": {"family": "structure"},
+    }
+    selected = select_daily_majors(
+        [lower, upper],
+        min_strength=70.0,
+        min_zone_separation_bps=120.0,
+        max_zones=4,
+        strict_retest_quality=True,
+        reference_price=700.0,
+    )
+    assert [z["zone_id"] for z in selected] == ["d-upper"]
+    assert selected[0]["daily_pocket_member_ids"] == ["d-low", "d-upper"]
+    assert selected[0]["daily_pocket_demoted_ids"] == ["d-low"]
+
+
+def test_select_daily_majors_adds_current_regime_coverage_anchor_when_large_gap_exists():
+    distant_lower = {
+        **_zone("d-lower", 210.0, tf="1D", strength=88.0, selection=88.0, retest="reject"),
+        "zone_low": 180.0,
+        "zone_high": 240.0,
+        "zone_mid": 210.0,
+        "zone_width_bps": 850.0,
+        "candidate_sources": ["structure", "reaction"],
+        "merge_family_count": 2,
+        "structure_provenance": {"family": "structure"},
+    }
+    lower_active = {
+        **_zone("d-active-low", 520.0, tf="1D", strength=92.0, selection=92.0, retest="reject"),
+        "zone_low": 500.0,
+        "zone_high": 540.0,
+        "zone_mid": 520.0,
+        "zone_width_bps": 700.0,
+        "candidate_sources": ["base", "reaction"],
+        "merge_family_count": 2,
+    }
+    containing = {
+        **_zone("d-current", 700.0, tf="1D", strength=86.0, selection=86.0, retest="reject"),
+        "zone_low": 660.0,
+        "zone_high": 730.0,
+        "zone_mid": 700.0,
+        "zone_width_bps": 950.0,
+        "candidate_sources": ["structure", "reaction"],
+        "merge_family_count": 2,
+        "structure_provenance": {"family": "structure"},
+    }
+    upper_active = {
+        **_zone("d-upper", 860.0, tf="1D", strength=89.0, selection=89.0, retest="reject"),
+        "zone_low": 840.0,
+        "zone_high": 890.0,
+        "zone_mid": 860.0,
+        "zone_width_bps": 720.0,
+        "candidate_sources": ["base", "reaction"],
+        "merge_family_count": 2,
+    }
+    far_upper = {
+        **_zone("d-far-upper", 1100.0, tf="1D", strength=79.0, selection=79.0, retest="accept"),
+        "zone_low": 1080.0,
+        "zone_high": 1120.0,
+        "zone_mid": 1100.0,
+        "zone_width_bps": 680.0,
+        "candidate_sources": ["base"],
+        "merge_family_count": 1,
+    }
+    selected = select_daily_majors(
+        [distant_lower, lower_active, containing, upper_active, far_upper],
+        min_strength=70.0,
+        min_zone_separation_bps=120.0,
+        max_zones=4,
+        strict_retest_quality=True,
+        reference_price=700.0,
+    )
+    ids = [z["zone_id"] for z in selected]
+    assert "d-current" in ids
+    assert "d-far-upper" not in ids
+
+
+def test_apply_daily_current_regime_coverage_adds_intermediate_upside_anchor_when_containing_gap_is_too_large():
+    selected = [
+        {
+            **_zone("below", 100.0, tf="1D", strength=88.0, selection=88.0, retest="reject"),
+            "zone_low": 90.0,
+            "zone_high": 110.0,
+            "zone_mid": 100.0,
+            "selector_rank": 3,
+        },
+        {
+            **_zone("containing", 180.0, tf="1D", strength=90.0, selection=90.0, retest="reject"),
+            "zone_low": 170.0,
+            "zone_high": 210.0,
+            "zone_mid": 190.0,
+            "selector_rank": 1,
+        },
+        {
+            **_zone("far-above-1", 400.0, tf="1D", strength=86.0, selection=86.0, retest="reject"),
+            "zone_low": 390.0,
+            "zone_high": 410.0,
+            "zone_mid": 400.0,
+            "selector_rank": 2,
+        },
+        {
+            **_zone("far-above-2", 500.0, tf="1D", strength=82.0, selection=82.0, retest="reject"),
+            "zone_low": 490.0,
+            "zone_high": 510.0,
+            "zone_mid": 500.0,
+            "selector_rank": 4,
+        },
+    ]
+    candidates = [
+        *selected,
+        {
+            **_zone("mid-upside", 288.0, tf="1D", strength=78.0, selection=78.0, retest="reject"),
+            "zone_low": 271.0,
+            "zone_high": 299.0,
+            "zone_mid": 288.0,
+            "daily_major_provenance_weight": 1.04,
+            "daily_major_diagnostics": {"has_structure": True},
+            "structure_provenance": {"family": "structure"},
+        },
+        {
+            **_zone("higher-mid-upside", 311.0, tf="1D", strength=84.0, selection=84.0, retest="reject"),
+            "zone_low": 303.0,
+            "zone_high": 319.0,
+            "zone_mid": 311.0,
+            "daily_major_provenance_weight": 1.0,
+            "daily_major_diagnostics": {"has_structure": False},
+        },
+    ]
+
+    out = _apply_daily_current_regime_coverage(
+        selected,
+        candidates=candidates,
+        reference_price=200.0,
+        max_zones=5,
+    )
+
+    ids = [z["zone_id"] for z in out]
+    assert "mid-upside" in ids
+    chosen = next(z for z in out if z["zone_id"] == "mid-upside")
+    assert chosen["selector_reason"] == "kept: daily intermediate upside coverage anchor"
 
 
 

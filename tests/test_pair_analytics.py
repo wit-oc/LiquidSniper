@@ -169,3 +169,58 @@ def test_pair_analytics_prefers_core_bounds_for_daily_summary():
     assert payload["macro_bounds"]["low"] == 100.0
     assert payload["macro_bounds"]["high"] == 140.0
     assert payload["display_bounds_kind"] == "core"
+
+
+def test_pair_analytics_applies_low_price_daily_display_floor_without_changing_macro_bounds():
+    from liquidsniper.core.pair_analytics import summarize_zone_for_pair_analytics
+
+    zone = {
+        "zone_id": "DOGEUSDT:1D:test",
+        "symbol": "DOGEUSDT",
+        "tf": "1D",
+        "status": "confirmed",
+        "zone_low": 0.08046,
+        "zone_high": 0.11311,
+        "zone_mid": 0.10377425,
+        "core_low": 0.10359,
+        "core_high": 0.10375,
+        "core_mid": 0.10367,
+        "display_bounds_kind": "core",
+        "current_role": "containing",
+        "origin_kind": "support",
+        "relative_position": "inside",
+    }
+    payload = summarize_zone_for_pair_analytics(zone, reference_price=0.09232)
+    assert payload["macro_bounds"]["low"] == 0.08046
+    assert payload["macro_bounds"]["high"] == 0.11311
+    assert payload["display_width_floor_applied"] is True
+    floor = payload["display_width_floor"]
+    assert floor["reason"] == "low_price_daily_core_floor"
+    assert floor["target_width_bps"] >= 120.0
+    assert payload["bounds"]["low"] < zone["core_low"]
+    assert payload["bounds"]["high"] > zone["core_high"]
+
+
+def test_pair_analytics_does_not_apply_low_price_daily_display_floor_to_btc_like_prices():
+    from liquidsniper.core.pair_analytics import summarize_zone_for_pair_analytics
+
+    zone = {
+        "zone_id": "BTCUSDT:1D:test",
+        "symbol": "BTCUSDT",
+        "tf": "1D",
+        "status": "confirmed",
+        "zone_low": 80000.0,
+        "zone_high": 110000.0,
+        "zone_mid": 95000.0,
+        "core_low": 94990.0,
+        "core_high": 95010.0,
+        "core_mid": 95000.0,
+        "display_bounds_kind": "core",
+        "current_role": "resistance",
+        "origin_kind": "support",
+        "relative_position": "above",
+    }
+    payload = summarize_zone_for_pair_analytics(zone, reference_price=90000.0)
+    assert payload["display_width_floor_applied"] is False
+    assert payload["bounds"]["low"] == 94990.0
+    assert payload["bounds"]["high"] == 95010.0

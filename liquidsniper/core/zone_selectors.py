@@ -330,6 +330,324 @@ def apply_daily_soft_retest_weights(zones: list[dict[str, Any]], *, strict_mode:
     return out
 
 
+def _daily_pocket_rank_key(zone: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
+    diagnostics = zone.get("daily_major_diagnostics") if isinstance(zone.get("daily_major_diagnostics"), dict) else {}
+    selection_score = float(zone.get("selection_score") or zone.get("strength_score") or 0.0)
+    merge_family_count = float(zone.get("merge_family_count") or diagnostics.get("merge_family_count") or len(_sources_for_zone(zone)) or 1.0)
+    has_structure = 1.0 if diagnostics.get("has_structure") or bool(zone.get("structure_provenance")) or "structure" in _sources_for_zone(zone) else 0.0
+    width_reward = min(float(zone.get("zone_width_bps") or 0.0), 1600.0)
+    touch_count = float(zone.get("meaningful_touch_count") or 0.0)
+    reaction_efficiency = float(zone.get("reaction_efficiency_score") or 0.0)
+    return (
+        selection_score,
+        has_structure,
+        merge_family_count,
+        width_reward,
+        touch_count,
+        reaction_efficiency,
+    )
+
+
+def _belongs_to_daily_macro_pocket(
+    group: list[dict[str, Any]],
+    zone: dict[str, Any],
+    *,
+    min_zone_separation_bps: float,
+) -> bool:
+    envelope = _neighborhood_envelope(group)
+    if envelope is None:
+        return False
+    overlap_ratio = _interval_overlap_ratio(envelope, zone)
+    edge_gap_bps = _edge_gap_bps(envelope, zone)
+    mid_gap_bps = _mid_gap_bps(envelope, zone)
+    edge_threshold_bps = max(float(min_zone_separation_bps) * 3.0, 900.0)
+    mid_threshold_bps = max(float(min_zone_separation_bps) * 4.4, 1600.0)
+    return (
+        overlap_ratio >= 0.10
+        or edge_gap_bps <= edge_threshold_bps
+        or (mid_gap_bps <= mid_threshold_bps and edge_gap_bps <= (edge_threshold_bps * 1.5))
+    )
+
+
+def _belongs_to_daily_selected_pocket(
+    anchor: dict[str, Any],
+    zone: dict[str, Any],
+    *,
+    min_zone_separation_bps: float,
+) -> bool:
+    interval_anchor = _daily_display_interval(anchor)
+    interval_zone = _daily_display_interval(zone)
+    if interval_anchor is None or interval_zone is None:
+        return False
+    pocket_anchor = {
+        "zone_low": interval_anchor[0],
+        "zone_high": interval_anchor[1],
+        "zone_mid": interval_anchor[2],
+    }
+    pocket_zone = {
+        "zone_low": interval_zone[0],
+        "zone_high": interval_zone[1],
+        "zone_mid": interval_zone[2],
+    }
+    overlap_ratio = _interval_overlap_ratio(pocket_anchor, pocket_zone)
+    edge_gap_bps = _edge_gap_bps(pocket_anchor, pocket_zone)
+    mid_gap_bps = _mid_gap_bps(pocket_anchor, pocket_zone)
+    edge_threshold_bps = max(float(min_zone_separation_bps) * 2.5, 950.0)
+    mid_threshold_bps = max(float(min_zone_separation_bps) * 3.4, 1350.0)
+    return (
+        overlap_ratio >= 0.18
+        or edge_gap_bps <= edge_threshold_bps
+        or (mid_gap_bps <= mid_threshold_bps and edge_gap_bps <= (edge_threshold_bps * 1.1))
+    )
+
+
+def _daily_display_interval(zone: dict[str, Any]) -> tuple[float, float, float] | None:
+    core_low = as_float(zone.get("core_low"))
+    core_high = as_float(zone.get("core_high"))
+    core_mid = as_float(zone.get("core_mid"))
+    if core_low is not None and core_high is not None and core_high > core_low:
+        return core_low, core_high, core_mid if core_mid is not None else ((core_low + core_high) / 2.0)
+    return _zone_interval(zone)
+
+
+def _daily_macro_interval(zone: dict[str, Any]) -> tuple[float, float, float] | None:
+    low = as_float(zone.get("zone_low"))
+    high = as_float(zone.get("zone_high"))
+    mid = as_float(zone.get("zone_mid"))
+    if low is None or high is None or high <= low:
+        return _daily_display_interval(zone)
+    if mid is None:
+        mid = (low + high) / 2.0
+    return low, high, mid
+
+
+def _apply_daily_current_regime_coverage(
+    selected: list[dict[str, Any]],
+    *,
+    candidates: list[dict[str, Any]],
+    reference_price: float | None,
+    max_zones: int,
+) -> list[dict[str, Any]]:
+    if not selected or max_zones <= 0 or reference_price is None or reference_price <= 0:
+        return selected
+
+    def _position(interval: tuple[float, float, float] | None) -> str:
+        if interval is None:
+            return "unknown"
+        low, high, _ = interval
+        if high < reference_price:
+            return "below_price"
+        if low > reference_price:
+            return "above_price"
+        return "contains_price"
+
+    selected_by_id = {str(zone.get("zone_id") or ""): zone for zone in selected}
+    intervals = {zone_id: _daily_macro_interval(zone) for zone_id, zone in selected_by_id.items()}
+    below = [selected_by_id[zone_id] for zone_id, interval in intervals.items() if _position(interval) == "below_price"]
+    above = [selected_by_id[zone_id] for zone_id, interval in intervals.items() if _position(interval) == "above_price"]
+    containing = [selected_by_id[zone_id] for zone_id, interval in intervals.items() if _position(interval) == "contains_price"]
+
+    def _rerank(augmented: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        ranked = sorted(augmented, key=lambda z: _daily_pocket_rank_key(z), reverse=True)
+        rank_map = {str(zone.get("zone_id") or ""): idx for idx, zone in enumerate(ranked, start=1)}
+        out: list[dict[str, Any]] = []
+        for zone in sorted(augmented, key=lambda z: float(z.get("zone_mid") or 0.0)):
+            zz = dict(zone)
+            zz["selector_rank"] = rank_map.get(str(zone.get("zone_id") or ""))
+            out.append(zz)
+        return out
+
+    if containing and above:
+        containing_anchor = sorted(containing, key=lambda z: _daily_pocket_rank_key(z), reverse=True)[0]
+        containing_interval = _daily_macro_interval(containing_anchor)
+        nearest_above = min(above, key=lambda z: (_daily_macro_interval(z) or (float("inf"), float("inf"), float("inf")))[0])
+        above_interval = _daily_macro_interval(nearest_above)
+        if containing_interval is not None and above_interval is not None:
+            gap_bps = (above_interval[0] - containing_interval[1]) / max(reference_price, 1e-9) * 10000.0
+            if gap_bps >= 2200.0:
+                candidate_pool: list[dict[str, Any]] = []
+                for zone in candidates:
+                    zone_id = str(zone.get("zone_id") or "")
+                    if zone_id in selected_by_id:
+                        continue
+                    interval = _daily_macro_interval(zone)
+                    if interval is None:
+                        continue
+                    low, high, mid = interval
+                    if low < containing_interval[1] or high > above_interval[0]:
+                        continue
+                    candidate_pool.append(zone)
+                if candidate_pool:
+                    def _intermediate_upside_rank(zone: dict[str, Any]) -> tuple[float, float, float, float, float]:
+                        interval = _daily_macro_interval(zone) or (0.0, 0.0, 0.0)
+                        low, high, mid = interval
+                        gap_from_containing_bps = abs(low - containing_interval[1]) / max(reference_price, 1e-9) * 10000.0
+                        selection_score = float(zone.get("selection_score") or zone.get("strength_score") or 0.0)
+                        provenance_weight = float(zone.get("daily_major_provenance_weight") or 1.0)
+                        has_structure = 1.0 if bool((zone.get("daily_major_diagnostics") or {}).get("has_structure")) or bool(zone.get("structure_provenance")) else 0.0
+                        width_reward = min(float(zone.get("zone_width_bps") or 0.0), 1400.0)
+                        return (
+                            -gap_from_containing_bps,
+                            has_structure,
+                            selection_score,
+                            provenance_weight,
+                            width_reward,
+                        )
+
+                    candidate_pool = sorted(candidate_pool, key=_intermediate_upside_rank, reverse=True)
+                    best = dict(candidate_pool[0])
+                    best_score = float(best.get("selection_score") or best.get("strength_score") or 0.0)
+                    if best_score >= 72.0:
+                        best["selector_surface"] = "daily_major"
+                        best["selector_status"] = "kept"
+                        best["selector_reason"] = "kept: daily intermediate upside coverage anchor"
+                        if len(selected) < max_zones:
+                            return _rerank([*selected, best])
+
+                        protected_ids = {
+                            str(best.get("zone_id") or ""),
+                            str(containing_anchor.get("zone_id") or ""),
+                            str(nearest_above.get("zone_id") or ""),
+                        }
+                        drop_candidates = [
+                            zone for zone in selected
+                            if str(zone.get("zone_id") or "") not in protected_ids and _position(_daily_display_interval(zone)) == "above_price"
+                        ]
+                        if drop_candidates:
+                            def _drop_above_rank(zone: dict[str, Any]) -> tuple[float, float, float]:
+                                interval = _daily_display_interval(zone) or (0.0, 0.0, 0.0)
+                                low, high, mid = interval
+                                distance_bps = abs(mid - reference_price) / max(reference_price, 1e-9) * 10000.0
+                                selection_score = float(zone.get("selection_score") or zone.get("strength_score") or 0.0)
+                                return (selection_score, -distance_bps, -float(zone.get("selector_rank") or 999.0))
+
+                            to_drop = sorted(drop_candidates, key=_drop_above_rank)[0]
+                            augmented = [zone for zone in selected if str(zone.get("zone_id") or "") != str(to_drop.get("zone_id") or "")]
+                            augmented.append(best)
+                            return _rerank(augmented)
+
+    if containing or not below or not above:
+        return selected
+
+    nearest_below = max(below, key=lambda z: (_daily_macro_interval(z) or (0.0, 0.0, 0.0))[1])
+    nearest_above = min(above, key=lambda z: (_daily_macro_interval(z) or (float("inf"), float("inf"), float("inf")))[0])
+    below_interval = _daily_macro_interval(nearest_below)
+    above_interval = _daily_macro_interval(nearest_above)
+    if below_interval is None or above_interval is None:
+        return selected
+
+    gap_bps = (above_interval[0] - below_interval[1]) / max(reference_price, 1e-9) * 10000.0
+    if gap_bps < 2500.0:
+        return selected
+
+    candidate_pool: list[dict[str, Any]] = []
+    for zone in candidates:
+        zone_id = str(zone.get("zone_id") or "")
+        if zone_id in selected_by_id:
+            continue
+        interval = _daily_macro_interval(zone)
+        if interval is None:
+            continue
+        low, high, mid = interval
+        if high < below_interval[1] or low > above_interval[0]:
+            continue
+        candidate_pool.append(zone)
+    if not candidate_pool:
+        return selected
+
+    def _coverage_rank(zone: dict[str, Any]) -> tuple[float, float, float, float, float]:
+        interval = _daily_display_interval(zone) or (0.0, 0.0, 0.0)
+        low, high, mid = interval
+        contains_price = 1.0 if low <= reference_price <= high else 0.0
+        distance_bps = abs(mid - reference_price) / max(reference_price, 1e-9) * 10000.0
+        selection_score = float(zone.get("selection_score") or zone.get("strength_score") or 0.0)
+        provenance_weight = float(zone.get("daily_major_provenance_weight") or 1.0)
+        width_reward = min(float(zone.get("zone_width_bps") or 0.0), 1400.0)
+        return (
+            contains_price,
+            -distance_bps,
+            selection_score,
+            provenance_weight,
+            width_reward,
+        )
+
+    candidate_pool = sorted(candidate_pool, key=_coverage_rank, reverse=True)
+    best = dict(candidate_pool[0])
+    best_score = float(best.get("selection_score") or best.get("strength_score") or 0.0)
+    weakest_selected_score = min(float(zone.get("selection_score") or zone.get("strength_score") or 0.0) for zone in selected)
+    if best_score < max(78.0, weakest_selected_score * 0.9):
+        return selected
+
+    best["selector_surface"] = "daily_major"
+    best["selector_status"] = "kept"
+    best["selector_reason"] = "kept: daily current-regime coverage anchor"
+
+    if len(selected) < max_zones:
+        augmented = [*selected, best]
+    else:
+        protected_ids = {
+            str(best.get("zone_id") or ""),
+            str(nearest_below.get("zone_id") or ""),
+            str(nearest_above.get("zone_id") or ""),
+        }
+
+        def _drop_rank(zone: dict[str, Any]) -> tuple[float, float, float]:
+            interval = _daily_display_interval(zone) or (0.0, 0.0, 0.0)
+            _, _, mid = interval
+            distance_bps = abs(mid - reference_price) / max(reference_price, 1e-9) * 10000.0
+            selection_score = float(zone.get("selection_score") or zone.get("strength_score") or 0.0)
+            return (selection_score, -distance_bps, -float(zone.get("selector_rank") or 999.0))
+
+        drop_candidates = [zone for zone in selected if str(zone.get("zone_id") or "") not in protected_ids]
+        if not drop_candidates:
+            return selected
+        to_drop = sorted(drop_candidates, key=_drop_rank)[0]
+        augmented = [zone for zone in selected if str(zone.get("zone_id") or "") != str(to_drop.get("zone_id") or "")]
+        augmented.append(best)
+
+    return _rerank(augmented)
+
+
+def _consolidate_daily_selected_pockets(
+    zones: list[dict[str, Any]],
+    *,
+    min_zone_separation_bps: float,
+    max_zones: int,
+) -> list[dict[str, Any]]:
+    if not zones or max_zones <= 0:
+        return []
+
+    ordered = sorted(
+        zones,
+        key=lambda z: float((_daily_display_interval(z) or (float("inf"), float("inf"), float("inf")))[0]),
+    )
+    pockets: list[list[dict[str, Any]]] = [[ordered[0]]]
+    for zone in ordered[1:]:
+        last_group = pockets[-1]
+        anchor = last_group[-1]
+        if _belongs_to_daily_selected_pocket(anchor, zone, min_zone_separation_bps=min_zone_separation_bps):
+            last_group.append(zone)
+        else:
+            pockets.append([zone])
+
+    selected: list[dict[str, Any]] = []
+    for idx, pocket in enumerate(pockets, start=1):
+        ranked = sorted(pocket, key=lambda z: _daily_pocket_rank_key(z), reverse=True)
+        top = dict(ranked[0])
+        top["daily_pocket_contract"] = "daily_macro_pocket_v1"
+        top["daily_pocket_id"] = f"{top.get('tf') or '1D'}:selected-pocket:{idx}"
+        top["daily_pocket_member_count"] = len(pocket)
+        top["daily_pocket_member_ids"] = [str(z.get("zone_id") or "") for z in pocket]
+        top["daily_pocket_demoted_ids"] = [
+            str(z.get("zone_id") or "") for z in pocket if str(z.get("zone_id") or "") != str(top.get("zone_id") or "")
+        ]
+        top["daily_pocket_reason"] = "kept: daily macro anchor after pocket consolidation"
+        selected.append(top)
+
+    ranked = sorted(selected, key=lambda z: _daily_pocket_rank_key(z), reverse=True)[:max_zones]
+    return sorted(ranked, key=lambda z: float((_daily_display_interval(z) or (0.0, 0.0, 0.0))[2]))
+
+
 def select_daily_local_band_representatives(
     zones: list[dict[str, Any]],
     *,
@@ -459,6 +777,7 @@ def select_daily_majors(
     min_zone_separation_bps: float,
     max_zones: int,
     strict_retest_quality: bool,
+    reference_price: float | None = None,
 ) -> list[dict[str, Any]]:
     confirmed = [z for z in zones if z.get("status") == "confirmed"]
     scored = apply_daily_soft_retest_weights(confirmed, strict_mode=strict_retest_quality)
@@ -475,14 +794,26 @@ def select_daily_majors(
     )
     selected = select_spatially_diverse_zones(collapsed, max_zones=max_zones)
     surfaced = [_apply_daily_operator_core(zone) for zone in selected]
-    ranked = sorted(surfaced, key=lambda z: zone_rank_key(z), reverse=True)
+    surfaced = _consolidate_daily_selected_pockets(
+        surfaced,
+        min_zone_separation_bps=min_zone_separation_bps,
+        max_zones=max_zones,
+    )
+    surfaced_candidates = [_apply_daily_operator_core(zone) for zone in prefilter]
+    surfaced = _apply_daily_current_regime_coverage(
+        surfaced,
+        candidates=surfaced_candidates,
+        reference_price=reference_price,
+        max_zones=max_zones,
+    )
+    ranked = sorted(surfaced, key=lambda z: _daily_pocket_rank_key(z), reverse=True)
     rank_map = {str(zone.get("zone_id") or ""): idx for idx, zone in enumerate(ranked, start=1)}
     out: list[dict[str, Any]] = []
     for zone in surfaced:
         zz = dict(zone)
         zz["selector_surface"] = "daily_major"
         zz["selector_status"] = "kept"
-        zz["selector_reason"] = "kept: daily major anchor after local-band selection"
+        zz["selector_reason"] = zz.get("selector_reason") or zz.get("daily_pocket_reason") or "kept: daily macro anchor after pocket consolidation"
         zz["selector_rank"] = rank_map.get(str(zone.get("zone_id") or ""))
         out.append(zz)
     return out
