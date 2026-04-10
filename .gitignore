@@ -15,6 +15,10 @@ build/
 /data/
 /artifacts/
 
+# LiquidSniper local sweep artifacts
+/tools/strategy_sweep/data/
+/tools/strategy_sweep/outputs/*/
+
 # OS
 .DS_Store
 
