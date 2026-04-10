@@ -60,6 +60,47 @@ Phase 2 Watch Engine should certify setup state independently from triggers:
 - WATCH should incorporate 4H context gate (not fresh impulsive opposition).
 - Trigger execution remains Phase 3 scope.
 
+### Watcher vs analyst split (locked direction)
+
+To avoid phase drift, keep the system split into distinct layers:
+
+- **Phase 1 Market Structure Module**
+  - owns directional permission and structural event semantics
+  - emits the certified BoS/CHoCH/protected-level contract
+- **Phase 2 Watcher Engine**
+  - consumes Phase 1 outputs
+  - builds qualified 1D/4H setup context
+  - maintains S/R zones, Fib context, dynamic-level confluence, and `WATCH / INVALID / EXPIRED`
+  - emits auditable watch-state telemetry, not trade entries
+- **Phase 3 Analyst Engine**
+  - consumes watcher-state context rather than rediscovering HTF zones from scratch
+  - evaluates 15m trigger quality (with optional 5m refinement)
+  - produces candidate trade packets with trigger evidence and structural invalidation references
+- **Phase 4 Risk/Execution Simulation Layer**
+  - sizes, simulates, and manages trades for backtesting
+  - remains separate from live execution plumbing
+
+This keeps the watcher responsible for “should we care here?” and the analyst responsible for “did a valid trigger occur here?”
+
+### S/R integration doctrine (merged forward from Phase 2 certification work)
+
+The S/R module should be treated as a **zone-first engine** with structure-seeded discovery:
+
+- Phase 1 structure semantics remain the mandatory directional and seed-evidence contract.
+- S/R discovery should not rely on Foxian excursion alone. Foxian logic is supporting evidence, not the only discovery path.
+- Distinguish:
+  - `STRUCTURAL_ZONE` = analytically important location
+  - `TRADEABLE_ZONE` = structurally important and eligible for watcher/analyst handoff
+- Preserve multiple review surfaces instead of collapsing them into one score:
+  - `daily_major`
+  - `operational_4h`
+  - `nearest/proximity`
+- Preserve `origin_kind` separately from `current_role` so flip history is not lost.
+- Daily coverage should be classified by macro envelope (`zone_low / zone_high / zone_mid`) rather than a narrowed display core only.
+- Same-side competition on 4H should remain neighborhood-aware, not purely top-score wins.
+- Selector traces and demotion metadata should be preferred over opaque score nudging whenever zone choice looks wrong.
+- `bootstrap_snapshot.json` is the authoritative review/debug surface for point-in-time zone-map inspection.
+
 ---
 
 ## Stop/invalidation design (for later phases)

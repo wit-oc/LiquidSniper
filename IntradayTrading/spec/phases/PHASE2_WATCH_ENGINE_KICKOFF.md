@@ -7,6 +7,23 @@ Depends on: Phase 1 DONE (`PHASE1_HTF_STRUCTURE_DONE.md`)
 ## Goal
 Certify watch-state logic using only Phase-1 structural outputs.
 
+## Merge-forward architecture notes from the S/R certification lane
+These are durable rules recovered from the active Phase 2 S/R thread and should be treated as part of the Phase 2 contract:
+
+- Use a **zone-first** pipeline for S/R discovery and selection.
+- Phase 1 v3.3 structure semantics remain mandatory seed evidence.
+- Foxian excursion is supporting evidence, not sole discovery logic.
+- Distinguish `STRUCTURAL_ZONE` from `TRADEABLE_ZONE`.
+- Preserve separate review layers for:
+  - `daily_major`
+  - `operational_4h`
+  - nearest/proximity views
+- Preserve `origin_kind` separately from `current_role` so flips do not erase provenance.
+- Daily coverage should be evaluated by macro envelope (`zone_low / zone_high / zone_mid`), not only narrowed render cores.
+- 4H same-side competition should remain neighborhood-aware.
+- `bootstrap_snapshot.json` is the authoritative operator review surface for point-in-time zone-map inspection.
+- When selector output looks wrong, improve selector traces / demotion metadata before papering over the problem with generic score tweaks.
+
 ## Scope (from baseline plan)
 Build and certify:
 - `WATCH` / `INVALID` / `EXPIRED` states
@@ -17,6 +34,8 @@ Build and certify:
 ## Required outputs
 - `phase2_handoff.md`
 - watch-state transition log schema
+- point-in-time review snapshot(s) sufficient to inspect selected zones and rejected competitors
+- auditable selector-trace / reason metadata for why a zone became tradeable, demoted, invalid, or expired
 
 ## Pass criteria
 - Watch start/stop align with expected context windows
