@@ -1,0 +1,68 @@
+{
+  "provider": "ccxt",
+  "exchange_id": "okx",
+  "pulled_at_utc": "2026-03-02T03:00:25.404644+00:00",
+  "since_utc": "2022-01-01T00:00:00Z",
+  "files": [
+    {
+      "path": "intraday_revisit/data/btc_1h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT",
+      "symbol_resolved": "BTC/USDT",
+      "timeframe": "1h",
+      "rows": 36508,
+      "first_ts": 1640995200,
+      "last_ts": 1772420400,
+      "sha256": "368275b9bd207ff56ecd298e2228fef3911c287b0501ebf245db33cb19de0b37"
+    },
+    {
+      "path": "intraday_revisit/data/btc_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT",
+      "symbol_resolved": "BTC/USDT",
+      "timeframe": "4h",
+      "rows": 9127,
+      "first_ts": 1640995200,
+      "last_ts": 1772409600,
+      "sha256": "5a45925a2f0b92e77d905cecaf748dfd76cc61d0636a7bc6e7d100bbfe9aa974"
+    },
+    {
+      "path": "intraday_revisit/data/btc_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT",
+      "symbol_resolved": "BTC/USDT",
+      "timeframe": "1d",
+      "rows": 1522,
+      "first_ts": 1640995200,
+      "last_ts": 1772409600,
+      "sha256": "28ad6a8b85d1031a9a92619df87b1b462d657fcc89b702aa3339d30f98adf7f0"
+    },
+    {
+      "path": "intraday_revisit/data/eth_1h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT",
+      "symbol_resolved": "ETH/USDT",
+      "timeframe": "1h",
+      "rows": 36508,
+      "first_ts": 1640995200,
+      "last_ts": 1772420400,
+      "sha256": "a1bca24fd9d96470ee717286b1fdd4834a1118568d44861fdd83e0e7049bc5f1"
+    },
+    {
+      "path": "intraday_revisit/data/eth_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT",
+      "symbol_resolved": "ETH/USDT",
+      "timeframe": "4h",
+      "rows": 9127,
+      "first_ts": 1640995200,
+      "last_ts": 1772409600,
+      "sha256": "3d23f35cb472f70fd549e4fe0c95ff39ef655d43883b049934c923e76adc7a61"
+    },
+    {
+      "path": "intraday_revisit/data/eth_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT",
+      "symbol_resolved": "ETH/USDT",
+      "timeframe": "1d",
+      "rows": 1522,
+      "first_ts": 1640995200,
+      "last_ts": 1772409600,
+      "sha256": "fd2f683cab651c409f42f195843ca701810de188d03d466c86fa9ce12d9ceb49"
+    }
+  ]
+}

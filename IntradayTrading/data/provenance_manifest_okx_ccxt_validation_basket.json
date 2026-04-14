@@ -1,0 +1,296 @@
+{
+  "provider": "ccxt",
+  "exchange_id": "okx",
+  "source": "okx_ccxt",
+  "pulled_at_utc": "2026-03-11T04:16:27.059005+00:00",
+  "since_utc": "2022-01-01T00:00:00Z",
+  "files": [
+    {
+      "path": "IntradayTrading/data/btc_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT",
+      "symbol_resolved": "BTC/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "f3acecca0dad46cdd588c0ccb743031a89db0ea06c3c8a30b13fc6b9a222e68f"
+    },
+    {
+      "path": "IntradayTrading/data/btc_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT",
+      "symbol_resolved": "BTC/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "256d32343cf8e5d987b8e6eb18da8a5f77067c92351a5df92c95ce67f659f90b"
+    },
+    {
+      "path": "IntradayTrading/data/eth_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT",
+      "symbol_resolved": "ETH/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "d8e879cce1588fc2a9aac2453fa0376ceeec5d7818c4c42035436f51c5663e1d"
+    },
+    {
+      "path": "IntradayTrading/data/eth_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT",
+      "symbol_resolved": "ETH/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "812a3460096f63bcb70421d6eb505e2eaf4e6631df93e67b61a229ff2e849b12"
+    },
+    {
+      "path": "IntradayTrading/data/xrp_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "XRP/USDT",
+      "symbol_resolved": "XRP/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "400e769e37151b2f645e153364b70b4ef9a562e256196c1000aff9251b89d2dc"
+    },
+    {
+      "path": "IntradayTrading/data/xrp_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "XRP/USDT",
+      "symbol_resolved": "XRP/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "a1dffa5c36d7c66404d8dc2bbe16fb28140388f00d7e2675a18c004b8b35b03e"
+    },
+    {
+      "path": "IntradayTrading/data/sol_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "SOL/USDT",
+      "symbol_resolved": "SOL/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "64a21a73064f79112cf7b043b10d05e0afca8c5e66c5400fe6074a26fd9ab784"
+    },
+    {
+      "path": "IntradayTrading/data/sol_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "SOL/USDT",
+      "symbol_resolved": "SOL/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "1ba585a9b87b6b7c9b6e2ecce4b0b9f0dbc9e5b15086fcc87bc18ae11920f019"
+    },
+    {
+      "path": "IntradayTrading/data/doge_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "DOGE/USDT",
+      "symbol_resolved": "DOGE/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "de74c8dde3ff2b4751e2455ac4f0ac7f6a28e13102433af4db0762b7583a2146"
+    },
+    {
+      "path": "IntradayTrading/data/doge_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "DOGE/USDT",
+      "symbol_resolved": "DOGE/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "d8872a67481f8d20f6dcebac3ca78cb246ac8567b1805ee411ee3d6104888d55"
+    },
+    {
+      "path": "IntradayTrading/data/ada_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "ADA/USDT",
+      "symbol_resolved": "ADA/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "6fb1adfc9fc0f2f3e60c8d59650673b8ca7e595fe7ac5a1d7344c2ca9a3898da"
+    },
+    {
+      "path": "IntradayTrading/data/ada_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "ADA/USDT",
+      "symbol_resolved": "ADA/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "095f1245069b355618182564becac4726a3e3ba0ec2fa688f91078fbb0593701"
+    },
+    {
+      "path": "IntradayTrading/data/bch_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "BCH/USDT",
+      "symbol_resolved": "BCH/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "0948b33bd55a172afeb27bdcc5124397ad69abdc8efb81543f2df190bed3d7ce"
+    },
+    {
+      "path": "IntradayTrading/data/bch_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "BCH/USDT",
+      "symbol_resolved": "BCH/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "1887a9399b2b30d97996b11e47708aa8d032fa87f9597e9826a1eda01dccd1a0"
+    },
+    {
+      "path": "IntradayTrading/data/link_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "LINK/USDT",
+      "symbol_resolved": "LINK/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "b3f17d695ee84e43eb071598e6ee1e30932dd72e297ce35248f29c26df3e7da6"
+    },
+    {
+      "path": "IntradayTrading/data/link_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "LINK/USDT",
+      "symbol_resolved": "LINK/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "7d7c288dc0d80d93adc23bd13efd61ae523845484f82304d7ec7e70f2a72b57a"
+    },
+    {
+      "path": "IntradayTrading/data/xlm_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "XLM/USDT",
+      "symbol_resolved": "XLM/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "42e09ddcb67227202e8420e8ad2616a56ef1a84725fb0f7d9d58a1d301235540"
+    },
+    {
+      "path": "IntradayTrading/data/xlm_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "XLM/USDT",
+      "symbol_resolved": "XLM/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "afb3215e453a61f59101e51dc9f37ca12195b1e5d294f54ce579907cd635eb64"
+    },
+    {
+      "path": "IntradayTrading/data/ltc_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "LTC/USDT",
+      "symbol_resolved": "LTC/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "af7e34219850629a58c20a16b9f65ca1be02967c9fdee1e8397685fdc1519556"
+    },
+    {
+      "path": "IntradayTrading/data/ltc_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "LTC/USDT",
+      "symbol_resolved": "LTC/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "7c721e1865e9f3af24064452d248b1b17c5068f9624f411d2ba3fa156c63c826"
+    },
+    {
+      "path": "IntradayTrading/data/avax_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "AVAX/USDT",
+      "symbol_resolved": "AVAX/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "5165d9d3c7be222c36b458ccc0f497157fec8b2435af5c2064afd00f9431678c"
+    },
+    {
+      "path": "IntradayTrading/data/avax_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "AVAX/USDT",
+      "symbol_resolved": "AVAX/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "4156b1682200713fc5b2eff8e6a02ffc1bbf28f6b261acdaaf2fd4abaf88bf4f"
+    },
+    {
+      "path": "IntradayTrading/data/hbar_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "HBAR/USDT",
+      "symbol_resolved": "HBAR/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "a507f6d89f0e6942130516025e014c81f115a83904860f7d6df3876f532db6b8"
+    },
+    {
+      "path": "IntradayTrading/data/hbar_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "HBAR/USDT",
+      "symbol_resolved": "HBAR/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "6c6d6aaefaed243f1385c5125673efdb26d91999654baceb2d3176068c264612"
+    },
+    {
+      "path": "IntradayTrading/data/dot_4h_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "DOT/USDT",
+      "symbol_resolved": "DOT/USDT",
+      "timeframe": "4h",
+      "rows": 9182,
+      "first_ts": 1640995200,
+      "last_ts": 1773201600,
+      "sha256": "2b28d53e08ec7c860ea754b54a1536c0c80d27f9bdabe7b7203d9715694bd508"
+    },
+    {
+      "path": "IntradayTrading/data/dot_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "DOT/USDT",
+      "symbol_resolved": "DOT/USDT",
+      "timeframe": "1d",
+      "rows": 1531,
+      "first_ts": 1640995200,
+      "last_ts": 1773187200,
+      "sha256": "1a3e16f41ea3fd6cebad6eba30e6dd8ac6047461c82d16c785fe5dc45e8113ce"
+    },
+    {
+      "path": "IntradayTrading/data/ton_1d_okx_ccxt_2022_to_now.csv",
+      "symbol_requested": "TON/USDT",
+      "symbol_resolved": "TON/USDT",
+      "timeframe": "1d",
+      "rows": 182,
+      "first_ts": 1651190400,
+      "last_ts": 1666828800,
+      "sha256": "3deb35844e5f9aa48642c760f30b95542ee0ffe72f8caf2607efd5e82ef0e4ff"
+    }
+  ],
+  "missing_symbols": [
+    {
+      "symbol": "BNBUSDT",
+      "timeframe": "4h",
+      "reason": "no_rows"
+    },
+    {
+      "symbol": "BNBUSDT",
+      "timeframe": "1d",
+      "reason": "no_rows"
+    },
+    {
+      "symbol": "TONUSDT",
+      "timeframe": "4h",
+      "reason": "no_rows"
+    }
+  ]
+}

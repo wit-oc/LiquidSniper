@@ -1,0 +1,27 @@
+{
+  "universe": {
+    "basket_path": "IntradayTrading/spec/phases/PHASE2_ZONE_ENGINE_V3_VALIDATION_BASKET_2026-03-10.json",
+    "source": "okx_ccxt",
+    "timeframes": ["1D", "4H"],
+    "selection_contract": "spot-tradable-non-stable-non-wrapped-high-market-cap-majors"
+  },
+  "tuning": {
+    "daily_major_mode": true,
+    "daily_cluster_eps": 1.10,
+    "daily_reaction_atr_min": 0.6,
+    "daily_min_meaningful_touches": 5,
+    "daily_min_zone_separation_bps": 250.0,
+    "daily_min_strength": 70.0,
+    "daily_max_zones": 8,
+    "daily_require_first_retest_quality": true,
+    "cluster_eps": 1.1,
+    "reaction_atr_min": 0.45,
+    "min_meaningful_touches": 4,
+    "min_zone_separation_bps": 180.0,
+    "min_strength_4h": 65.0,
+    "max_zones_4h": 12,
+    "max_zones_per_symbol": 24,
+    "lookback_1d": 0,
+    "lookback_4h": 800
+  }
+}

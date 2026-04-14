@@ -90,6 +90,29 @@ def test_apply_migrations_is_idempotent(tmp_path: Path) -> None:
     assert versions == expected_versions
 
 
+def test_sr_zone_diagnostic_columns_exist_after_migrations(tmp_path: Path) -> None:
+    """SR diagnostic columns should be present for selection introspection."""
+    conn = init_db(str(tmp_path / "liquidsniper.sqlite"))
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(sr_zones);").fetchall()]
+    conn.close()
+
+    for expected in [
+        "reaction_efficiency_score",
+        "spent_zone_penalty",
+        "retest_weight",
+        "selection_score",
+        "zone_width_bps",
+        "carry_score",
+        "body_respect_score",
+        "close_inside_rate",
+        "body_overlap_rate",
+        "wick_only_rate",
+        "directional_close_rate",
+        "counter_close_rate",
+    ]:
+        assert expected in cols
+
+
 def test_signal_event_unique_raw_line_guard(tmp_path: Path) -> None:
     """Duplicate signal rows for same raw message line should fail."""
     conn = init_db(str(tmp_path / "liquidsniper.sqlite"))

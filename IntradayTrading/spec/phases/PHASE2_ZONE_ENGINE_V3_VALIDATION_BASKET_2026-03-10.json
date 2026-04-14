@@ -1,0 +1,96 @@
+{
+  "generated_at_utc": "2026-03-10T15:48:32Z",
+  "purpose": "Blind validation basket for zone_engine_v3 development",
+  "source": "coingecko-market-cap",
+  "rules": {
+    "top_n": 15,
+    "exclude_stables": true,
+    "exclude_wrapped": true,
+    "exclude_synthetics": true,
+    "exclude_non_spot_majors": true,
+    "quote": "USDT",
+    "selection_contract": "spot-tradable-non-stable-non-wrapped-high-market-cap-majors",
+    "use_for": [
+      "BTC/ETH sanity",
+      "blind multi-pair regression",
+      "avoid chart-by-chart whack-a-mole"
+    ]
+  },
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "name": "Bitcoin",
+      "market_cap_rank": 1
+    },
+    {
+      "symbol": "ETHUSDT",
+      "name": "Ethereum",
+      "market_cap_rank": 2
+    },
+    {
+      "symbol": "BNBUSDT",
+      "name": "BNB",
+      "market_cap_rank": 4
+    },
+    {
+      "symbol": "XRPUSDT",
+      "name": "XRP",
+      "market_cap_rank": 5
+    },
+    {
+      "symbol": "SOLUSDT",
+      "name": "Solana",
+      "market_cap_rank": 7
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "name": "Dogecoin",
+      "market_cap_rank": 10
+    },
+    {
+      "symbol": "ADAUSDT",
+      "name": "Cardano",
+      "market_cap_rank": 13
+    },
+    {
+      "symbol": "BCHUSDT",
+      "name": "Bitcoin Cash",
+      "market_cap_rank": 14
+    },
+    {
+      "symbol": "LINKUSDT",
+      "name": "Chainlink",
+      "market_cap_rank": 17
+    },
+    {
+      "symbol": "XLMUSDT",
+      "name": "Stellar",
+      "market_cap_rank": 19
+    },
+    {
+      "symbol": "LTCUSDT",
+      "name": "Litecoin",
+      "market_cap_rank": 21
+    },
+    {
+      "symbol": "AVAXUSDT",
+      "name": "Avalanche",
+      "market_cap_rank": 22
+    },
+    {
+      "symbol": "HBARUSDT",
+      "name": "Hedera",
+      "market_cap_rank": 23
+    },
+    {
+      "symbol": "DOTUSDT",
+      "name": "Polkadot",
+      "market_cap_rank": 24
+    },
+    {
+      "symbol": "TONUSDT",
+      "name": "Toncoin",
+      "market_cap_rank": 25
+    }
+  ]
+}

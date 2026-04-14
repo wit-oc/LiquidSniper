@@ -1,0 +1,138 @@
+{
+  "settings": {
+    "n_init": 25,
+    "break_min_frac_of_candle": 0.15,
+    "choch_break_min_frac_of_candle": 0.15,
+    "strict_gating": false,
+    "bos_require_fresh_cross": true,
+    "enable_continuation_break": true
+  },
+  "symbols": {
+    "BTC": {
+      "dataset": "/Users/wit/.openclaw/workspace/LiquidSniper/IntradayTrading/data/btc_1d_okx_ccxt_2022_to_now.csv",
+      "total_bos": 13,
+      "total_choch": 12,
+      "last3_bos": [
+        {
+          "index": 1075,
+          "date_utc": "2024-12-11",
+          "close": 101117.4,
+          "event_price": 101117.4,
+          "anchor_index": 1056,
+          "regime_direction": "bullish",
+          "regime_confidence": "confirmed"
+        },
+        {
+          "index": 1286,
+          "date_utc": "2025-07-10",
+          "close": 116015.9,
+          "event_price": 116015.9,
+          "anchor_index": 1237,
+          "regime_direction": "bullish",
+          "regime_confidence": "transitional"
+        },
+        {
+          "index": 1491,
+          "date_utc": "2026-01-31",
+          "close": 78738.9,
+          "event_price": 78738.9,
+          "anchor_index": 1420,
+          "regime_direction": "bearish",
+          "regime_confidence": "transitional"
+        }
+      ],
+      "last3_choch": [
+        {
+          "index": 1151,
+          "date_utc": "2025-02-25",
+          "close": 88680.7,
+          "event_price": 88680.7,
+          "anchor_index": 1069,
+          "regime_direction": "bearish",
+          "regime_confidence": "transitional"
+        },
+        {
+          "index": 1237,
+          "date_utc": "2025-05-22",
+          "close": 111701.9,
+          "event_price": 111701.9,
+          "anchor_index": 1115,
+          "regime_direction": "bullish",
+          "regime_confidence": "transitional"
+        },
+        {
+          "index": 1413,
+          "date_utc": "2025-11-14",
+          "close": 94581.9,
+          "event_price": 94581.9,
+          "anchor_index": 1268,
+          "regime_direction": "bearish",
+          "regime_confidence": "transitional"
+        }
+      ]
+    },
+    "ETH": {
+      "dataset": "/Users/wit/.openclaw/workspace/LiquidSniper/IntradayTrading/data/eth_1d_okx_ccxt_2022_to_now.csv",
+      "total_bos": 14,
+      "total_choch": 12,
+      "last3_bos": [
+        {
+          "index": 1315,
+          "date_utc": "2025-08-08",
+          "close": 4009.95,
+          "event_price": 4009.95,
+          "anchor_index": 1304,
+          "regime_direction": "bullish",
+          "regime_confidence": "confirmed"
+        },
+        {
+          "index": 1413,
+          "date_utc": "2025-11-14",
+          "close": 3112.4,
+          "event_price": 3112.4,
+          "anchor_index": 1406,
+          "regime_direction": "bearish",
+          "regime_confidence": "transitional"
+        },
+        {
+          "index": 1491,
+          "date_utc": "2026-01-31",
+          "close": 2452.2,
+          "event_price": 2452.2,
+          "anchor_index": 1420,
+          "regime_direction": "bearish",
+          "regime_confidence": "confirmed"
+        }
+      ],
+      "last3_choch": [
+        {
+          "index": 1267,
+          "date_utc": "2025-06-21",
+          "close": 2295.55,
+          "event_price": 2295.55,
+          "anchor_index": 1252,
+          "regime_direction": "bearish",
+          "regime_confidence": "transitional"
+        },
+        {
+          "index": 1286,
+          "date_utc": "2025-07-10",
+          "close": 2951.1,
+          "event_price": 2951.1,
+          "anchor_index": 1257,
+          "regime_direction": "bullish",
+          "regime_confidence": "transitional"
+        },
+        {
+          "index": 1405,
+          "date_utc": "2025-11-06",
+          "close": 3315.43,
+          "event_price": 3315.43,
+          "anchor_index": 1310,
+          "regime_direction": "bearish",
+          "regime_confidence": "transitional"
+        }
+      ]
+    }
+  }
+}

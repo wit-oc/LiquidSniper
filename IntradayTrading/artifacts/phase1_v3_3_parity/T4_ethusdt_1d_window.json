@@ -1,0 +1,449 @@
+{
+  "symbol": "ETHUSDT",
+  "timeframe": "1D",
+  "source_csv": "LiquidSniper/IntradayTrading/data/eth_1d_blofin_derived_from_1h_2022_to_now.csv",
+  "window_bars": 220,
+  "window_start_ts": 1753315200,
+  "window_end_ts": 1772236800,
+  "window_start_iso": "2025-07-24T00:00:00+00:00",
+  "window_end_iso": "2026-02-28T00:00:00+00:00",
+  "knobs": {
+    "strictGating": false,
+    "breakMinFrac": 0.15,
+    "chochBreakMinFrac": 0.15,
+    "bosRequireFreshCross": true
+  },
+  "event_counts": {
+    "candidate_swing_high": 12,
+    "swing_high_validated_by_sweep": 3,
+    "bos_confirmed": 3,
+    "swing_low_locked": 1,
+    "choch_detected": 1,
+    "swing_high_locked": 3,
+    "candidate_swing_low": 16,
+    "swing_low_validated_by_sweep": 3
+  },
+  "events_total": 42,
+  "swings_total": 9,
+  "last_bar": {
+    "index": 219,
+    "close": 1924.31,
+    "regime_direction": "bearish",
+    "regime_confidence": "confirmed",
+    "regime_reason": "bos_confirmed",
+    "transition_reason": null,
+    "protected_high": 3445.9,
+    "protected_high_idx": 139,
+    "protected_low": 3353.59,
+    "protected_low_idx": 10,
+    "validated_high": 4961.06,
+    "validated_high_idx": 31,
+    "validated_low": 1739.66,
+    "validated_low_idx": 197,
+    "cand_high": 4961.06,
+    "cand_high_idx": 31,
+    "cand_low": 1739.66,
+    "cand_low_idx": 197,
+    "active_choch_level": null,
+    "active_choch_index": null,
+    "bos_check": {
+      "event": false,
+      "blocked_reason": "none",
+      "strict_gating": false,
+      "fresh_cross_required": true,
+      "cb_active": false
+    },
+    "choch_check": {
+      "event": false,
+      "blocked_reason": "none",
+      "strict_gating": false
+    },
+    "cb_check": {
+      "event": false,
+      "active": false,
+      "dir": null,
+      "level": null,
+      "from_idx": null
+    }
+  },
+  "events": [
+    {
+      "index": 2,
+      "event": "candidate_swing_high",
+      "price": 3791.98,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 2
+    },
+    {
+      "index": 3,
+      "event": "candidate_swing_high",
+      "price": 3877.9,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 3
+    },
+    {
+      "index": 4,
+      "event": "candidate_swing_high",
+      "price": 3939.11,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 4
+    },
+    {
+      "index": 5,
+      "event": "swing_high_validated_by_sweep",
+      "price": 3939.11,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 4
+    },
+    {
+      "index": 15,
+      "event": "candidate_swing_high",
+      "price": 4070.18,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 15
+    },
+    {
+      "index": 15,
+      "event": "bos_confirmed",
+      "price": 4007.58,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": "bos_confirmed",
+      "anchor_index": 4
+    },
+    {
+      "index": 15,
+      "event": "swing_low_locked",
+      "price": 3353.59,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 10
+    },
+    {
+      "index": 16,
+      "event": "candidate_swing_high",
+      "price": 4327.6,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 16
+    },
+    {
+      "index": 17,
+      "event": "candidate_swing_high",
+      "price": 4332.0,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 17
+    },
+    {
+      "index": 18,
+      "event": "candidate_swing_high",
+      "price": 4365.59,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 18
+    },
+    {
+      "index": 19,
+      "event": "candidate_swing_high",
+      "price": 4639.2,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 19
+    },
+    {
+      "index": 20,
+      "event": "candidate_swing_high",
+      "price": 4782.01,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 20
+    },
+    {
+      "index": 21,
+      "event": "candidate_swing_high",
+      "price": 4792.1,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 21
+    },
+    {
+      "index": 22,
+      "event": "swing_high_validated_by_sweep",
+      "price": 4792.1,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 21
+    },
+    {
+      "index": 29,
+      "event": "candidate_swing_high",
+      "price": 4887.97,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 29
+    },
+    {
+      "index": 31,
+      "event": "candidate_swing_high",
+      "price": 4961.06,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 31
+    },
+    {
+      "index": 32,
+      "event": "swing_high_validated_by_sweep",
+      "price": 4961.06,
+      "regime_direction": "bullish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 31
+    },
+    {
+      "index": 105,
+      "event": "choch_detected",
+      "price": 3314.65,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": "choch_detected",
+      "anchor_index": 10
+    },
+    {
+      "index": 105,
+      "event": "swing_high_locked",
+      "price": 4961.06,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "anchor_index": 31
+    },
+    {
+      "index": 106,
+      "event": "candidate_swing_low",
+      "price": 3192.4,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "anchor_index": 106
+    },
+    {
+      "index": 107,
+      "event": "swing_low_validated_by_sweep",
+      "price": 3192.4,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "anchor_index": 106
+    },
+    {
+      "index": 112,
+      "event": "candidate_swing_low",
+      "price": 3151.92,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "anchor_index": 112
+    },
+    {
+      "index": 113,
+      "event": "candidate_swing_low",
+      "price": 3067.67,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "anchor_index": 113
+    },
+    {
+      "index": 113,
+      "event": "bos_confirmed",
+      "price": 3111.67,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": "bos_confirmed",
+      "anchor_index": 106
+    },
+    {
+      "index": 113,
+      "event": "swing_high_locked",
+      "price": 3657.53,
+      "regime_direction": "bearish",
+      "regime_confidence": "transitional",
+      "transition_reason": null,
+      "anchor_index": 109
+    },
+    {
+      "index": 115,
+      "event": "candidate_swing_low",
+      "price": 3001.1,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 115
+    },
+    {
+      "index": 116,
+      "event": "candidate_swing_low",
+      "price": 2957.73,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 116
+    },
+    {
+      "index": 117,
+      "event": "candidate_swing_low",
+      "price": 2943.26,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 117
+    },
+    {
+      "index": 118,
+      "event": "candidate_swing_low",
+      "price": 2872.4,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 118
+    },
+    {
+      "index": 119,
+      "event": "candidate_swing_low",
+      "price": 2787.44,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 119
+    },
+    {
+      "index": 120,
+      "event": "candidate_swing_low",
+      "price": 2621.0,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 120
+    },
+    {
+      "index": 123,
+      "event": "swing_low_validated_by_sweep",
+      "price": 2621.0,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 120
+    },
+    {
+      "index": 191,
+      "event": "candidate_swing_low",
+      "price": 2226.07,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 191
+    },
+    {
+      "index": 191,
+      "event": "bos_confirmed",
+      "price": 2450.72,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": "bos_confirmed",
+      "anchor_index": 120
+    },
+    {
+      "index": 191,
+      "event": "swing_high_locked",
+      "price": 3445.9,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 139
+    },
+    {
+      "index": 192,
+      "event": "candidate_swing_low",
+      "price": 2218.67,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 192
+    },
+    {
+      "index": 193,
+      "event": "candidate_swing_low",
+      "price": 2156.6,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 193
+    },
+    {
+      "index": 194,
+      "event": "candidate_swing_low",
+      "price": 2106.4,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 194
+    },
+    {
+      "index": 195,
+      "event": "candidate_swing_low",
+      "price": 2074.16,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 195
+    },
+    {
+      "index": 196,
+      "event": "candidate_swing_low",
+      "price": 1814.0,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 196
+    },
+    {
+      "index": 197,
+      "event": "candidate_swing_low",
+      "price": 1739.66,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 197
+    },
+    {
+      "index": 198,
+      "event": "swing_low_validated_by_sweep",
+      "price": 1739.66,
+      "regime_direction": "bearish",
+      "regime_confidence": "confirmed",
+      "transition_reason": null,
+      "anchor_index": 197
+    }
+  ]
+}

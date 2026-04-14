@@ -1,0 +1,362 @@
+//@version=5
+indicator("Phase2A S/R Watcher V1", overlay=true, max_boxes_count=200, max_labels_count=500)
+
+// === Inputs (Phase 2A watcher only) ===
+atrLen              = input.int(14, "ATR Length", minval=1)
+kAtr                = input.float(0.35, "kAtr", minval=0.01, step=0.01)
+minTicksInput       = input.int(20, "minTicks (global)", minval=1)
+maxTicksInput       = input.int(5000, "maxTicks (global)", minval=2)
+mergeOverlap        = input.float(0.20, "mergeOverlap", minval=0.0, maxval=1.0, step=0.01)
+minZoneSpacing      = input.float(2.00, "minZoneSpacing x width", minval=0.1, step=0.05)
+closeBreakTolK      = input.float(0.05, "closeBreakTolK", minval=0.0, step=0.01)
+sepK                = input.float(0.75, "sepK", minval=0.0, step=0.05)
+baseTolK            = input.float(1.00, "baseTolK", minval=0.1, step=0.05)
+baseBarsMin         = input.int(4, "baseBarsMin", minval=1)
+baseBarsMax         = input.int(6, "baseBarsMax", minval=1)
+reclaimK            = input.float(0.25, "reclaimK", minval=0.0, step=0.01)
+flipConfirmWindow   = input.int(12, "flipConfirmWindowBars", minval=1)
+touchEpsilonK       = input.float(0.02, "touchEpsilonK", minval=0.0, step=0.01)
+
+pivotL              = input.int(8, "Pivot Left", minval=1)
+pivotR              = input.int(8, "Pivot Right", minval=1)
+minStrength         = input.float(1.25, "Min pivot strength", minval=0.1, step=0.05)
+maxZones            = input.int(10, "Max zones", minval=4, maxval=80)
+showReasonLabels    = input.bool(false, "Show reason labels")
+showProgressLabels  = input.bool(false, "Show progress labels (noisy)")
+showDebug           = input.bool(false, "Show debug")
+highContrastZones   = input.bool(true, "High-contrast zones")
+showZoneMidline     = input.bool(true, "Show zone midline")
+
+htfTf               = input.timeframe("60", "HTF timeframe")
+showHtfMarkers      = input.bool(true, "Show HTF markers")
+
+// EXPIRED hook remains disabled by default in Phase 2A.
+enableExpiry        = input.bool(false, "Enable EXPIRED hook (default OFF)")
+
+// === Enums ===
+STATE_ACTIVE        = 0
+STATE_FLIP_CAND     = 1
+STATE_FLIPPED       = 2
+STATE_INVALID       = 3
+STATE_EXPIRED       = 4
+
+SIDE_SUPPORT        = 1
+SIDE_RESIST         = -1
+
+// === Storage arrays ===
+var zTop            = array.new_float()
+var zBot            = array.new_float()
+var zMid            = array.new_float()
+var zWidth          = array.new_float()
+var zStrength       = array.new_float()
+var zSide           = array.new_int()
+var zState          = array.new_int()
+var zRetest         = array.new_int()
+var zFirstRetest    = array.new_bool()
+var zBreakBar       = array.new_int()
+var zSepSeen        = array.new_bool()
+var zBaseCount      = array.new_int()
+var zCreatedBar     = array.new_int()
+var zOriginBar      = array.new_int()
+var zLastTouchBar   = array.new_int()
+var zBox            = array.new_box()
+var zMidLine        = array.new_line()
+
+f_clamp(_x, _lo, _hi) =>
+    math.max(_lo, math.min(_hi, _x))
+
+atrv = ta.atr(atrLen)
+minW = minTicksInput * syminfo.mintick
+maxW = maxTicksInput * syminfo.mintick
+zoneW = f_clamp(kAtr * atrv, minW, maxW)
+
+f_reason(_txt, _y, _c) =>
+    noisyProgress = _txt == "SR_FLIP_BASE_PROGRESS" or _txt == "SR_RETEST_INCREMENTED" or _txt == "SR_FLIP_SEPARATION_MET"
+    majorEvent = _txt == "SR_ZONE_CREATED" or _txt == "SR_FIRST_RETEST" or _txt == "SR_BREAK_CLOSE_CONFIRMED" or _txt == "SR_FLIP_CONFIRMED" or _txt == "SR_INVALID_RECLAIM"
+    shouldShow = showReasonLabels and (majorEvent or showProgressLabels) and (showProgressLabels or not noisyProgress)
+    if shouldShow
+        label.new(bar_index, _y, _txt, style=label.style_label_left, textcolor=color.white, color=_c, size=size.tiny)
+
+f_overlap_ratio(_t1, _b1, _t2, _b2) =>
+    interTop = math.min(_t1, _t2)
+    interBot = math.max(_b1, _b2)
+    inter = math.max(0.0, interTop - interBot)
+    uni = math.max(_t1, _t2) - math.min(_b1, _b2)
+    uni > 0 ? inter / uni : 0.0
+
+f_zone_color(_state, _side) =>
+    aInvalid = highContrastZones ? 55 : 80
+    aFlipCand = highContrastZones ? 50 : 78
+    aFlipped = highContrastZones ? 55 : 80
+    aExpired = highContrastZones ? 65 : 82
+    aActive = highContrastZones ? 60 : 82
+    _state == STATE_INVALID ? color.new(color.red, aInvalid) :
+      _state == STATE_FLIP_CAND ? color.new(color.orange, aFlipCand) :
+      _state == STATE_FLIPPED ? color.new(color.aqua, aFlipped) :
+      _state == STATE_EXPIRED ? color.new(color.gray, aExpired) :
+      _side == SIDE_SUPPORT ? color.new(color.green, aActive) : color.new(color.purple, aActive)
+
+f_zone_border_color(_state, _side) =>
+    _state == STATE_INVALID ? color.new(color.red, 0) :
+      _state == STATE_FLIP_CAND ? color.new(color.orange, 0) :
+      _state == STATE_FLIPPED ? color.new(color.aqua, 0) :
+      _state == STATE_EXPIRED ? color.new(color.gray, 10) :
+      _side == SIDE_SUPPORT ? color.new(color.lime, 0) : color.new(color.fuchsia, 0)
+
+f_trim() =>
+    while array.size(zTop) > maxZones
+        oldBox = array.shift(zBox)
+        if not na(oldBox)
+            box.delete(oldBox)
+        oldLine = array.shift(zMidLine)
+        if not na(oldLine)
+            line.delete(oldLine)
+        array.shift(zTop)
+        array.shift(zBot)
+        array.shift(zMid)
+        array.shift(zWidth)
+        array.shift(zStrength)
+        array.shift(zSide)
+        array.shift(zState)
+        array.shift(zRetest)
+        array.shift(zFirstRetest)
+        array.shift(zBreakBar)
+        array.shift(zSepSeen)
+        array.shift(zBaseCount)
+        array.shift(zCreatedBar)
+        array.shift(zOriginBar)
+        array.shift(zLastTouchBar)
+
+f_add_zone(_mid, _width, _side, _strength, _originBar) =>
+    _top = _mid + _width * 0.5
+    _bot = _mid - _width * 0.5
+    _left = math.max(0, _originBar)
+
+    // De-dupe / spacing against same-side zones; keep stronger locus.
+    bool dropped = false
+    zCount = array.size(zTop)
+    if zCount > 0
+        for i = zCount - 1 to 0
+            if not dropped
+                iSide = array.get(zSide, i)
+                iTop = array.get(zTop, i)
+                iBot = array.get(zBot, i)
+                iMid = array.get(zMid, i)
+                iWidth = array.get(zWidth, i)
+                iStr = array.get(zStrength, i)
+                ov = f_overlap_ratio(_top, _bot, iTop, iBot)
+                spacing = math.abs(_mid - iMid) / math.max(_width, iWidth)
+                if iSide == _side and (ov > mergeOverlap or spacing < minZoneSpacing)
+                    if _strength > iStr
+                        // replace weaker
+                        b = array.get(zBox, i)
+                        if not na(b)
+                            box.delete(b)
+                        array.set(zTop, i, _top)
+                        array.set(zBot, i, _bot)
+                        array.set(zMid, i, _mid)
+                        array.set(zWidth, i, _width)
+                        array.set(zStrength, i, _strength)
+                        array.set(zState, i, STATE_ACTIVE)
+                        array.set(zRetest, i, 0)
+                        array.set(zFirstRetest, i, false)
+                        array.set(zBreakBar, i, na)
+                        array.set(zSepSeen, i, false)
+                        array.set(zBaseCount, i, 0)
+                        array.set(zCreatedBar, i, bar_index)
+                        array.set(zOriginBar, i, _left)
+                        array.set(zLastTouchBar, i, na)
+                        nb = box.new(_left, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
+                        array.set(zBox, i, nb)
+                        oldMl = array.get(zMidLine, i)
+                        if not na(oldMl)
+                            line.delete(oldMl)
+                        ml = line.new(_left, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
+                        array.set(zMidLine, i, ml)
+                        f_reason("SR_ZONE_MERGED_STRONGER", _mid, color.new(color.teal, 10))
+                    else
+                        dropped := true
+                        f_reason("SR_ZONE_DROPPED_OVERLAP", _mid, color.new(color.maroon, 25))
+
+    if not dropped
+        array.push(zTop, _top)
+        array.push(zBot, _bot)
+        array.push(zMid, _mid)
+        array.push(zWidth, _width)
+        array.push(zStrength, _strength)
+        array.push(zSide, _side)
+        array.push(zState, STATE_ACTIVE)
+        array.push(zRetest, 0)
+        array.push(zFirstRetest, false)
+        array.push(zBreakBar, na)
+        array.push(zSepSeen, false)
+        array.push(zBaseCount, 0)
+        array.push(zCreatedBar, bar_index)
+        array.push(zOriginBar, _left)
+        array.push(zLastTouchBar, na)
+        b = box.new(_left, _top, bar_index, _bot, border_color=f_zone_border_color(STATE_ACTIVE, _side), border_width=3, bgcolor=f_zone_color(STATE_ACTIVE, _side))
+        array.push(zBox, b)
+        ml = line.new(_left, _mid, bar_index, _mid, extend=extend.none, color=f_zone_border_color(STATE_ACTIVE, _side), width=showZoneMidline ? 2 : 1, style=line.style_solid)
+        array.push(zMidLine, ml)
+        f_reason("SR_ZONE_CREATED", _mid, color.new(color.blue, 20))
+
+    f_trim()
+
+f_update_zone(i) =>
+    iTop = array.get(zTop, i)
+    iBot = array.get(zBot, i)
+    iMid = array.get(zMid, i)
+    iWidth = array.get(zWidth, i)
+    iSide = array.get(zSide, i)
+    iState = array.get(zState, i)
+    iRetest = array.get(zRetest, i)
+    iFirstRetest = array.get(zFirstRetest, i)
+    iBreakBar = array.get(zBreakBar, i)
+    iSep = array.get(zSepSeen, i)
+    iBase = array.get(zBaseCount, i)
+    iOrigin = array.get(zOriginBar, i)
+
+    eps = touchEpsilonK * iWidth
+    touch = high >= (iBot - eps) and low <= (iTop + eps)
+
+    // Touch/retest handling (no resets from touches)
+    if iState != STATE_INVALID and iState != STATE_EXPIRED and touch and bar_index != array.get(zLastTouchBar, i)
+        iRetest += 1
+        array.set(zRetest, i, iRetest)
+        array.set(zLastTouchBar, i, bar_index)
+        f_reason(iRetest == 1 ? "SR_FIRST_RETEST" : "SR_RETEST_INCREMENTED", iMid, color.new(color.green, 10))
+
+    closeBreakTol = closeBreakTolK * iWidth
+    broke = (iSide == SIDE_SUPPORT and close < iBot - closeBreakTol) or (iSide == SIDE_RESIST and close > iTop + closeBreakTol)
+
+    if iState == STATE_ACTIVE and broke
+        iState := STATE_FLIP_CAND
+        iBreakBar := bar_index
+        iSep := false
+        iBase := 0
+        f_reason("SR_BREAK_CLOSE_CONFIRMED", iMid, color.new(color.orange, 20))
+
+    if iState == STATE_FLIP_CAND
+        // Reclaim invalidation first
+        reclaimHit = (iSide == SIDE_SUPPORT and close > iBot + reclaimK * iWidth) or (iSide == SIDE_RESIST and close < iTop - reclaimK * iWidth)
+        if reclaimHit
+            iState := STATE_INVALID
+            f_reason("SR_INVALID_RECLAIM", iMid, color.new(color.red, 10))
+        else
+            sepHit = (iSide == SIDE_SUPPORT and low < iBot - sepK * iWidth) or (iSide == SIDE_RESIST and high > iTop + sepK * iWidth)
+            if sepHit and not iSep
+                iSep := true
+                f_reason("SR_FLIP_SEPARATION_MET", iMid, color.new(color.orange, 0))
+
+            // Base around post-break structure
+            anchor = iSide == SIDE_SUPPORT ? iBot - sepK * iWidth : iTop + sepK * iWidth
+            inBase = math.abs(close - anchor) <= baseTolK * iWidth
+            iBase := inBase ? (iBase + 1) : 0
+            if iBase > 0
+                f_reason("SR_FLIP_BASE_PROGRESS", iMid, color.new(color.yellow, 20))
+
+            timedOut = not na(iBreakBar) and (bar_index - iBreakBar > flipConfirmWindow)
+            if timedOut and not (iSep and iBase >= baseBarsMin)
+                iState := STATE_ACTIVE
+                iBreakBar := na
+                iSep := false
+                iBase := 0
+                f_reason("SR_FLIP_CANDIDATE_CANCELLED", iMid, color.new(color.gray, 10))
+
+            if iSep and iBase >= baseBarsMin and iBase <= baseBarsMax
+                iState := STATE_FLIPPED
+                iRetest := 0
+                iFirstRetest := false
+                iSide := iSide == SIDE_SUPPORT ? SIDE_RESIST : SIDE_SUPPORT
+                iBreakBar := na
+                iSep := false
+                iBase := 0
+                f_reason("SR_FLIP_CONFIRMED", iMid, color.new(color.aqua, 5))
+
+    // Optional EXPIRED hook (default off)
+    if enableExpiry and iState != STATE_INVALID and iState != STATE_EXPIRED
+        // Placeholder policy hook, user-controlled.
+        // Example: expire very old zones if explicitly enabled.
+        if bar_index - array.get(zCreatedBar, i) > 5000
+            iState := STATE_EXPIRED
+            f_reason("SR_EXPIRED_POLICY", iMid, color.new(color.gray, 20))
+
+    // persist back
+    array.set(zState, i, iState)
+    array.set(zRetest, i, iRetest)
+    array.set(zFirstRetest, i, iFirstRetest)
+    array.set(zBreakBar, i, iBreakBar)
+    array.set(zSepSeen, i, iSep)
+    array.set(zBaseCount, i, iBase)
+    array.set(zSide, i, iSide)
+
+    b = array.get(zBox, i)
+    if not na(b)
+        box.set_left(b, iOrigin)
+        box.set_right(b, bar_index)
+        box.set_bgcolor(b, f_zone_color(iState, iSide))
+        box.set_border_color(b, f_zone_border_color(iState, iSide))
+
+    ml = array.get(zMidLine, i)
+    if not na(ml)
+        line.set_x1(ml, iOrigin)
+        line.set_x2(ml, bar_index)
+        line.set_y1(ml, iMid)
+        line.set_y2(ml, iMid)
+        line.set_color(ml, showZoneMidline ? f_zone_border_color(iState, iSide) : color.new(color.white, 100))
+
+// === Build zones from pivots (reaction loci) ===
+ph = ta.pivothigh(high, pivotL, pivotR)
+pl = ta.pivotlow(low, pivotL, pivotR)
+
+if not na(ph)
+    // resistance from pivot high
+    c = ph
+    strength = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
+    if strength >= minStrength
+        f_add_zone(c, zoneW[pivotR], SIDE_RESIST, strength, bar_index - pivotR)
+
+if not na(pl)
+    // support from pivot low
+    c = pl
+    strength = (high[pivotR] - low[pivotR]) / math.max(atrv[pivotR], syminfo.mintick)
+    if strength >= minStrength
+        f_add_zone(c, zoneW[pivotR], SIDE_SUPPORT, strength, bar_index - pivotR)
+
+// === HTF markers (authority hint) ===
+htfPh = request.security(syminfo.tickerid, htfTf, ta.pivothigh(high, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
+htfPl = request.security(syminfo.tickerid, htfTf, ta.pivotlow(low, pivotL, pivotR), barmerge.gaps_off, barmerge.lookahead_off)
+
+plot(showHtfMarkers ? htfPh : na, "HTF Pivot High", color=color.new(color.fuchsia, 35), style=plot.style_circles, linewidth=1)
+plot(showHtfMarkers ? htfPl : na, "HTF Pivot Low", color=color.new(color.lime, 35), style=plot.style_circles, linewidth=1)
+
+// Update every zone each bar (guard empty arrays)
+zoneCount = array.size(zTop)
+if zoneCount > 0
+    for i = 0 to zoneCount - 1
+        f_update_zone(i)
+
+// === Lightweight dashboard ===
+var table t = table.new(position.top_right, 2, 4, border_width=1)
+if barstate.islast
+    activeCnt = 0
+    flipCnt = 0
+    invalidCnt = 0
+    stateCount = array.size(zState)
+    if stateCount > 0
+        for i = 0 to stateCount - 1
+            s = array.get(zState, i)
+            activeCnt += s == STATE_ACTIVE or s == STATE_FLIPPED ? 1 : 0
+            flipCnt += s == STATE_FLIP_CAND ? 1 : 0
+            invalidCnt += s == STATE_INVALID ? 1 : 0
+
+    table.cell(t, 0, 0, "Zones", bgcolor=color.new(color.black, 0), text_color=color.white)
+    table.cell(t, 1, 0, str.tostring(array.size(zTop)), bgcolor=color.new(color.black, 0), text_color=color.white)
+    table.cell(t, 0, 1, "Active", text_color=color.white)
+    table.cell(t, 1, 1, str.tostring(activeCnt), text_color=color.white)
+    table.cell(t, 0, 2, "FlipCand", text_color=color.white)
+    table.cell(t, 1, 2, str.tostring(flipCnt), text_color=color.white)
+    table.cell(t, 0, 3, "Invalid", text_color=color.white)
+    table.cell(t, 1, 3, str.tostring(invalidCnt), text_color=color.white)
+
+plot(showDebug ? zoneW : na, "zoneW", color=color.new(color.yellow, 0))

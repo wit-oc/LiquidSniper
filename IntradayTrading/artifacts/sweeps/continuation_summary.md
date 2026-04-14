@@ -1,0 +1,5 @@
+- attempt 1: BTC trades=3 pf=0.063 dd=516.19; ETH trades=1 pf=0.000 dd=9.47; pass=False | Insufficient tradability (4 total trades < 30).
+- attempt 2: BTC trades=5 pf=0.690 dd=596.81; ETH trades=1 pf=0.000 dd=9.47; pass=False | Insufficient tradability (6 total trades < 30).
+- attempt 3: BTC trades=1 pf=0.000 dd=80.63; ETH trades=5 pf=0.079 dd=44.31; pass=False | Insufficient tradability (6 total trades < 30).
+- attempt 4: BTC trades=12 pf=0.978 dd=860.22; ETH trades=15 pf=0.960 dd=70.22; pass=False | Insufficient tradability (27 total trades < 30).
+- attempt 5: BTC trades=10 pf=3.002 dd=240.15; ETH trades=12 pf=2.703 dd=15.11; pass=False | Insufficient tradability (22 total trades < 30).

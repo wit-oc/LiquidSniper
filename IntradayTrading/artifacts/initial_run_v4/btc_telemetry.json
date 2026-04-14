@@ -1,0 +1,19 @@
+{
+  "funnel": {
+    "bars": 27428,
+    "zone_touched": 27107,
+    "strict_retest": 0,
+    "near_retest": 0,
+    "retest_gate": 0,
+    "regime_gate": 0,
+    "chop_ok": 0,
+    "long_score_ok": 0,
+    "short_score_ok": 0,
+    "entries": 0
+  },
+  "rejections": {
+    "no_zone_touch": 321,
+    "retest_gate_fail": 27107
+  },
+  "trade_attribution": {}
+}

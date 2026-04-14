@@ -1,0 +1,41 @@
+{
+  "task": "T4",
+  "description": "Run v3.3 parity baseline on BTCUSDT/ETHUSDT 1D sample windows and emit artifacts",
+  "window_bars": 220,
+  "results": {
+    "BTCUSDT": {
+      "artifact": "intraday_revisit/artifacts/phase1_v3_3_parity/T4_btcusdt_1d_window.json",
+      "events_total": 44,
+      "swings_total": 12,
+      "event_counts": {
+        "candidate_swing_low": 24,
+        "swing_low_validated_by_sweep": 8,
+        "bos_confirmed": 3,
+        "swing_high_locked": 4,
+        "choch_detected": 2,
+        "swing_low_locked": 1,
+        "candidate_swing_high": 1,
+        "swing_high_validated_by_sweep": 1
+      },
+      "window_start_iso": "2025-07-24T00:00:00+00:00",
+      "window_end_iso": "2026-02-28T00:00:00+00:00"
+    },
+    "ETHUSDT": {
+      "artifact": "intraday_revisit/artifacts/phase1_v3_3_parity/T4_ethusdt_1d_window.json",
+      "events_total": 42,
+      "swings_total": 9,
+      "event_counts": {
+        "candidate_swing_high": 12,
+        "swing_high_validated_by_sweep": 3,
+        "bos_confirmed": 3,
+        "swing_low_locked": 1,
+        "choch_detected": 1,
+        "swing_high_locked": 3,
+        "candidate_swing_low": 16,
+        "swing_low_validated_by_sweep": 3
+      },
+      "window_start_iso": "2025-07-24T00:00:00+00:00",
+      "window_end_iso": "2026-02-28T00:00:00+00:00"
+    }
+  }
+}

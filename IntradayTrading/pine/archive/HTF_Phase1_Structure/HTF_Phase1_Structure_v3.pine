@@ -1,0 +1,351 @@
+//@version=5
+indicator("HTF Phase 1 Structure v3 (candidate+sweep gated)", overlay=true, max_labels_count=500, max_lines_count=500, max_bars_back=5000)
+
+// ----------------------------------------------------------------------------
+// v3 Ground-up build (aligned to Redact MarketStructure.md flow)
+// Key rule implemented:
+// - In-trend swing (bull: high / bear: low) is only a CANDIDATE until its
+//   opposite end is swept by a future candle WITHOUT creating a new extreme.
+// - Until that validation happens, BoS/CHoCH are blocked when strict gating is on.
+// ----------------------------------------------------------------------------
+
+// ---------------------------- Inputs -----------------------------------------
+autoBootstrap = input.bool(true, "Bootstrap from EMA12 over first N bars")
+bootstrapBars = input.int(25, "Bootstrap bars", minval=5)
+manualInitialBullish = input.bool(true, "Manual initial bullish (used before bootstrap)")
+processLookbackBars = input.int(1500, "Process only recent bars", minval=200)
+
+breakMinFrac = input.float(0.20, "Break min fraction of candle range", minval=0.0, maxval=1.0, step=0.01)
+strictGating = input.bool(true, "Strict gate: no BoS/CHoCH while in-trend swing is pending")
+showSwingLabels = input.bool(true, "Show validated swing labels")
+showWeakBreakDots = input.bool(true, "Show weak break dots")
+showGateTable = input.bool(true, "Show gate table")
+showPendingBg = input.bool(true, "Shade background while gate is closed")
+
+// ---------------------------- Helpers ----------------------------------------
+convincingBreakAbove(level) =>
+    rng = math.max(1e-9, high - low)
+    close > level and (close - level) >= breakMinFrac * rng
+
+convincingBreakBelow(level) =>
+    rng = math.max(1e-9, high - low)
+    close < level and (level - close) >= breakMinFrac * rng
+
+weakBreakAbove(level) =>
+    close > level and not convincingBreakAbove(level)
+
+weakBreakBelow(level) =>
+    close < level and not convincingBreakBelow(level)
+
+// ---------------------------- Regime state -----------------------------------
+var string regimeDir = manualInitialBullish ? "bullish" : "bearish"
+var string regimeConf = "confirmed"               // confirmed | transitional
+var string regimeReason = "bootstrap"             // bootstrap | choch_detected | bos_confirmed
+
+var bool bootstrapLocked = false
+var bool processActive = false
+var int processSeedIdx = na
+var float bootEma = na
+var int bootCount = 0
+processStartIdx = math.max(0, last_bar_index - processLookbackBars + 1)
+
+// Protected structural boundaries used for CHoCH checks.
+var float protectedLow = low
+var int protectedLowIdx = bar_index
+var float protectedHigh = high
+var int protectedHighIdx = bar_index
+
+// Last validated in-trend swings.
+var float validatedHigh = high
+var int validatedHighIdx = bar_index
+var float validatedLow = low
+var int validatedLowIdx = bar_index
+
+// Bullish candidate = new high + remembers low of creator candle.
+var float candHigh = high
+var int candHighIdx = bar_index
+var float candHighLow = low
+var int candHighLowIdx = bar_index
+
+// Bearish candidate = new low + remembers high of creator candle.
+var float candLow = low
+var int candLowIdx = bar_index
+var float candLowHigh = high
+var int candLowHighIdx = bar_index
+
+// One-shot CHoCH latch per protected level index.
+var int lastChochProtectedLowIdx = na
+var int lastChochProtectedHighIdx = na
+
+// Active CHoCH level for diagnostics.
+var float activeChochLevel = na
+
+// Seed state only on recent history window so ancient bars don't anchor structure.
+if not processActive and bar_index >= processStartIdx
+    processActive := true
+    processSeedIdx := bar_index
+
+    regimeDir := manualInitialBullish ? "bullish" : "bearish"
+    regimeConf := "confirmed"
+    regimeReason := "bootstrap"
+
+    protectedLow := low
+    protectedLowIdx := bar_index
+    protectedHigh := high
+    protectedHighIdx := bar_index
+
+    validatedHigh := high
+    validatedHighIdx := bar_index
+    validatedLow := low
+    validatedLowIdx := bar_index
+
+    candHigh := high
+    candHighIdx := bar_index
+    candHighLow := low
+    candHighLowIdx := bar_index
+
+    candLow := low
+    candLowIdx := bar_index
+    candLowHigh := high
+    candLowHighIdx := bar_index
+
+    lastChochProtectedLowIdx := na
+    lastChochProtectedHighIdx := na
+    activeChochLevel := na
+
+    bootEma := close
+    bootCount := 1
+    bootstrapLocked := not autoBootstrap
+
+if processActive and autoBootstrap and not bootstrapLocked and bar_index > processSeedIdx
+    alpha = 2.0 / (12.0 + 1.0)
+    if bootCount < bootstrapBars
+        bootEma := alpha * close + (1.0 - alpha) * bootEma
+        bootCount += 1
+    if bootCount >= bootstrapBars
+        regimeDir := close >= bootEma ? "bullish" : "bearish"
+        bootstrapLocked := true
+
+processReady = processActive and bootstrapLocked
+
+// ---------------------------- Event flags ------------------------------------
+bool evBos = false
+bool evChoch = false
+bool evSwingValidated = false
+bool evWeakBreak = false
+
+float bosFromPrice = na
+int bosFromIdx = na
+float chochFromPrice = na
+int chochFromIdx = na
+
+// Precompute dynamic lock windows each bar so TA funcs are called consistently.
+lenBull = na(validatedHighIdx) ? 1 : math.max(1, bar_index - validatedHighIdx + 1)
+bullLockLow = ta.lowest(low, lenBull)
+bullLockOff = ta.lowestbars(low, lenBull)
+
+lenBear = na(validatedLowIdx) ? 1 : math.max(1, bar_index - validatedLowIdx + 1)
+bearLockHigh = ta.highest(high, lenBear)
+bearLockOff = ta.highestbars(high, lenBear)
+
+// ---------------------------- Core logic -------------------------------------
+if processReady and regimeDir == "bullish"
+    // Gate A: build bullish candidate highs.
+    if high > candHigh
+        candHigh := high
+        candHighIdx := bar_index
+        candHighLow := low
+        candHighLowIdx := bar_index
+
+    // Gate B: candidate high validates only when creator low is swept by future
+    // candle without a new high.
+    if bar_index > candHighIdx and low <= candHighLow and high <= candHigh
+        if na(validatedHighIdx) or validatedHighIdx != candHighIdx
+            validatedHigh := candHigh
+            validatedHighIdx := candHighIdx
+            evSwingValidated := true
+            if showSwingLabels
+                label.new(candHighIdx, candHigh, "VH", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.tiny)
+
+            // Keep downside protected level current in CONFIRMED trend only.
+            // (During transitional state, keep CHoCH boundary stable until BOS.)
+            if regimeConf == "confirmed" and candHighLow > protectedLow
+                protectedLow := candHighLow
+                protectedLowIdx := candHighLowIdx
+
+    bullPending = na(validatedHighIdx) or candHighIdx != validatedHighIdx
+    bullGateOpen = not bullPending
+
+    // Optional trend-side wick handling (Option A flavor): if we wick above the
+    // validated high but fail close-through, keep extending candidate.
+    if high >= validatedHigh and close <= validatedHigh
+        candHigh := math.max(candHigh, high)
+        if candHigh == high
+            candHighIdx := bar_index
+            candHighLow := low
+            candHighLowIdx := bar_index
+
+    // Gate C: structural events only when gate open (if strict mode).
+    canEvaluateStructure = strictGating ? bullGateOpen : true
+
+    // Bullish continuation BOS.
+    if canEvaluateStructure and convincingBreakAbove(validatedHigh)
+        evBos := true
+        bosFromPrice := validatedHigh
+        bosFromIdx := validatedHighIdx
+
+        // Confirm opposite swing low over interval [validatedHighIdx .. current].
+        protectedLow := bullLockLow
+        protectedLowIdx := bar_index + bullLockOff
+
+        regimeConf := "confirmed"
+        regimeReason := "bos_confirmed"
+        activeChochLevel := na
+
+    if canEvaluateStructure and weakBreakAbove(validatedHigh)
+        evWeakBreak := true
+
+    // CHoCH down: break+close below protected low.
+    if canEvaluateStructure and convincingBreakBelow(protectedLow)
+        if lastChochProtectedLowIdx != protectedLowIdx
+            lastChochProtectedLowIdx := protectedLowIdx
+            evChoch := true
+            chochFromPrice := protectedLow
+            chochFromIdx := protectedLowIdx
+
+            regimeDir := "bearish"
+            regimeConf := "transitional"
+            regimeReason := "choch_detected"
+            activeChochLevel := protectedLow
+
+            // After CHoCH we must wait for bearish retracement->BOS flow.
+            candLow := low
+            candLowIdx := bar_index
+            candLowHigh := high
+            candLowHighIdx := bar_index
+            validatedLow := na
+            validatedLowIdx := na
+
+            // Reference boundary for any immediate invalidation checks.
+            if not na(validatedHigh)
+                protectedHigh := validatedHigh
+                protectedHighIdx := validatedHighIdx
+
+    if canEvaluateStructure and weakBreakBelow(protectedLow)
+        evWeakBreak := true
+
+else if processReady
+    // Gate A: build bearish candidate lows.
+    if low < candLow
+        candLow := low
+        candLowIdx := bar_index
+        candLowHigh := high
+        candLowHighIdx := bar_index
+
+    // Gate B: candidate low validates only when creator high is swept by future
+    // candle without a new low.
+    if bar_index > candLowIdx and high >= candLowHigh and low >= candLow
+        if na(validatedLowIdx) or validatedLowIdx != candLowIdx
+            validatedLow := candLow
+            validatedLowIdx := candLowIdx
+            evSwingValidated := true
+            if showSwingLabels
+                label.new(candLowIdx, candLow, "VL", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.tiny)
+
+            if regimeConf == "confirmed" and candLowHigh < protectedHigh
+                protectedHigh := candLowHigh
+                protectedHighIdx := candLowHighIdx
+
+    bearPending = na(validatedLowIdx) or candLowIdx != validatedLowIdx
+    bearGateOpen = not bearPending
+
+    // Trend-side wick handling (mirror).
+    if low <= validatedLow and close >= validatedLow
+        candLow := math.min(candLow, low)
+        if candLow == low
+            candLowIdx := bar_index
+            candLowHigh := high
+            candLowHighIdx := bar_index
+
+    canEvaluateStructure = strictGating ? bearGateOpen : true
+
+    // Bearish continuation BOS.
+    if canEvaluateStructure and convincingBreakBelow(validatedLow)
+        evBos := true
+        bosFromPrice := validatedLow
+        bosFromIdx := validatedLowIdx
+
+        protectedHigh := bearLockHigh
+        protectedHighIdx := bar_index + bearLockOff
+
+        regimeConf := "confirmed"
+        regimeReason := "bos_confirmed"
+        activeChochLevel := na
+
+    if canEvaluateStructure and weakBreakBelow(validatedLow)
+        evWeakBreak := true
+
+    // CHoCH up.
+    if canEvaluateStructure and convincingBreakAbove(protectedHigh)
+        if lastChochProtectedHighIdx != protectedHighIdx
+            lastChochProtectedHighIdx := protectedHighIdx
+            evChoch := true
+            chochFromPrice := protectedHigh
+            chochFromIdx := protectedHighIdx
+
+            regimeDir := "bullish"
+            regimeConf := "transitional"
+            regimeReason := "choch_detected"
+            activeChochLevel := protectedHigh
+
+            // After CHoCH we must wait for bullish retracement->BOS flow.
+            candHigh := high
+            candHighIdx := bar_index
+            candHighLow := low
+            candHighLowIdx := bar_index
+            validatedHigh := na
+            validatedHighIdx := na
+
+            if not na(validatedLow)
+                protectedLow := validatedLow
+                protectedLowIdx := validatedLowIdx
+
+    if canEvaluateStructure and weakBreakAbove(protectedHigh)
+        evWeakBreak := true
+
+// ---------------------------- Visuals ----------------------------------------
+plotshape(evBos, title="BoS", style=shape.diamond, location=location.abovebar, color=color.new(color.green, 0), size=size.tiny, text="BoS")
+plotshape(evChoch, title="CHoCH", style=shape.triangledown, location=location.abovebar, color=color.new(color.yellow, 0), size=size.tiny, text="CH")
+plotshape(evWeakBreak and showWeakBreakDots ? close : na, title="Weak break", style=shape.circle, location=location.absolute, color=color.new(color.gray, 20), size=size.tiny)
+
+if evBos and not na(bosFromPrice) and not na(bosFromIdx)
+    line.new(bosFromIdx, bosFromPrice, bar_index, close, xloc=xloc.bar_index, extend=extend.none, color=color.new(color.green, 0), width=2)
+
+if evChoch and not na(chochFromPrice) and not na(chochFromIdx)
+    line.new(chochFromIdx, chochFromPrice, bar_index, close, xloc=xloc.bar_index, extend=extend.none, color=color.new(color.yellow, 0), width=2)
+
+plot(regimeDir == "bullish" ? validatedHigh : na, title="Validated High (bull)", color=color.new(color.blue, 0), linewidth=2, style=plot.style_linebr)
+plot(regimeDir == "bearish" ? validatedLow : na, title="Validated Low (bear)", color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr)
+plot(regimeDir == "bearish" ? protectedHigh : na, title="Protected High (bear CHoCH ref)", color=color.new(color.red, 50), linewidth=1, style=plot.style_linebr)
+plot(regimeDir == "bullish" ? protectedLow : na, title="Protected Low (bull CHoCH ref)", color=color.new(color.green, 50), linewidth=1, style=plot.style_linebr)
+plot(regimeDir == "bullish" ? candHigh : na, title="Candidate High (bull)", color=color.new(color.blue, 70), linewidth=1, style=plot.style_linebr)
+plot(regimeDir == "bearish" ? candLow : na, title="Candidate Low (bear)", color=color.new(color.orange, 70), linewidth=1, style=plot.style_linebr)
+
+pendingNow = regimeDir == "bullish" ? (na(validatedHighIdx) or candHighIdx != validatedHighIdx) : (na(validatedLowIdx) or candLowIdx != validatedLowIdx)
+// Temporarily disable chart background painting due TradingView scope parser quirks.
+// Gate status still shown in table cell "Gate".
+
+regimeColor = regimeDir == "bullish" ? (regimeConf == "confirmed" ? color.new(color.green, 0) : color.new(color.green, 55)) : (regimeConf == "confirmed" ? color.new(color.red, 0) : color.new(color.red, 55))
+
+var table t = table.new(position.top_right, 1, 7, border_width=1)
+if barstate.islast and showGateTable
+    gateTxt = strictGating ? (pendingNow ? "CLOSED (pending sweep)" : "OPEN") : "OPEN (strict off)"
+    protectedRefTxt = regimeDir == "bullish" ? ("Low " + str.tostring(protectedLow, format.mintick)) : ("High " + str.tostring(protectedHigh, format.mintick))
+    validatedRefTxt = regimeDir == "bullish" ? ("High " + str.tostring(validatedHigh, format.mintick)) : ("Low " + str.tostring(validatedLow, format.mintick))
+    table.cell(t, 0, 0, "Dir: " + regimeDir, text_color=color.white, bgcolor=color.new(regimeColor, 0))
+    table.cell(t, 0, 1, "Conf: " + regimeConf, text_color=color.white, bgcolor=color.new(regimeColor, 20))
+    table.cell(t, 0, 2, "Reason: " + regimeReason, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 3, "Gate: " + gateTxt, text_color=color.white, bgcolor=color.new(pendingNow ? color.orange : color.teal, 35))
+    table.cell(t, 0, 4, "Protected ref: " + protectedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 5, "Validated ref: " + validatedRefTxt, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(t, 0, 6, "Active CHoCH: " + (na(activeChochLevel) ? "-" : str.tostring(activeChochLevel, format.mintick)), text_color=color.white, bgcolor=color.new(color.black, 0))

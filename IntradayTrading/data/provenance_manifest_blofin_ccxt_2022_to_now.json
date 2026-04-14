@@ -1,0 +1,68 @@
+{
+  "provider": "ccxt",
+  "exchange_id": "blofin",
+  "pulled_at_utc": "2026-03-02T02:42:55.830068+00:00",
+  "since_utc": "2022-01-01T00:00:00Z",
+  "files": [
+    {
+      "path": "intraday_revisit/data/btc_1h_blofin_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT:USDT",
+      "symbol_resolved": "BTC/USDT:USDT",
+      "timeframe": "1h",
+      "rows": 1000,
+      "first_ts": 1768820400,
+      "last_ts": 1772416800,
+      "sha256": "1cc5f7f7901717d3f0bd83aa88814f858ca280a21098502ea74e94d868c65664"
+    },
+    {
+      "path": "intraday_revisit/data/btc_4h_blofin_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT:USDT",
+      "symbol_resolved": "BTC/USDT:USDT",
+      "timeframe": "4h",
+      "rows": 1000,
+      "first_ts": 1758024000,
+      "last_ts": 1772409600,
+      "sha256": "99f198f12ca04284b39beb2ad0bbbfc2351715163b01d6e90bd8e18b4778b3d8"
+    },
+    {
+      "path": "intraday_revisit/data/btc_1d_blofin_ccxt_2022_to_now.csv",
+      "symbol_requested": "BTC/USDT:USDT",
+      "symbol_resolved": "BTC/USDT:USDT",
+      "timeframe": "1d",
+      "rows": 1000,
+      "first_ts": 1686096000,
+      "last_ts": 1772409600,
+      "sha256": "fb4db28f17ea3bf7eb71819a95c0cf188f6973f159d16f6454865b35dd5821a4"
+    },
+    {
+      "path": "intraday_revisit/data/eth_1h_blofin_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT:USDT",
+      "symbol_resolved": "ETH/USDT:USDT",
+      "timeframe": "1h",
+      "rows": 1000,
+      "first_ts": 1768820400,
+      "last_ts": 1772416800,
+      "sha256": "465f76106c0a7572a032ad407db0067191f6ede3713f3de1a332424085b03d52"
+    },
+    {
+      "path": "intraday_revisit/data/eth_4h_blofin_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT:USDT",
+      "symbol_resolved": "ETH/USDT:USDT",
+      "timeframe": "4h",
+      "rows": 1000,
+      "first_ts": 1758024000,
+      "last_ts": 1772409600,
+      "sha256": "025558b2c42dbfa3cff9b4cc702a20e0e009257d9ce2b09192926da5b3c530c8"
+    },
+    {
+      "path": "intraday_revisit/data/eth_1d_blofin_ccxt_2022_to_now.csv",
+      "symbol_requested": "ETH/USDT:USDT",
+      "symbol_resolved": "ETH/USDT:USDT",
+      "timeframe": "1d",
+      "rows": 1000,
+      "first_ts": 1686096000,
+      "last_ts": 1772409600,
+      "sha256": "1e4af434e558ff1f6bea2c7d513c9ccf1882fcd7781f607a57c93c96f1677f11"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+services:
+  liquidsniper-sr-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: liquidsniper-sr-worker
+    restart: "no"
+    environment:
+      LIQUIDSNIPER_DB_PATH: /data/liquidsniper.sqlite
+      LS_ARTIFACT_ROOT: /data/artifacts
+    command:
+      - python
+      - -m
+      - liquidsniper.ops.sr_bootstrap
+      - --db
+      - /data/liquidsniper.sqlite
+      - --artifact-root
+      - /data/artifacts
+      - --symbols
+      - BTCUSDT,ETHUSDT
+      - --profile
+      - I
+      - --config
+      - /app/liquidsniper/config/sr_bootstrap.default.json
+      - --shadow-v3
+    volumes:
+      - liquidsniper_data:/data
+      - ./IntradayTrading/data:/app/IntradayTrading/data:ro
+
+  liquidsniper-sr-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: liquidsniper-sr-web
+    restart: unless-stopped
+    environment:
+      LIQUIDSNIPER_DB_PATH: /data/liquidsniper.sqlite
+      LS_ARTIFACT_ROOT: /data/artifacts
+    command:
+      - streamlit
+      - run
+      - liquidsniper/web/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - liquidsniper_data:/data
+      - ./IntradayTrading/data:/app/IntradayTrading/data:ro
+    depends_on:
+      - liquidsniper-sr-worker
+
+volumes:
+  liquidsniper_data:
+    name: liquidsniper_data

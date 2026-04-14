@@ -1,0 +1,13 @@
+{
+  "symbol": "BTCUSDT",
+  "purpose": "Validation-only manual anchors extracted from operator grey zones",
+  "notes": "These anchors are test fixtures only and must not be used as hardcoded production zone inputs.",
+  "anchors": [
+    60000,
+    74000,
+    98000,
+    108000,
+    125000
+  ],
+  "tolerance_pct": 0.05
+}

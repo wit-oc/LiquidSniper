@@ -1,0 +1,68 @@
+{
+  "model": "dca_30_30_40",
+  "params": {
+    "zone_width": 0.0015,
+    "retest_max_bars": 8,
+    "reclaim_buffer_frac": 0.00035,
+    "momentum_min_frac": 0.0012,
+    "trend_slope_min": 0.0002,
+    "chop_slope_abs_max": 0.00012,
+    "strict_retest_bps_max": 18.0,
+    "near_retest_bps_max": 24.0,
+    "score_gate_min": 5.8,
+    "risk_pct_high_conf": 1.6,
+    "trigger_score_min": 7.2,
+    "stop_buffer_frac": 0.0013,
+    "rr_tp2": 2.2,
+    "near_retest_penalty_max": 0.8
+  },
+  "fill_formula": {
+    "description": "Signal unchanged; split per-trade risk across tranche limits placed from entry toward stop by adverse-move fraction. Each tranche is filled only if close reaches its trigger before signal exit; all tranches share original stop/tp exit event.",
+    "levels": [
+      {
+        "adverse_frac_to_stop": 0.0,
+        "risk_weight": 0.3
+      },
+      {
+        "adverse_frac_to_stop": 0.33,
+        "risk_weight": 0.3
+      },
+      {
+        "adverse_frac_to_stop": 0.66,
+        "risk_weight": 0.4
+      }
+    ],
+    "risk_rule": "sum(tranche risk weights)=1.0, so max loss at stop equals configured per-trade risk_pct."
+  },
+  "btc": {
+    "trades": 40,
+    "wins": 18,
+    "losses": 22,
+    "win_rate": 0.45,
+    "gross_profit": 1053.4866635983437,
+    "gross_loss": 7335.9802031730105,
+    "pf": 0.14360543982148183,
+    "net": -6282.493539574665,
+    "max_dd": 6318.614868880852,
+    "max_dd_pct": 62.958733374715656,
+    "final_equity": 3717.506460425336
+  },
+  "eth": {
+    "trades": 34,
+    "wins": 10,
+    "losses": 24,
+    "win_rate": 0.29411764705882354,
+    "gross_profit": 1177.4174118149788,
+    "gross_loss": 8679.32926326861,
+    "pf": 0.1356576500442117,
+    "net": -7501.911851453633,
+    "max_dd": 7782.896296788594,
+    "max_dd_pct": 75.7018584958575,
+    "final_equity": 2498.0881485463697
+  },
+  "avg_pf": 0.13963154493284677,
+  "worst_dd_pct": 75.7018584958575,
+  "total_trades": 74,
+  "avg_win_rate": 0.3720588235294118,
+  "total_net": -13784.405391028298
+}

@@ -1,0 +1,1365 @@
+//@version=5
+indicator("Phase2A S/R Watcher V7A Zone-First (Scaffold)", overlay=true, scale=scale.right, format=format.price, max_bars_back=5000, max_boxes_count=250, max_labels_count=250, max_lines_count=250)
+
+// =====================================================
+// V7A Zone-First Scaffold
+// Stage A: Evidence events (structure/base/foxian)
+// Stage B: Provisional zones from interval overlap
+// Stage C: Zone-level scoring
+// Stage D: Zone class (STRUCTURAL vs TRADEABLE)
+// Stage E: Selection + rendering
+// =====================================================
+
+// ---------- Inputs ----------
+mode                        = input.string("MAP", "Mode", options=["MAP", "LIVE"])
+lookbackBars                = input.int(1200, "Lookback bars", minval=200, maxval=5000)
+maxStructEvents             = input.int(160, "Max structure events", minval=20, maxval=1200)
+maxBaseEvents               = input.int(120, "Max base events", minval=20, maxval=1200)
+maxFoxianEvents             = input.int(80, "Max foxian events", minval=10, maxval=1200)
+maxEventsTotal              = input.int(360, "Max events total (0 = no cap)", minval=0, maxval=2400)
+maxZones                    = input.int(120, "Max provisional zones", minval=20, maxval=400)
+maxDisplayZones             = input.int(10, "Max displayed zones", minval=1, maxval=60)
+mergeTolPct                 = input.float(0.004, "Zone merge tolerance (% of price)", minval=0.0005, step=0.0005)
+mergeTolATR                 = input.float(0.60, "Zone merge tolerance ATR", minval=0.05, step=0.05)
+zoneMergeMaxSpanPct         = input.float(0.090, "Zone merge max span (% price)", minval=0.005, maxval=0.50, step=0.005)
+zoneMergeMaxSpanATR         = input.float(5.00, "Zone merge max span ATR", minval=0.5, maxval=20.0, step=0.1)
+zoneMergeRequireOverlapSB   = input.bool(true, "Zone merge requires overlap for struct/base")
+maxBarsBetweenEvents        = input.int(220, "Zone merge max bars between events", minval=5, maxval=2000)
+
+// Structure adapter (V7B-aligned scaffold)
+structurePivotLen           = input.int(3, "Structure pivot length", minval=2, maxval=12)
+structureATRBandMult        = input.float(0.35, "Structure seed band ATR", minval=0.05, step=0.05)
+structureBreakMinFrac       = input.float(0.15, "Structure BoS break min frac", minval=0.0, maxval=1.0, step=0.01)
+structureChochMinFrac       = input.float(0.15, "Structure CHoCH break min frac", minval=0.0, maxval=1.0, step=0.01)
+structureRequireFreshCross  = input.bool(true, "Structure BoS requires fresh cross")
+structureEmitProtected      = input.bool(false, "Structure emit protected events")
+structureEventMinGapBars    = input.int(4, "Structure event min gap bars", minval=0, maxval=100)
+
+// Base detector (V7A minimal)
+baseWindowBars              = input.int(12, "Base window bars", minval=4, maxval=80)
+baseMinOverlapFrac          = input.float(0.55, "Base min overlap frac", minval=0.10, maxval=1.00, step=0.05)
+baseMaxATRSpan              = input.float(2.20, "Base max span ATR", minval=0.5, step=0.1)
+baseTouchTolATR             = input.float(0.18, "Base touch tolerance ATR", minval=0.02, maxval=1.00, step=0.01)
+baseBreakMinATR             = input.float(0.80, "Base break min ATR", minval=0.1, step=0.1)
+baseBreakConfirmBars        = input.int(2, "Base breakout confirm bars", minval=1, maxval=5)
+baseEventMinGapBars         = input.int(4, "Base event min gap bars", minval=0, maxval=100)
+
+// Foxian evidence channel
+foxianMinImpulseATR         = input.float(1.50, "Foxian min impulse ATR", minval=0.2, step=0.1)
+foxianPreRangeBars          = input.int(12, "Foxian pre-range bars", minval=3, maxval=120)
+foxianEventMinGapBars       = input.int(3, "Foxian event min gap bars", minval=0, maxval=100)
+
+// Zone scoring and classing (map-first)
+minStructuralScore          = input.float(50.0, "Min structural score", minval=0.0, maxval=100.0, step=0.5)
+minTradeableScore           = input.float(65.0, "Min tradeable score", minval=0.0, maxval=100.0, step=0.5)
+maxTradeableWidthPct        = input.float(0.06, "Max tradeable width (% price)", minval=0.005, maxval=0.50, step=0.005)
+maxTradeableRetests         = input.int(3, "Max tradeable retests", minval=0, maxval=30)
+
+// Rendering
+showStructuralZones         = input.bool(true, "Show structural zones")
+showTradeableZones          = input.bool(true, "Show tradeable zones")
+showZoneMidline             = input.bool(true, "Show zone midline")
+structuralZoneAlpha         = input.int(88, "Structural zone alpha", minval=0, maxval=100)
+tradeableZoneAlpha          = input.int(80, "Tradeable zone alpha", minval=0, maxval=100)
+
+// Debug
+showDebugTable              = input.bool(true, "Show debug table")
+compactDebug                = input.bool(true, "Compact debug")
+computeLastBarOnly          = input.bool(true, "Compute terminal bar only (perf)")
+terminalLookbackBars        = input.int(900, "Terminal-bar lookback cap", minval=200, maxval=5000)
+lifecycleMaxScanBars        = input.int(420, "Lifecycle max scan bars", minval=50, maxval=5000)
+
+// ---------- Constants ----------
+DIR_BEAR                    = -1
+DIR_NEUTRAL                 = 0
+DIR_BULL                    = 1
+
+EVENT_STRUCT_BOS_ANCHOR     = 1
+EVENT_STRUCT_FLIP_ANCHOR    = 2
+EVENT_STRUCT_PROTECTED      = 3
+EVENT_BASE_SHELF            = 4
+EVENT_BASE_BREAKOUT         = 5
+EVENT_FOXIAN_LAUNCH         = 6
+
+EVENT_FAMILY_STRUCT         = 1
+EVENT_FAMILY_BASE           = 2
+EVENT_FAMILY_FOXIAN         = 3
+
+ZONE_CLASS_NONE             = 0
+ZONE_CLASS_STRUCTURAL       = 1
+ZONE_CLASS_TRADEABLE        = 2
+
+ZONE_STATE_VIRGIN           = 0
+ZONE_STATE_FIRST_TOUCH_READY= 1
+ZONE_STATE_TESTED_ONCE      = 2
+ZONE_STATE_SPENT            = 3
+ZONE_STATE_BROKEN           = 4
+
+// ---------- Precomputed TA series (called every calc for consistency) ----------
+atr14Series                 = ta.atr(14)
+structPhSeries              = ta.pivothigh(high, structurePivotLen, structurePivotLen)
+structPlSeries              = ta.pivotlow(low, structurePivotLen, structurePivotLen)
+foxHighPreSeries            = ta.highest(high, foxianPreRangeBars)
+foxLowPreSeries             = ta.lowest(low, foxianPreRangeBars)
+
+// ---------- Event store ----------
+var eType                   = array.new_int()
+var eDir                    = array.new_int()
+var eTimeOpen               = array.new_int()
+var eTimeClose              = array.new_int()
+var eOpenBarIndex           = array.new_int()
+var eTop                    = array.new_float()
+var eBot                    = array.new_float()
+var eMid                    = array.new_float()
+var eEvidenceScore          = array.new_float()
+var eLocalQ                 = array.new_float()
+var eLaunchScore            = array.new_float()
+var eBaseScore              = array.new_float()
+var eStructureScore         = array.new_float()
+var eAtrRef                 = array.new_float()
+var eBaseOverlapCount       = array.new_int()
+var eBaseTouchCountTop      = array.new_int()
+var eBaseTouchCountBot      = array.new_int()
+var eBaseCompressionScore   = array.new_float()
+var eBaseBreakoutScore      = array.new_float()
+var eFoxPersistenceScore    = array.new_float()
+var eFoxBreakRangeScore     = array.new_float()
+var eRegimeId               = array.new_int()
+var eSelected               = array.new_bool()
+var eCountByFamily          = array.new_int(4, 0)  // [0 unused, 1 struct, 2 base, 3 foxian]
+var eRawByFamily            = array.new_int(4, 0)
+var eDedupeByFamily         = array.new_int(4, 0)
+var eSelectedByFamily       = array.new_int(4, 0)
+
+// ---------- Zone store ----------
+var zStructTop              = array.new_float()
+var zStructBot              = array.new_float()
+var zStructMid              = array.new_float()
+var zCoreTop                = array.new_float()
+var zCoreBot                = array.new_float()
+var zCoreMid                = array.new_float()
+var zCoreWidthPct           = array.new_float()
+var zCoreScore              = array.new_float()
+var zBirthTime              = array.new_int()
+var zBirthBarIndex          = array.new_int()
+var zLastEventBarIndex      = array.new_int()
+var zRegimeId               = array.new_int()
+var zAtrRef                 = array.new_float()
+var zHasStruct              = array.new_bool()
+var zHasBase                = array.new_bool()
+var zHasFoxian              = array.new_bool()
+var zBestBullEvidence       = array.new_float()
+var zBestBearEvidence       = array.new_float()
+var zBestLaunch             = array.new_float()
+var zBestBase               = array.new_float()
+var zBestStructure          = array.new_float()
+var zBestFoxPersistence     = array.new_float()
+var zBestFoxBreakRange      = array.new_float()
+var zAvgLocalQ              = array.new_float()
+var zEventCount             = array.new_int()
+var zRetestCount            = array.new_int()
+var zHasFirstRetestOccurred = array.new_bool()
+var zFirstRetestReactionATR = array.new_float()
+var zFirstRetestFailed      = array.new_bool()
+var zTimesCleanlyRejected   = array.new_int()
+var zTimesClosedThrough     = array.new_int()
+var zState                  = array.new_int()
+var zZoneScore              = array.new_float()
+var zDisplayScore           = array.new_float()
+var zClass                  = array.new_int()
+var zVisible                = array.new_bool()
+
+var zoneBoxes               = array.new_box()
+var zoneCoreBoxes           = array.new_box()
+var zoneMidLines            = array.new_line()
+var dbgMergeRejects         = array.new_int(5, 0)  // [0 segmentation, 1 bars, 2 spanPct, 3 spanAtr, 4 overlap]
+
+f_clamp01(_v) =>
+    math.max(0.0, math.min(1.0, _v))
+
+f_interval_overlap(_topA, _botA, _topB, _botB, _tol) =>
+    aTop = math.max(_topA, _botA)
+    aBot = math.min(_topA, _botA)
+    bTop = math.max(_topB, _botB)
+    bBot = math.min(_topB, _botB)
+    not (aTop < bBot - _tol or aBot > bTop + _tol)
+
+f_range_high(_offA, _offB) =>
+    lo = math.max(0, math.min(_offA, _offB))
+    hi = math.min(bar_index, math.max(_offA, _offB))
+    out = high[lo]
+    if hi > lo
+        for i = lo + 1 to hi
+            out := math.max(out, high[i])
+    out
+
+f_range_low(_offA, _offB) =>
+    lo = math.max(0, math.min(_offA, _offB))
+    hi = math.min(bar_index, math.max(_offA, _offB))
+    out = low[lo]
+    if hi > lo
+        for i = lo + 1 to hi
+            out := math.min(out, low[i])
+    out
+
+f_clear_events() =>
+    array.clear(eType)
+    array.clear(eDir)
+    array.clear(eTimeOpen)
+    array.clear(eTimeClose)
+    array.clear(eOpenBarIndex)
+    array.clear(eTop)
+    array.clear(eBot)
+    array.clear(eMid)
+    array.clear(eEvidenceScore)
+    array.clear(eLocalQ)
+    array.clear(eLaunchScore)
+    array.clear(eBaseScore)
+    array.clear(eStructureScore)
+    array.clear(eAtrRef)
+    array.clear(eBaseOverlapCount)
+    array.clear(eBaseTouchCountTop)
+    array.clear(eBaseTouchCountBot)
+    array.clear(eBaseCompressionScore)
+    array.clear(eBaseBreakoutScore)
+    array.clear(eFoxPersistenceScore)
+    array.clear(eFoxBreakRangeScore)
+    array.clear(eRegimeId)
+    array.clear(eSelected)
+    array.set(eCountByFamily, EVENT_FAMILY_STRUCT, 0)
+    array.set(eCountByFamily, EVENT_FAMILY_BASE, 0)
+    array.set(eCountByFamily, EVENT_FAMILY_FOXIAN, 0)
+    array.set(eRawByFamily, EVENT_FAMILY_STRUCT, 0)
+    array.set(eRawByFamily, EVENT_FAMILY_BASE, 0)
+    array.set(eRawByFamily, EVENT_FAMILY_FOXIAN, 0)
+    array.set(eDedupeByFamily, EVENT_FAMILY_STRUCT, 0)
+    array.set(eDedupeByFamily, EVENT_FAMILY_BASE, 0)
+    array.set(eDedupeByFamily, EVENT_FAMILY_FOXIAN, 0)
+    array.set(eSelectedByFamily, EVENT_FAMILY_STRUCT, 0)
+    array.set(eSelectedByFamily, EVENT_FAMILY_BASE, 0)
+    array.set(eSelectedByFamily, EVENT_FAMILY_FOXIAN, 0)
+    array.set(dbgMergeRejects, 0, 0)
+    array.set(dbgMergeRejects, 1, 0)
+    array.set(dbgMergeRejects, 2, 0)
+    array.set(dbgMergeRejects, 3, 0)
+    array.set(dbgMergeRejects, 4, 0)
+
+f_clear_zones() =>
+    array.clear(zStructTop)
+    array.clear(zStructBot)
+    array.clear(zStructMid)
+    array.clear(zCoreTop)
+    array.clear(zCoreBot)
+    array.clear(zCoreMid)
+    array.clear(zCoreWidthPct)
+    array.clear(zCoreScore)
+    array.clear(zBirthTime)
+    array.clear(zBirthBarIndex)
+    array.clear(zLastEventBarIndex)
+    array.clear(zRegimeId)
+    array.clear(zAtrRef)
+    array.clear(zHasStruct)
+    array.clear(zHasBase)
+    array.clear(zHasFoxian)
+    array.clear(zBestBullEvidence)
+    array.clear(zBestBearEvidence)
+    array.clear(zBestLaunch)
+    array.clear(zBestBase)
+    array.clear(zBestStructure)
+    array.clear(zBestFoxPersistence)
+    array.clear(zBestFoxBreakRange)
+    array.clear(zAvgLocalQ)
+    array.clear(zEventCount)
+    array.clear(zRetestCount)
+    array.clear(zHasFirstRetestOccurred)
+    array.clear(zFirstRetestReactionATR)
+    array.clear(zFirstRetestFailed)
+    array.clear(zTimesCleanlyRejected)
+    array.clear(zTimesClosedThrough)
+    array.clear(zState)
+    array.clear(zZoneScore)
+    array.clear(zDisplayScore)
+    array.clear(zClass)
+    array.clear(zVisible)
+
+f_event_family(_etype) =>
+    _etype <= EVENT_STRUCT_PROTECTED ? EVENT_FAMILY_STRUCT : (_etype == EVENT_BASE_SHELF or _etype == EVENT_BASE_BREAKOUT ? EVENT_FAMILY_BASE : EVENT_FAMILY_FOXIAN)
+
+f_event_family_count(_fam) =>
+    _fam >= 0 and _fam < array.size(eCountByFamily) ? array.get(eCountByFamily, _fam) : 0
+
+f_event_rank_score(_idx) =>
+    math.max(array.get(eEvidenceScore, _idx), math.max(array.get(eStructureScore, _idx), math.max(array.get(eBaseScore, _idx), array.get(eLaunchScore, _idx)))) + array.get(eLocalQ, _idx) * 0.35 + array.get(eFoxPersistenceScore, _idx) * 0.10 + array.get(eFoxBreakRangeScore, _idx) * 0.10
+
+f_event_direction_equivalent(_a, _b) =>
+    da = array.get(eDir, _a)
+    db = array.get(eDir, _b)
+    da == db or da == DIR_NEUTRAL or db == DIR_NEUTRAL
+
+f_event_dedup_time_tol(_fam) =>
+    _fam == EVENT_FAMILY_STRUCT ? 32 : (_fam == EVENT_FAMILY_BASE ? 20 : 12)
+
+f_event_duplicate_family(_a, _b, _fam) =>
+    midA = array.get(eMid, _a)
+    midB = array.get(eMid, _b)
+    atrA = array.get(eAtrRef, _a)
+    atrB = array.get(eAtrRef, _b)
+    tol = math.max(math.max(math.abs(midA), math.abs(midB)) * (mergeTolPct * 0.60), math.max(atrA, atrB) * mergeTolATR * 0.75)
+    barA = array.get(eOpenBarIndex, _a)
+    barB = array.get(eOpenBarIndex, _b)
+    math.abs(midA - midB) <= tol and math.abs(barA - barB) <= f_event_dedup_time_tol(_fam) and f_event_direction_equivalent(_a, _b)
+
+f_finalize_events_for_family(_fam) =>
+    eCount = array.size(eType)
+    famCap = _fam == EVENT_FAMILY_STRUCT ? maxStructEvents : (_fam == EVENT_FAMILY_BASE ? maxBaseEvents : maxFoxianEvents)
+    rankedUnique = array.new_int()
+    blocked = array.new_bool(eCount, false)
+
+    raw = 0
+    if eCount > 0
+        for ei = 0 to eCount - 1
+            if f_event_family(array.get(eType, ei)) == _fam
+                raw += 1
+    array.set(eRawByFamily, _fam, raw)
+
+    while true
+        best = -1
+        bestScore = -1e18
+        if eCount > 0
+            for ei = 0 to eCount - 1
+                famMatch = f_event_family(array.get(eType, ei)) == _fam
+                if famMatch and not array.get(blocked, ei)
+                    sc = f_event_rank_score(ei)
+                    if sc > bestScore
+                        bestScore := sc
+                        best := ei
+        if best < 0
+            break
+
+        array.push(rankedUnique, best)
+        array.set(blocked, best, true)
+        if eCount > 0
+            for ei = 0 to eCount - 1
+                famMatch = f_event_family(array.get(eType, ei)) == _fam
+                if famMatch and not array.get(blocked, ei) and f_event_duplicate_family(best, ei, _fam)
+                    array.set(blocked, ei, true)
+
+    uniqueCount = array.size(rankedUnique)
+    array.set(eDedupeByFamily, _fam, uniqueCount)
+
+    keepN = math.min(uniqueCount, famCap)
+    if keepN > 0
+        for ui = 0 to keepN - 1
+            idx = array.get(rankedUnique, ui)
+            array.set(eSelected, idx, true)
+    array.set(eSelectedByFamily, _fam, keepN)
+
+f_finalize_event_selection() =>
+    eCount = array.size(eType)
+    selectedTotal = 0
+    if eCount > 0
+        for ei = 0 to eCount - 1
+            array.set(eSelected, ei, false)
+
+        f_finalize_events_for_family(EVENT_FAMILY_STRUCT)
+        f_finalize_events_for_family(EVENT_FAMILY_BASE)
+        f_finalize_events_for_family(EVENT_FAMILY_FOXIAN)
+
+        for ei = 0 to eCount - 1
+            if array.get(eSelected, ei)
+                selectedTotal += 1
+
+        if maxEventsTotal > 0 and selectedTotal > maxEventsTotal
+            preselected = array.copy(eSelected)
+            for ei = 0 to eCount - 1
+                array.set(eSelected, ei, false)
+            array.set(eCountByFamily, EVENT_FAMILY_STRUCT, 0)
+            array.set(eCountByFamily, EVENT_FAMILY_BASE, 0)
+            array.set(eCountByFamily, EVENT_FAMILY_FOXIAN, 0)
+
+            picked = 0
+            used = array.new_bool(eCount, false)
+            while picked < maxEventsTotal
+                best = -1
+                bestScore = -1e18
+                for ei = 0 to eCount - 1
+                    if array.get(preselected, ei) and not array.get(used, ei)
+                        fam = f_event_family(array.get(eType, ei))
+                        famCap = fam == EVENT_FAMILY_STRUCT ? maxStructEvents : (fam == EVENT_FAMILY_BASE ? maxBaseEvents : maxFoxianEvents)
+                        famSel = array.get(eSelectedByFamily, fam)
+                        famCount = array.get(eCountByFamily, fam)
+                        famCanUse = famCount < math.min(famSel, famCap)
+                        if famCanUse
+                            sc = f_event_rank_score(ei)
+                            if sc > bestScore
+                                bestScore := sc
+                                best := ei
+                if best >= 0
+                    array.set(used, best, true)
+                    fam = f_event_family(array.get(eType, best))
+                    array.set(eSelected, best, true)
+                    array.set(eCountByFamily, fam, array.get(eCountByFamily, fam) + 1)
+                    picked += 1
+                else
+                    picked := maxEventsTotal
+        else
+            array.set(eCountByFamily, EVENT_FAMILY_STRUCT, array.get(eSelectedByFamily, EVENT_FAMILY_STRUCT))
+            array.set(eCountByFamily, EVENT_FAMILY_BASE, array.get(eSelectedByFamily, EVENT_FAMILY_BASE))
+            array.set(eCountByFamily, EVENT_FAMILY_FOXIAN, array.get(eSelectedByFamily, EVENT_FAMILY_FOXIAN))
+
+        selectedTotal := 0
+        for ei = 0 to eCount - 1
+            if array.get(eSelected, ei)
+                selectedTotal += 1
+
+        // safety fallback: never leave selection empty when raw events exist
+        if selectedTotal == 0 and eCount > 0
+            fallbackN = maxEventsTotal > 0 ? math.min(eCount, maxEventsTotal) : eCount
+            if fallbackN > 0
+                array.set(eCountByFamily, EVENT_FAMILY_STRUCT, 0)
+                array.set(eCountByFamily, EVENT_FAMILY_BASE, 0)
+                array.set(eCountByFamily, EVENT_FAMILY_FOXIAN, 0)
+                usedFallback = array.new_bool(eCount, false)
+                for pi = 0 to fallbackN - 1
+                    best = -1
+                    bestScore = -1e18
+                    for ei = 0 to eCount - 1
+                        if not array.get(usedFallback, ei)
+                            sc = f_event_rank_score(ei)
+                            if sc > bestScore
+                                bestScore := sc
+                                best := ei
+                    if best >= 0
+                        array.set(usedFallback, best, true)
+                        array.set(eSelected, best, true)
+                        fam = f_event_family(array.get(eType, best))
+                        array.set(eCountByFamily, fam, array.get(eCountByFamily, fam) + 1)
+
+                selectedTotal := 0
+                for ei = 0 to eCount - 1
+                    if array.get(eSelected, ei)
+                        selectedTotal += 1
+
+    selectedTotal
+
+f_add_event(_etype, _dir, _regimeId, _timeOpen, _timeClose, _openBarIndex, _top, _bot, _atrRef, _evidence, _localQ, _launch, _base, _structure) =>
+    top = math.max(_top, _bot)
+    bot = math.min(_top, _bot)
+    mid = (top + bot) * 0.5
+    array.push(eType, _etype)
+    array.push(eDir, _dir)
+    array.push(eTimeOpen, _timeOpen)
+    array.push(eTimeClose, _timeClose)
+    array.push(eOpenBarIndex, _openBarIndex)
+    array.push(eTop, top)
+    array.push(eBot, bot)
+    array.push(eMid, mid)
+    array.push(eEvidenceScore, _evidence)
+    array.push(eLocalQ, _localQ)
+    array.push(eLaunchScore, _launch)
+    array.push(eBaseScore, _base)
+    array.push(eStructureScore, _structure)
+    array.push(eAtrRef, math.max(_atrRef, syminfo.mintick))
+    array.push(eBaseOverlapCount, 0)
+    array.push(eBaseTouchCountTop, 0)
+    array.push(eBaseTouchCountBot, 0)
+    array.push(eBaseCompressionScore, 0.0)
+    array.push(eBaseBreakoutScore, 0.0)
+    array.push(eFoxPersistenceScore, 0.0)
+    array.push(eFoxBreakRangeScore, 0.0)
+    array.push(eRegimeId, _regimeId)
+    array.push(eSelected, false)
+
+f_add_struct_level_event(_etype, _dir, _regimeId, _t, _barIdx, _level, _atr, _evidence, _localQ, _launch, _base, _structure) =>
+    band = _atr * structureATRBandMult
+    top = _dir == DIR_BULL ? (_level + band) : _level
+    bot = _dir == DIR_BULL ? _level : (_level - band)
+    if _dir == DIR_NEUTRAL
+        top := _level + band * 0.5
+        bot := _level - band * 0.5
+    f_add_event(_etype, _dir, _regimeId, _t, _t, _barIdx, top, bot, _atr, _evidence, _localQ, _launch, _base, _structure)
+
+f_set_last_base_diagnostics(_baseOverlapCount, _baseTouchCountTop, _baseTouchCountBot, _baseCompressionScore, _baseBreakoutScore) =>
+    last = array.size(eType) - 1
+    if last >= 0
+        array.set(eBaseOverlapCount, last, _baseOverlapCount)
+        array.set(eBaseTouchCountTop, last, _baseTouchCountTop)
+        array.set(eBaseTouchCountBot, last, _baseTouchCountBot)
+        array.set(eBaseCompressionScore, last, _baseCompressionScore)
+        array.set(eBaseBreakoutScore, last, _baseBreakoutScore)
+
+f_set_last_foxian_diagnostics(_persistenceScore, _breakRangeScore) =>
+    last = array.size(eType) - 1
+    if last >= 0
+        array.set(eFoxPersistenceScore, last, _persistenceScore)
+        array.set(eFoxBreakRangeScore, last, _breakRangeScore)
+
+f_stageA_structure_events(_safeLookback) =>
+    if _safeLookback >= 2
+        atrSeries = atr14Series
+        ph = structPhSeries
+        pl = structPlSeries
+
+        int regime = DIR_NEUTRAL
+        float validatedHigh = na
+        float validatedLow = na
+        int validatedHighOff = na
+        int validatedLowOff = na
+        float candHigh = na
+        float candLow = na
+        int candHighOff = na
+        int candLowOff = na
+        float protectedHigh = na
+        float protectedLow = na
+        int protectedHighOff = na
+        int protectedLowOff = na
+        int lastBosUpRefOff = na
+        int lastBosDnRefOff = na
+        int lastStructEventOff = na
+
+        maxOff = math.max(0, _safeLookback - 1)
+        for off = maxOff to 0
+            atrOff = math.max(atrSeries[off], syminfo.mintick)
+            phv = ph[off]
+            plv = pl[off]
+
+            if not na(phv)
+                candHigh := phv
+                candHighOff := off
+                if regime != DIR_BEAR
+                    validatedHigh := phv
+                    validatedHighOff := off
+                if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BEAR, regime, time[off], bar_index[off], phv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
+                    lastStructEventOff := off
+
+            if not na(plv)
+                candLow := plv
+                candLowOff := off
+                if regime != DIR_BULL
+                    validatedLow := plv
+                    validatedLowOff := off
+                if structureEmitProtected and (na(lastStructEventOff) or (lastStructEventOff - off) >= structureEventMinGapBars)
+                    f_add_struct_level_event(EVENT_STRUCT_PROTECTED, DIR_BULL, regime, time[off], bar_index[off], plv, atrOff, 52.0, 35.0, 0.0, 0.0, 40.0)
+                    lastStructEventOff := off
+
+            cRange = math.max(high[off] - low[off], syminfo.mintick)
+            prevClose = off < _safeLookback ? close[off + 1] : na
+
+            bosUp = not na(validatedHigh) and close[off] > validatedHigh and ((close[off] - validatedHigh) / cRange) >= structureBreakMinFrac
+            bosUpFresh = not structureRequireFreshCross or na(prevClose) or prevClose <= validatedHigh
+            bosUpAllowed = bosUp and bosUpFresh and (na(lastBosUpRefOff) or validatedHighOff != lastBosUpRefOff)
+
+            if bosUpAllowed
+                regime := DIR_BULL
+                lastBosUpRefOff := validatedHighOff
+                if not na(candLow)
+                    protectedLow := candLow
+                    protectedLowOff := candLowOff
+                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BULL, regime, time[off], bar_index[off], protectedLow, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
+                    lastStructEventOff := off
+
+            bosDn = not na(validatedLow) and close[off] < validatedLow and ((validatedLow - close[off]) / cRange) >= structureBreakMinFrac
+            bosDnFresh = not structureRequireFreshCross or na(prevClose) or prevClose >= validatedLow
+            bosDnAllowed = bosDn and bosDnFresh and (na(lastBosDnRefOff) or validatedLowOff != lastBosDnRefOff)
+
+            if bosDnAllowed
+                regime := DIR_BEAR
+                lastBosDnRefOff := validatedLowOff
+                if not na(candHigh)
+                    protectedHigh := candHigh
+                    protectedHighOff := candHighOff
+                    f_add_struct_level_event(EVENT_STRUCT_BOS_ANCHOR, DIR_BEAR, regime, time[off], bar_index[off], protectedHigh, atrOff, 92.0, 60.0, 0.0, 0.0, 92.0)
+                    lastStructEventOff := off
+
+            chochDn = regime == DIR_BULL and not na(protectedLow) and close[off] < protectedLow and ((protectedLow - close[off]) / cRange) >= structureChochMinFrac
+            if chochDn
+                regime := DIR_BEAR
+                flipBearHigh = na(protectedLowOff) ? high[off] : f_range_high(off, protectedLowOff)
+                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BEAR, regime, time[off], bar_index[off], flipBearHigh, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
+
+            chochUp = regime == DIR_BEAR and not na(protectedHigh) and close[off] > protectedHigh and ((close[off] - protectedHigh) / cRange) >= structureChochMinFrac
+            if chochUp
+                regime := DIR_BULL
+                flipBullLow = na(protectedHighOff) ? low[off] : f_range_low(off, protectedHighOff)
+                f_add_struct_level_event(EVENT_STRUCT_FLIP_ANCHOR, DIR_BULL, regime, time[off], bar_index[off], flipBullLow, atrOff, 88.0, 58.0, 0.0, 0.0, 88.0)
+
+f_stageA_base_events(_safeLookback) =>
+    if _safeLookback >= baseWindowBars
+        atrSeries = atr14Series
+        int lastShelfOff = na
+        int lastBreakOff = na
+        int lastShelfEventIdx = na
+
+        maxOff = _safeLookback - (baseWindowBars - 1) - baseBreakConfirmBars
+        if maxOff >= 2
+            for off = maxOff to 2
+                atrOff = math.max(atrSeries[off], syminfo.mintick)
+                openOff = off + baseWindowBars - 1
+                baseTop = high[openOff]
+                baseBot = low[openOff]
+                baseOverlapCount = 0
+                baseTouchCountTop = 0
+                baseTouchCountBot = 0
+
+                touchTol = atrOff * baseTouchTolATR
+                for wi = openOff - 1 to off
+                    barTop = high[wi]
+                    barBot = low[wi]
+                    ovTop = math.min(baseTop, barTop)
+                    ovBot = math.max(baseBot, barBot)
+                    if ovTop > ovBot
+                        baseOverlapCount += 1
+                        baseTop := ovTop
+                        baseBot := ovBot
+
+                    if math.abs(barTop - baseTop) <= touchTol
+                        baseTouchCountTop += 1
+                    if math.abs(barBot - baseBot) <= touchTol
+                        baseTouchCountBot += 1
+
+                baseSpan = baseTop - baseBot
+                baseSpanATR = baseSpan / atrOff
+                overlapRatio = baseWindowBars > 1 ? (baseOverlapCount / (baseWindowBars - 1)) : 0.0
+                touchRatio = f_clamp01((baseTouchCountTop + baseTouchCountBot) / 6.0)
+                edgeTouchQuality = f_clamp01(math.min(baseTouchCountTop, baseTouchCountBot) / 2.0)
+                compressCore = 1.0 - f_clamp01(baseSpanATR / math.max(baseMaxATRSpan, 0.01))
+                baseCompressionScore = 100.0 * f_clamp01(0.45 * compressCore + 0.25 * overlapRatio + 0.15 * touchRatio + 0.15 * edgeTouchQuality)
+
+                overlapOk = overlapRatio >= baseMinOverlapFrac
+                shelfTouchOk = baseTouchCountTop >= 1 and baseTouchCountBot >= 1
+                shelfSpanOk = baseSpanATR <= baseMaxATRSpan
+                shelfOk = overlapOk and shelfTouchOk and shelfSpanOk
+
+                if shelfOk and (na(lastShelfOff) or (lastShelfOff - off) >= baseEventMinGapBars)
+                    shelfQ = math.max(baseCompressionScore + edgeTouchQuality * 8.0, 40.0)
+                    shelfMid = (baseTop + baseBot) * 0.5
+                    dedupeTol = math.max(math.abs(shelfMid) * mergeTolPct * 0.75, atrOff * mergeTolATR * 0.50)
+                    dedupeByPriceTime = false
+                    if not na(lastShelfEventIdx) and lastShelfEventIdx >= 0 and lastShelfEventIdx < array.size(eType)
+                        lastMid = array.get(eMid, lastShelfEventIdx)
+                        lastOffBar = array.get(eOpenBarIndex, lastShelfEventIdx)
+                        dedupeByPriceTime := math.abs(shelfMid - lastMid) <= dedupeTol and math.abs(bar_index[openOff] - lastOffBar) <= baseWindowBars
+
+                    didAdjMerge = false
+                    if not dedupeByPriceTime and not na(lastShelfEventIdx) and lastShelfEventIdx >= 0 and lastShelfEventIdx < array.size(eType)
+                        lastTop = array.get(eTop, lastShelfEventIdx)
+                        lastBot = array.get(eBot, lastShelfEventIdx)
+                        lastOpenBar = array.get(eOpenBarIndex, lastShelfEventIdx)
+                        adjacentInTime = math.abs(bar_index[openOff] - lastOpenBar) <= baseWindowBars * 2
+                        adjacentInPrice = baseBot <= lastTop + atrOff * 0.25 and baseTop >= lastBot - atrOff * 0.25
+                        if adjacentInTime and adjacentInPrice
+                            mergeTop = math.max(lastTop, baseTop)
+                            mergeBot = math.min(lastBot, baseBot)
+                            array.set(eTop, lastShelfEventIdx, mergeTop)
+                            array.set(eBot, lastShelfEventIdx, mergeBot)
+                            array.set(eMid, lastShelfEventIdx, (mergeTop + mergeBot) * 0.5)
+                            array.set(eEvidenceScore, lastShelfEventIdx, math.max(array.get(eEvidenceScore, lastShelfEventIdx), shelfQ))
+                            array.set(eBaseScore, lastShelfEventIdx, math.max(array.get(eBaseScore, lastShelfEventIdx), shelfQ))
+                            array.set(eLocalQ, lastShelfEventIdx, math.max(array.get(eLocalQ, lastShelfEventIdx), 55.0))
+                            array.set(eTimeClose, lastShelfEventIdx, time[off])
+                            array.set(eBaseCompressionScore, lastShelfEventIdx, math.max(array.get(eBaseCompressionScore, lastShelfEventIdx), baseCompressionScore))
+                            array.set(eBaseOverlapCount, lastShelfEventIdx, math.max(array.get(eBaseOverlapCount, lastShelfEventIdx), baseOverlapCount))
+                            array.set(eBaseTouchCountTop, lastShelfEventIdx, math.max(array.get(eBaseTouchCountTop, lastShelfEventIdx), baseTouchCountTop))
+                            array.set(eBaseTouchCountBot, lastShelfEventIdx, math.max(array.get(eBaseTouchCountBot, lastShelfEventIdx), baseTouchCountBot))
+                            didAdjMerge := true
+
+                    if not dedupeByPriceTime and not didAdjMerge
+                        f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, DIR_NEUTRAL, time[openOff], time[off], bar_index[openOff], baseTop, baseBot, atrOff, shelfQ, 52.0, 0.0, shelfQ, 0.0)
+                        f_set_last_base_diagnostics(baseOverlapCount, baseTouchCountTop, baseTouchCountBot, baseCompressionScore, 0.0)
+                        lastShelfEventIdx := array.size(eType) - 1
+                    lastShelfOff := off
+
+                upBreakBars = 0
+                dnBreakBars = 0
+                maxBreakMag = 0.0
+                for bi = 0 to baseBreakConfirmBars - 1
+                    closeProbe = close[off - bi]
+                    upMag = (closeProbe - baseTop) / atrOff
+                    dnMag = (baseBot - closeProbe) / atrOff
+                    if upMag >= baseBreakMinATR
+                        upBreakBars += 1
+                        maxBreakMag := math.max(maxBreakMag, upMag)
+                    if dnMag >= baseBreakMinATR
+                        dnBreakBars += 1
+                        maxBreakMag := math.max(maxBreakMag, dnMag)
+
+                upBreak = upBreakBars >= baseBreakConfirmBars
+                dnBreak = dnBreakBars >= baseBreakConfirmBars
+
+                if shelfOk and (upBreak or dnBreak) and (na(lastBreakOff) or (lastBreakOff - off) >= baseEventMinGapBars)
+                    dir = upBreak ? DIR_BULL : DIR_BEAR
+                    baseBreakoutScore = 100.0 * f_clamp01(maxBreakMag / 3.0)
+                    breakScore = 100.0 * f_clamp01(0.75 * (maxBreakMag / 3.0) + 0.25 * (baseCompressionScore / 100.0))
+                    f_add_event(EVENT_BASE_BREAKOUT, dir, dir, time[openOff], time[off], bar_index[openOff], baseTop, baseBot, atrOff, breakScore, 58.0, breakScore, breakScore, 0.0)
+                    f_set_last_base_diagnostics(baseOverlapCount, baseTouchCountTop, baseTouchCountBot, baseCompressionScore, baseBreakoutScore)
+                    lastBreakOff := off
+
+f_stageA_foxian_events(_safeLookback) =>
+    if _safeLookback >= 2
+        atrSeries = atr14Series
+        highPre = foxHighPreSeries
+        lowPre = foxLowPreSeries
+        int lastFoxOff = na
+
+        maxOff = _safeLookback - 1
+        for off = maxOff to 1
+            atrOff = math.max(atrSeries[off], syminfo.mintick)
+            barRangeATR = (high[off] - low[off]) / atrOff
+            impulse = barRangeATR >= foxianMinImpulseATR
+            if impulse and (na(lastFoxOff) or (lastFoxOff - off) >= foxianEventMinGapBars)
+                dir = close[off] >= open[off] ? DIR_BULL : DIR_BEAR
+                preTop = off < _safeLookback ? highPre[off + 1] : highPre[off]
+                preBot = off < _safeLookback ? lowPre[off + 1] : lowPre[off]
+                breakMag = dir == DIR_BULL ? math.max(0.0, (close[off] - preTop) / atrOff) : math.max(0.0, (preBot - close[off]) / atrOff)
+                launchScore = 100.0 * f_clamp01(math.max(barRangeATR, breakMag) / 4.0)
+                localQ = 100.0 * f_clamp01(barRangeATR / 3.0)
+                persBars = 0
+                maxPersCheck = math.min(3, off)
+                for pi = 0 to maxPersCheck
+                    closeNext = close[off - pi]
+                    persOk = dir == DIR_BULL ? closeNext > preTop : closeNext < preBot
+                    if persOk
+                        persBars += 1
+                persistenceScore = 100.0 * f_clamp01(persBars / 3.0)
+                breakBeyondRangeScore = 100.0 * f_clamp01(breakMag / 2.5)
+                top = dir == DIR_BULL ? close[off] : high[off]
+                bot = dir == DIR_BULL ? low[off] : close[off]
+                f_add_event(EVENT_FOXIAN_LAUNCH, dir, dir, time[off], time[off], bar_index[off], top, bot, atrOff, launchScore, localQ, launchScore, 0.0, 0.0)
+                f_set_last_foxian_diagnostics(persistenceScore, breakBeyondRangeScore)
+                lastFoxOff := off
+
+f_stageA_fallback_seed(_safeLookback) =>
+    if array.size(eType) == 0 and _safeLookback >= 20
+        win = math.min(_safeLookback, 240)
+        startOff = math.min(win - 1, bar_index)
+        seedTop = ta.highest(high, win)
+        seedBot = ta.lowest(low, win)
+        seedAtr = math.max(atr14Series[0], syminfo.mintick)
+        f_add_event(EVENT_BASE_SHELF, DIR_NEUTRAL, DIR_NEUTRAL, time[startOff], time, bar_index[startOff], seedTop, seedBot, seedAtr, 45.0, 40.0, 0.0, 45.0, 0.0)
+f_recompute_zone_core(_zi) =>
+    structTop = array.get(zStructTop, _zi)
+    structBot = array.get(zStructBot, _zi)
+    structMid = array.get(zStructMid, _zi)
+    structWidth = math.max(structTop - structBot, syminfo.mintick)
+    coreTop = structTop
+    coreBot = structBot
+    coreScore = 0.0
+    coreCtr = 0
+    coreTopAcc = 0.0
+    coreBotAcc = 0.0
+    evtCount = array.size(eType)
+    if evtCount > 0
+        for ei = 0 to evtCount - 1
+            if array.get(eSelected, ei)
+                eMidV = array.get(eMid, ei)
+                if math.abs(eMidV - structMid) <= structWidth * 0.35
+                    eScore = f_event_rank_score(ei)
+                    if eScore >= 55.0
+                        coreCtr += 1
+                        coreTopAcc += array.get(eTop, ei)
+                        coreBotAcc += array.get(eBot, ei)
+                        coreScore := math.max(coreScore, eScore)
+
+    if coreCtr >= 2
+        coreTop := coreTopAcc / coreCtr
+        coreBot := coreBotAcc / coreCtr
+        if coreTop < coreBot
+            swap = coreTop
+            coreTop := coreBot
+            coreBot := swap
+    else
+        shrink = structWidth * 0.35
+        coreTop := structMid + shrink * 0.5
+        coreBot := structMid - shrink * 0.5
+        coreScore := array.get(zZoneScore, _zi)
+
+    coreMid = (coreTop + coreBot) * 0.5
+    coreWidthPct = math.max(coreTop - coreBot, syminfo.mintick) / math.max(math.abs(coreMid), syminfo.mintick)
+    array.set(zCoreTop, _zi, coreTop)
+    array.set(zCoreBot, _zi, coreBot)
+    array.set(zCoreMid, _zi, coreMid)
+    array.set(zCoreWidthPct, _zi, coreWidthPct)
+    array.set(zCoreScore, _zi, coreScore)
+
+f_build_zones_from_events() =>
+    eCount = array.size(eType)
+
+    if eCount > 0
+        for ei = 0 to eCount - 1
+            if not array.get(eSelected, ei)
+                continue
+            etype = array.get(eType, ei)
+            edir = array.get(eDir, ei)
+            eOpenIdx = array.get(eOpenBarIndex, ei)
+            eTopV = array.get(eTop, ei)
+            eBotV = array.get(eBot, ei)
+            eMidV = array.get(eMid, ei)
+            eAtrV = array.get(eAtrRef, ei)
+            eRegime = array.get(eRegimeId, ei)
+            eStruct = array.get(eStructureScore, ei)
+            eBaseV = array.get(eBaseScore, ei)
+            eLaunch = array.get(eLaunchScore, ei)
+            eLocal = array.get(eLocalQ, ei)
+            eFoxPersist = array.get(eFoxPersistenceScore, ei)
+            eFoxBreak = array.get(eFoxBreakRangeScore, ei)
+
+            zCount = array.size(zStructTop)
+            best = -1
+            bestDist = 1e10
+
+            if zCount > 0
+                for zi = 0 to zCount - 1
+                    zTopV = array.get(zStructTop, zi)
+                    zBotV = array.get(zStructBot, zi)
+                    zMidV = array.get(zStructMid, zi)
+                    zAtrV = array.get(zAtrRef, zi)
+                    zRegime = array.get(zRegimeId, zi)
+                    zLastEventBar = array.get(zLastEventBarIndex, zi)
+                    regimeOk = zRegime == DIR_NEUTRAL or eRegime == DIR_NEUTRAL or zRegime == eRegime
+                    barsOk = math.abs(eOpenIdx - zLastEventBar) <= maxBarsBetweenEvents
+                    if not regimeOk
+                        array.set(dbgMergeRejects, 0, array.get(dbgMergeRejects, 0) + 1)
+                    if not barsOk
+                        array.set(dbgMergeRejects, 1, array.get(dbgMergeRejects, 1) + 1)
+                    if not (regimeOk and barsOk)
+                        continue
+                    mergeAtrRef = math.max(math.max(eAtrV, zAtrV), syminfo.mintick)
+                    tolAbs = math.max(math.abs(eMidV) * mergeTolPct, mergeAtrRef * mergeTolATR)
+                    overlap = f_interval_overlap(eTopV, eBotV, zTopV, zBotV, tolAbs)
+                    d = math.abs(eMidV - zMidV)
+                    requiresOverlap = zoneMergeRequireOverlapSB and etype <= EVENT_BASE_BREAKOUT
+                    canUseByDistance = overlap or d <= tolAbs
+                    if requiresOverlap and not overlap
+                        array.set(dbgMergeRejects, 4, array.get(dbgMergeRejects, 4) + 1)
+                        canUseByDistance := false
+
+                    if canUseByDistance
+                        spanTop = math.max(zTopV, eTopV)
+                        spanBot = math.min(zBotV, eBotV)
+                        span = math.max(spanTop - spanBot, syminfo.mintick)
+                        spanMid = (spanTop + spanBot) * 0.5
+                        spanPct = span / math.max(math.abs(spanMid), syminfo.mintick)
+                        spanATR = span / mergeAtrRef
+                        spanPctOk = spanPct <= zoneMergeMaxSpanPct
+                        spanATROk = spanATR <= zoneMergeMaxSpanATR
+                        if not spanPctOk
+                            array.set(dbgMergeRejects, 2, array.get(dbgMergeRejects, 2) + 1)
+                        if not spanATROk
+                            array.set(dbgMergeRejects, 3, array.get(dbgMergeRejects, 3) + 1)
+
+                        if spanPctOk and spanATROk and d < bestDist
+                            best := zi
+                            bestDist := d
+
+            if best >= 0
+                oldTop = array.get(zStructTop, best)
+                oldBot = array.get(zStructBot, best)
+                newTop = math.max(oldTop, eTopV)
+                newBot = math.min(oldBot, eBotV)
+                newMid = (newTop + newBot) * 0.5
+                oldCnt = array.get(zEventCount, best)
+                oldAvgQ = array.get(zAvgLocalQ, best)
+                newAvgQ = (oldAvgQ * oldCnt + eLocal) / math.max(oldCnt + 1, 1)
+                oldAtr = array.get(zAtrRef, best)
+                newAtr = (oldAtr * oldCnt + eAtrV) / math.max(oldCnt + 1, 1)
+
+                array.set(zStructTop, best, newTop)
+                array.set(zStructBot, best, newBot)
+                array.set(zStructMid, best, newMid)
+                array.set(zAtrRef, best, newAtr)
+                array.set(zEventCount, best, oldCnt + 1)
+                array.set(zAvgLocalQ, best, newAvgQ)
+                array.set(zLastEventBarIndex, best, math.max(array.get(zLastEventBarIndex, best), eOpenIdx))
+                if array.get(zRegimeId, best) == DIR_NEUTRAL and eRegime != DIR_NEUTRAL
+                    array.set(zRegimeId, best, eRegime)
+                array.set(zBestLaunch, best, math.max(array.get(zBestLaunch, best), eLaunch))
+                array.set(zBestBase, best, math.max(array.get(zBestBase, best), eBaseV))
+                array.set(zBestStructure, best, math.max(array.get(zBestStructure, best), eStruct))
+                array.set(zBestFoxPersistence, best, math.max(array.get(zBestFoxPersistence, best), eFoxPersist))
+                array.set(zBestFoxBreakRange, best, math.max(array.get(zBestFoxBreakRange, best), eFoxBreak))
+                array.set(zHasStruct, best, array.get(zHasStruct, best) or etype <= EVENT_STRUCT_PROTECTED)
+                array.set(zHasBase, best, array.get(zHasBase, best) or (etype == EVENT_BASE_SHELF or etype == EVENT_BASE_BREAKOUT))
+                array.set(zHasFoxian, best, array.get(zHasFoxian, best) or etype == EVENT_FOXIAN_LAUNCH)
+                if edir == DIR_BULL
+                    array.set(zBestBullEvidence, best, math.max(array.get(zBestBullEvidence, best), math.max(eLaunch, eStruct)))
+                if edir == DIR_BEAR
+                    array.set(zBestBearEvidence, best, math.max(array.get(zBestBearEvidence, best), math.max(eLaunch, eStruct)))
+            else
+                if array.size(zStructTop) < maxZones
+                    array.push(zStructTop, eTopV)
+                    array.push(zStructBot, eBotV)
+                    array.push(zStructMid, eMidV)
+                    array.push(zCoreTop, eTopV)
+                    array.push(zCoreBot, eBotV)
+                    array.push(zCoreMid, eMidV)
+                    array.push(zCoreWidthPct, (eTopV - eBotV) / math.max(math.abs(eMidV), syminfo.mintick))
+                    array.push(zCoreScore, f_event_rank_score(ei))
+                    array.push(zBirthTime, array.get(eTimeOpen, ei))
+                    array.push(zBirthBarIndex, eOpenIdx)
+                    array.push(zLastEventBarIndex, eOpenIdx)
+                    array.push(zRegimeId, eRegime)
+                    array.push(zAtrRef, eAtrV)
+                    array.push(zHasStruct, etype <= EVENT_STRUCT_PROTECTED)
+                    array.push(zHasBase, etype == EVENT_BASE_SHELF or etype == EVENT_BASE_BREAKOUT)
+                    array.push(zHasFoxian, etype == EVENT_FOXIAN_LAUNCH)
+                    array.push(zBestBullEvidence, edir == DIR_BULL ? math.max(eLaunch, eStruct) : 0.0)
+                    array.push(zBestBearEvidence, edir == DIR_BEAR ? math.max(eLaunch, eStruct) : 0.0)
+                    array.push(zBestLaunch, eLaunch)
+                    array.push(zBestBase, eBaseV)
+                    array.push(zBestStructure, eStruct)
+                    array.push(zBestFoxPersistence, eFoxPersist)
+                    array.push(zBestFoxBreakRange, eFoxBreak)
+                    array.push(zAvgLocalQ, eLocal)
+                    array.push(zEventCount, 1)
+                    array.push(zRetestCount, 0)
+                    array.push(zHasFirstRetestOccurred, false)
+                    array.push(zFirstRetestReactionATR, 0.0)
+                    array.push(zFirstRetestFailed, false)
+                    array.push(zTimesCleanlyRejected, 0)
+                    array.push(zTimesClosedThrough, 0)
+                    array.push(zState, ZONE_STATE_VIRGIN)
+                    array.push(zZoneScore, 0.0)
+                    array.push(zDisplayScore, 0.0)
+                    array.push(zClass, ZONE_CLASS_NONE)
+                    array.push(zVisible, false)
+
+    zCountCore = array.size(zStructTop)
+    if zCountCore > 0
+        for zi = 0 to zCountCore - 1
+            f_recompute_zone_core(zi)
+
+f_update_zone_lifecycle(_safeLookback) =>
+    zCount = array.size(zStructTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            zTopV = array.get(zStructTop, zi)
+            zBotV = array.get(zStructBot, zi)
+            zCoreTopV = array.get(zCoreTop, zi)
+            zCoreBotV = array.get(zCoreBot, zi)
+            birthIdx = array.get(zBirthBarIndex, zi)
+            bestBull = array.get(zBestBullEvidence, zi)
+            bestBear = array.get(zBestBearEvidence, zi)
+            bullishBias = bestBull >= bestBear
+            barsSinceBirth = math.max(0, bar_index - birthIdx)
+            scanMaxOff = math.min(math.min(_safeLookback, barsSinceBirth), lifecycleMaxScanBars)
+
+            retests = 0
+            breakHits = 0
+            touchClusters = 0
+            inTouch = false
+            clusterClosedThrough = false
+            clusterReactionATR = 0.0
+            firstRetestSeen = false
+            firstRetestReaction = 0.0
+            firstRetestFailed = false
+            timesRejected = 0
+            timesClosedThrough = 0
+
+            if scanMaxOff > 0
+                for off = scanMaxOff to 0
+                    touched = high[off] >= zCoreBotV and low[off] <= zCoreTopV
+                    if touched and not inTouch
+                        touchClusters += 1
+                        clusterClosedThrough := false
+                        clusterReactionATR := 0.0
+                    if touched
+                        atrOff = math.max(atr14Series[off], syminfo.mintick)
+                        reactionATR = bullishBias ? math.max(0.0, (high[off] - zCoreTopV) / atrOff) : math.max(0.0, (zCoreBotV - low[off]) / atrOff)
+                        clusterReactionATR := math.max(clusterReactionATR, reactionATR)
+                        closedThrough = bullishBias ? close[off] < zCoreBotV - atrOff * 0.15 : close[off] > zCoreTopV + atrOff * 0.15
+                        clusterClosedThrough := clusterClosedThrough or closedThrough
+                    if not touched and inTouch
+                        if touchClusters >= 2
+                            retests += 1
+                            if clusterClosedThrough
+                                timesClosedThrough += 1
+                            else
+                                timesRejected += 1
+                            if not firstRetestSeen
+                                firstRetestSeen := true
+                                firstRetestReaction := clusterReactionATR
+                                firstRetestFailed := clusterClosedThrough
+                    inTouch := touched
+
+                    atrOff = math.max(atr14Series[off], syminfo.mintick)
+                    broke = bullishBias ? close[off] < zBotV - atrOff * 0.20 : close[off] > zTopV + atrOff * 0.20
+                    if broke
+                        breakHits += 1
+
+            if inTouch and touchClusters >= 2
+                retests += 1
+                if clusterClosedThrough
+                    timesClosedThrough += 1
+                else
+                    timesRejected += 1
+                if not firstRetestSeen
+                    firstRetestSeen := true
+                    firstRetestReaction := clusterReactionATR
+                    firstRetestFailed := clusterClosedThrough
+
+            st = ZONE_STATE_VIRGIN
+            if breakHits >= 1 or timesClosedThrough >= 2
+                st := ZONE_STATE_BROKEN
+            else if retests >= 2 or (firstRetestSeen and firstRetestFailed)
+                st := ZONE_STATE_SPENT
+            else if retests == 1
+                st := ZONE_STATE_TESTED_ONCE
+            else if barsSinceBirth >= 3
+                st := ZONE_STATE_FIRST_TOUCH_READY
+
+            array.set(zRetestCount, zi, retests)
+            array.set(zHasFirstRetestOccurred, zi, firstRetestSeen)
+            array.set(zFirstRetestReactionATR, zi, firstRetestReaction)
+            array.set(zFirstRetestFailed, zi, firstRetestFailed)
+            array.set(zTimesCleanlyRejected, zi, timesRejected)
+            array.set(zTimesClosedThrough, zi, timesClosedThrough)
+            array.set(zState, zi, st)
+
+f_score_and_class_zones() =>
+    zCount = array.size(zStructTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            zTopV = array.get(zStructTop, zi)
+            zBotV = array.get(zStructBot, zi)
+            zCoreTopV = array.get(zCoreTop, zi)
+            zCoreBotV = array.get(zCoreBot, zi)
+            zCoreMidV = array.get(zCoreMid, zi)
+            zCoreWidth = math.max(zCoreTopV - zCoreBotV, syminfo.mintick)
+            zWidthPct = zCoreWidth / math.max(math.abs(zCoreMidV), syminfo.mintick)
+
+            structureScore = array.get(zBestStructure, zi)
+            baseScore = array.get(zBestBase, zi)
+            launchScore = array.get(zBestLaunch, zi)
+            foxPersistenceScore = array.get(zBestFoxPersistence, zi)
+            foxBreakRangeScore = array.get(zBestFoxBreakRange, zi)
+            bullEv = array.get(zBestBullEvidence, zi)
+            bearEv = array.get(zBestBearEvidence, zi)
+            flipScore = math.min(bullEv, bearEv)
+            retests = array.get(zRetestCount, zi)
+            st = array.get(zState, zi)
+            firstRetestSeen = array.get(zHasFirstRetestOccurred, zi)
+            firstRetestReactionATR = array.get(zFirstRetestReactionATR, zi)
+            firstRetestFailed = array.get(zFirstRetestFailed, zi)
+            timesRejected = array.get(zTimesCleanlyRejected, zi)
+            timesClosedThrough = array.get(zTimesClosedThrough, zi)
+            freshnessScore = math.max(0.0, 100.0 - retests * 20.0)
+            firstRetestScore = not firstRetestSeen ? 70.0 : (firstRetestFailed ? 10.0 : math.min(100.0, 65.0 + firstRetestReactionATR * 20.0))
+            behaviorScore = math.max(0.0, 65.0 + timesRejected * 12.0 - timesClosedThrough * 24.0)
+            stateScore = st == ZONE_STATE_VIRGIN ? 90.0 : st == ZONE_STATE_FIRST_TOUCH_READY ? 100.0 : st == ZONE_STATE_TESTED_ONCE ? 80.0 : st == ZONE_STATE_SPENT ? 40.0 : 10.0
+
+            zoneScore = 0.24 * structureScore + 0.21 * baseScore + 0.09 * launchScore + 0.09 * foxPersistenceScore + 0.09 * foxBreakRangeScore + 0.08 * flipScore + 0.07 * freshnessScore + 0.07 * stateScore + 0.08 * firstRetestScore + 0.08 * behaviorScore
+            displayScore = zoneScore - math.min(retests, 4) * 1.0
+
+            array.set(zZoneScore, zi, zoneScore)
+            array.set(zDisplayScore, zi, displayScore)
+
+            structuralPass = zoneScore >= minStructuralScore
+            tradeScorePass = zoneScore >= minTradeableScore
+            tradeWidthPass = zWidthPct <= maxTradeableWidthPct
+            tradeRetestPass = retests <= maxTradeableRetests
+            tradeLifecyclePass = (st == ZONE_STATE_VIRGIN or st == ZONE_STATE_FIRST_TOUCH_READY or st == ZONE_STATE_TESTED_ONCE) and not firstRetestFailed and timesClosedThrough == 0 and (not firstRetestSeen or firstRetestReactionATR >= 0.10)
+
+            cls = ZONE_CLASS_NONE
+            if structuralPass
+                cls := ZONE_CLASS_STRUCTURAL
+
+            if structuralPass and tradeScorePass and tradeWidthPass and tradeRetestPass and tradeLifecyclePass
+                cls := ZONE_CLASS_TRADEABLE
+            array.set(zClass, zi, cls)
+            array.set(zVisible, zi, false)
+
+f_select_visible_zones() =>
+    zCount = array.size(zStructTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            array.set(zVisible, zi, false)
+
+        left = maxDisplayZones
+        while left > 0
+            best = -1
+            bestScore = -1e10
+            for zi = 0 to zCount - 1
+                cls = array.get(zClass, zi)
+                already = array.get(zVisible, zi)
+                showClass = (cls == ZONE_CLASS_TRADEABLE and showTradeableZones) or (cls == ZONE_CLASS_STRUCTURAL and showStructuralZones)
+                sc = array.get(zDisplayScore, zi)
+                if showClass and not already and sc > bestScore
+                    best := zi
+                    bestScore := sc
+            if best >= 0
+                array.set(zVisible, best, true)
+                left -= 1
+            else
+                left := 0
+
+f_clear_drawings() =>
+    nBox = array.size(zoneBoxes)
+    if nBox > 0
+        for bi = 0 to nBox - 1
+            box.delete(array.get(zoneBoxes, bi))
+    array.clear(zoneBoxes)
+
+    nCore = array.size(zoneCoreBoxes)
+    if nCore > 0
+        for bi = 0 to nCore - 1
+            box.delete(array.get(zoneCoreBoxes, bi))
+    array.clear(zoneCoreBoxes)
+
+    nLine = array.size(zoneMidLines)
+    if nLine > 0
+        for li = 0 to nLine - 1
+            line.delete(array.get(zoneMidLines, li))
+    array.clear(zoneMidLines)
+
+f_render_zones() =>
+    f_clear_drawings()
+    zCount = array.size(zStructTop)
+    if zCount > 0
+        for zi = 0 to zCount - 1
+            if array.get(zVisible, zi)
+                cls = array.get(zClass, zi)
+                top = array.get(zStructTop, zi)
+                bot = array.get(zStructBot, zi)
+                mid = array.get(zStructMid, zi)
+                coreTop = array.get(zCoreTop, zi)
+                coreBot = array.get(zCoreBot, zi)
+                coreMid = array.get(zCoreMid, zi)
+                birth = array.get(zBirthTime, zi)
+                leftT = birth > 0 ? birth : time
+                envFill = cls == ZONE_CLASS_TRADEABLE ? color.new(color.blue, math.min(100, tradeableZoneAlpha + 12)) : color.new(color.aqua, math.min(100, structuralZoneAlpha + 8))
+                envBorder = cls == ZONE_CLASS_TRADEABLE ? color.new(color.blue, 35) : color.new(color.aqua, 35)
+                coreFill = cls == ZONE_CLASS_TRADEABLE ? color.new(color.blue, math.max(0, tradeableZoneAlpha - 25)) : color.new(color.aqua, math.max(0, structuralZoneAlpha - 20))
+                coreBorder = cls == ZONE_CLASS_TRADEABLE ? color.blue : color.aqua
+
+                b = box.new(left=leftT, top=top, right=time, bottom=bot, xloc=xloc.bar_time, bgcolor=envFill, border_color=envBorder)
+                array.push(zoneBoxes, b)
+                bCore = box.new(left=leftT, top=coreTop, right=time, bottom=coreBot, xloc=xloc.bar_time, bgcolor=coreFill, border_color=coreBorder)
+                array.push(zoneCoreBoxes, bCore)
+
+                if showZoneMidline
+                    lStyle = cls == ZONE_CLASS_TRADEABLE ? line.style_solid : line.style_dashed
+                    l = line.new(x1=leftT, y1=coreMid, x2=time, y2=coreMid, xloc=xloc.bar_time, color=coreBorder, style=lStyle, width=1)
+                    array.push(zoneMidLines, l)
+
+f_zone_state_name(_st) =>
+    _st == ZONE_STATE_VIRGIN ? "virgin" : _st == ZONE_STATE_FIRST_TOUCH_READY ? "first_touch_ready" : _st == ZONE_STATE_TESTED_ONCE ? "tested_once" : _st == ZONE_STATE_SPENT ? "spent" : "broken"
+
+f_zone_class_name(_cls) =>
+    _cls == ZONE_CLASS_TRADEABLE ? "tradeable" : _cls == ZONE_CLASS_STRUCTURAL ? "structural" : "none"
+
+f_render_debug_table() =>
+    if showDebugTable
+        var t = table.new(position.top_right, 2, 11, border_width=1)
+
+        // nearest visible zone summary
+        nearIdx = -1
+        nearDist = 1e18
+        zCount = array.size(zStructTop)
+        if zCount > 0
+            for zi = 0 to zCount - 1
+                if array.get(zVisible, zi)
+                    d = math.abs(close - array.get(zCoreMid, zi))
+                    if d < nearDist
+                        nearDist := d
+                        nearIdx := zi
+
+        nearTxt = "-"
+        if nearIdx >= 0
+            nearTxt := str.tostring(array.get(zCoreMid, nearIdx), format.mintick) + " (" + f_zone_class_name(array.get(zClass, nearIdx)) + ", " + f_zone_state_name(array.get(zState, nearIdx)) + ", s=" + str.tostring(array.get(zZoneScore, nearIdx), "#.##") + ")"
+
+        eCount = array.size(eType)
+        structEvents = 0
+        structBos = 0
+        structFlip = 0
+        structProtected = 0
+        baseEvents = 0
+        baseShelf = 0
+        baseBreak = 0
+        foxEvents = 0
+        foxLaunch = 0
+        if eCount > 0
+            for ei = 0 to eCount - 1
+                if not array.get(eSelected, ei)
+                    continue
+                et = array.get(eType, ei)
+                if et == EVENT_STRUCT_BOS_ANCHOR or et == EVENT_STRUCT_FLIP_ANCHOR or et == EVENT_STRUCT_PROTECTED
+                    structEvents += 1
+                    if et == EVENT_STRUCT_BOS_ANCHOR
+                        structBos += 1
+                    else if et == EVENT_STRUCT_FLIP_ANCHOR
+                        structFlip += 1
+                    else
+                        structProtected += 1
+                else if et == EVENT_BASE_SHELF or et == EVENT_BASE_BREAKOUT
+                    baseEvents += 1
+                    if et == EVENT_BASE_SHELF
+                        baseShelf += 1
+                    else
+                        baseBreak += 1
+                else if et == EVENT_FOXIAN_LAUNCH
+                    foxEvents += 1
+                    foxLaunch += 1
+
+        structuralCount = 0
+        tradeableCount = 0
+        rejectScore = 0
+        rejectWidth = 0
+        rejectRetest = 0
+        rejectLifecycle = 0
+        brokenCount = 0
+        lifeVirgin = 0
+        lifeReady = 0
+        lifeTested = 0
+        lifeSpent = 0
+        lifeBroken = 0
+        firstRetestSeenCount = 0
+        firstRetestFailCount = 0
+        firstRetestReactionSum = 0.0
+        firstRetestReactionN = 0
+        retestSum = 0.0
+        retestMax = 0
+        structWidthSum = 0.0
+        coreWidthSum = 0.0
+
+        if zCount > 0
+            for zi = 0 to zCount - 1
+                cls = array.get(zClass, zi)
+                retestV = array.get(zRetestCount, zi)
+                retestSum += retestV
+                retestMax := math.max(retestMax, retestV)
+                st = array.get(zState, zi)
+                if st == ZONE_STATE_VIRGIN
+                    lifeVirgin += 1
+                else if st == ZONE_STATE_FIRST_TOUCH_READY
+                    lifeReady += 1
+                else if st == ZONE_STATE_TESTED_ONCE
+                    lifeTested += 1
+                else if st == ZONE_STATE_SPENT
+                    lifeSpent += 1
+                else if st == ZONE_STATE_BROKEN
+                    lifeBroken += 1
+                if st == ZONE_STATE_BROKEN
+                    brokenCount += 1
+
+                zStructTopV = array.get(zStructTop, zi)
+                zStructBotV = array.get(zStructBot, zi)
+                zCoreTopV = array.get(zCoreTop, zi)
+                zCoreBotV = array.get(zCoreBot, zi)
+                zCoreMidV = array.get(zCoreMid, zi)
+                structWidthSum += math.max(zStructTopV - zStructBotV, syminfo.mintick)
+                coreWidthSum += math.max(zCoreTopV - zCoreBotV, syminfo.mintick)
+
+                firstSeen = array.get(zHasFirstRetestOccurred, zi)
+                firstFail = array.get(zFirstRetestFailed, zi)
+                firstReact = array.get(zFirstRetestReactionATR, zi)
+                if firstSeen
+                    firstRetestSeenCount += 1
+                    firstRetestReactionSum += firstReact
+                    firstRetestReactionN += 1
+                    if firstFail
+                        firstRetestFailCount += 1
+
+                if cls == ZONE_CLASS_STRUCTURAL
+                    structuralCount += 1
+                    scorePass = array.get(zZoneScore, zi) >= minTradeableScore
+                    zWidth = math.max(zCoreTopV - zCoreBotV, syminfo.mintick)
+                    zWidthPct = zWidth / math.max(math.abs(zCoreMidV), syminfo.mintick)
+                    widthPass = zWidthPct <= maxTradeableWidthPct
+                    retPass = retestV <= maxTradeableRetests
+                    stPass = st == ZONE_STATE_VIRGIN or st == ZONE_STATE_FIRST_TOUCH_READY or st == ZONE_STATE_TESTED_ONCE
+                    firstPass = not array.get(zFirstRetestFailed, zi) and array.get(zTimesClosedThrough, zi) == 0 and (not array.get(zHasFirstRetestOccurred, zi) or array.get(zFirstRetestReactionATR, zi) >= 0.10)
+                    if not scorePass
+                        rejectScore += 1
+                    if not widthPass
+                        rejectWidth += 1
+                    if not retPass
+                        rejectRetest += 1
+                    if not stPass or not firstPass
+                        rejectLifecycle += 1
+                else if cls == ZONE_CLASS_TRADEABLE
+                    tradeableCount += 1
+
+        table.cell(t, 0, 0, "Mode", text_color=color.white)
+        table.cell(t, 1, 0, mode + " | selected events=" + str.tostring(structEvents + baseEvents + foxEvents) + " zones=" + str.tostring(array.size(zStructTop)), text_color=color.white)
+
+        table.cell(t, 0, 1, "Events generated", text_color=color.white)
+        table.cell(t, 1, 1, "S " + str.tostring(structEvents) + "/" + str.tostring(maxStructEvents) + " (bos=" + str.tostring(structBos) + " flip=" + str.tostring(structFlip) + " prot=" + str.tostring(structProtected) + ") | B " + str.tostring(baseEvents) + "/" + str.tostring(maxBaseEvents) + " (shelf=" + str.tostring(baseShelf) + " brk=" + str.tostring(baseBreak) + ") | F " + str.tostring(foxEvents) + "/" + str.tostring(maxFoxianEvents) + " (launch=" + str.tostring(foxLaunch) + ")", text_color=color.white)
+
+        satTxt = "S " + str.tostring(array.get(eRawByFamily, EVENT_FAMILY_STRUCT)) + "/" + str.tostring(array.get(eDedupeByFamily, EVENT_FAMILY_STRUCT)) + "/" + str.tostring(array.get(eCountByFamily, EVENT_FAMILY_STRUCT)) + " B " + str.tostring(array.get(eRawByFamily, EVENT_FAMILY_BASE)) + "/" + str.tostring(array.get(eDedupeByFamily, EVENT_FAMILY_BASE)) + "/" + str.tostring(array.get(eCountByFamily, EVENT_FAMILY_BASE)) + " F " + str.tostring(array.get(eRawByFamily, EVENT_FAMILY_FOXIAN)) + "/" + str.tostring(array.get(eDedupeByFamily, EVENT_FAMILY_FOXIAN)) + "/" + str.tostring(array.get(eCountByFamily, EVENT_FAMILY_FOXIAN))
+        table.cell(t, 0, 2, "Family sat r/d/s", text_color=color.white)
+        table.cell(t, 1, 2, satTxt, text_color=color.white)
+
+        avgSpanTxt = "-"
+        avgCoreTxt = "-"
+        if zCount > 0
+            avgSpan = structWidthSum / zCount
+            avgCore = coreWidthSum / zCount
+            avgSpanTxt := str.tostring(avgSpan, format.mintick)
+            avgCoreTxt := str.tostring(avgCore, format.mintick)
+
+        mergeRejectSeg = array.get(dbgMergeRejects, 0)
+        mergeRejectBars = array.get(dbgMergeRejects, 1)
+        mergeRejectPct = array.get(dbgMergeRejects, 2)
+        mergeRejectAtr = array.get(dbgMergeRejects, 3)
+        mergeRejectOvl = array.get(dbgMergeRejects, 4)
+
+        table.cell(t, 0, 3, "Envelope/Core", text_color=color.white)
+        table.cell(t, 1, 3, "count=" + str.tostring(zCount) + " avgStruct=" + avgSpanTxt + " avgCore=" + avgCoreTxt, text_color=color.white)
+
+        table.cell(t, 0, 4, "Zone classes", text_color=color.white)
+        table.cell(t, 1, 4, "struct=" + str.tostring(structuralCount) + " tradeable=" + str.tostring(tradeableCount), text_color=color.white)
+
+        table.cell(t, 0, 5, "Tradeable rejects", text_color=color.white)
+        table.cell(t, 1, 5, "score=" + str.tostring(rejectScore) + " width=" + str.tostring(rejectWidth) + " retest=" + str.tostring(rejectRetest) + " lifecycle=" + str.tostring(rejectLifecycle), text_color=color.white)
+
+        avgRetestTxt = zCount > 0 ? str.tostring(retestSum / zCount, "#.##") : "-"
+        avgFirstReact = firstRetestReactionN > 0 ? str.tostring(firstRetestReactionSum / firstRetestReactionN, "#.##") : "-"
+        table.cell(t, 0, 6, "First retest", text_color=color.white)
+        table.cell(t, 1, 6, "seen=" + str.tostring(firstRetestSeenCount) + " fail=" + str.tostring(firstRetestFailCount) + " avgATR=" + avgFirstReact + " retests(avg/max)=" + avgRetestTxt + "/" + str.tostring(retestMax), text_color=color.white)
+
+        table.cell(t, 0, 7, "Lifecycle dist", text_color=color.white)
+        table.cell(t, 1, 7, "virgin=" + str.tostring(lifeVirgin) + " ready=" + str.tostring(lifeReady) + " tested=" + str.tostring(lifeTested) + " spent=" + str.tostring(lifeSpent) + " broken=" + str.tostring(lifeBroken), text_color=color.white)
+
+        table.cell(t, 0, 8, "Merge rejects", text_color=color.white)
+        table.cell(t, 1, 8, "seg/bars/span/ovl=" + str.tostring(mergeRejectSeg) + "/" + str.tostring(mergeRejectBars) + "/" + str.tostring(mergeRejectPct + mergeRejectAtr) + "/" + str.tostring(mergeRejectOvl), text_color=color.white)
+
+        table.cell(t, 0, 9, "Nearest visible zone", text_color=color.white)
+        table.cell(t, 1, 9, nearTxt, text_color=color.white)
+
+        cfg = "LKB=" + str.tostring(lookbackBars) + " evt=" + str.tostring(maxStructEvents) + "/" + str.tostring(maxBaseEvents) + "/" + str.tostring(maxFoxianEvents) + "|" + str.tostring(maxEventsTotal) + " zn=" + str.tostring(maxZones) + " disp=" + str.tostring(maxDisplayZones) + " merge=" + str.tostring(mergeTolPct * 100, "#.###") + "%/" + str.tostring(mergeTolATR, "#.##") + " span<=" + str.tostring(zoneMergeMaxSpanPct * 100, "#.##") + "%/" + str.tostring(zoneMergeMaxSpanATR, "#.##") + " tLKB=" + str.tostring(terminalLookbackBars) + " lifeScan=" + str.tostring(lifecycleMaxScanBars) + " lastOnly=" + (computeLastBarOnly ? "1" : "0")
+        table.cell(t, 0, 10, "Config digest", text_color=color.white)
+        table.cell(t, 1, 10, compactDebug ? cfg : cfg + " | baseW=" + str.tostring(baseWindowBars) + " baseATR=" + str.tostring(baseMaxATRSpan, "#.##") + " tScore=" + str.tostring(minTradeableScore, "#.##"), text_color=color.white)
+
+// ---------- Main ----------
+runPipeline = computeLastBarOnly ? (bar_index >= math.max(0, last_bar_index - 1)) : barstate.isconfirmed
+if runPipeline
+    f_clear_events()
+    f_clear_zones()
+
+    minWarmup = math.max(baseWindowBars + 2, math.max(structurePivotLen * 2 + 2, foxianPreRangeBars + 2))
+    effectiveLookback = computeLastBarOnly ? math.min(lookbackBars, terminalLookbackBars) : lookbackBars
+    safeLookback = math.min(effectiveLookback, math.max(0, bar_index - minWarmup))
+
+    // Stage A
+    f_stageA_structure_events(safeLookback)
+    f_stageA_base_events(safeLookback)
+    f_stageA_foxian_events(safeLookback)
+    f_stageA_fallback_seed(safeLookback)
+    f_finalize_event_selection()
+
+    // Stage B
+    f_build_zones_from_events()
+
+    // Stage C
+    f_update_zone_lifecycle(safeLookback)
+
+    // Stage D
+    f_score_and_class_zones()
+
+    // Stage E
+    f_select_visible_zones()
+
+    // Render
+    f_render_zones()
+    f_render_debug_table()

@@ -1,0 +1,852 @@
+//@version=5
+strategy("LiquidSniper Swing Strategy v1 (TV Alpha)", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, commission_type=strategy.commission.percent, commission_value=0.05, max_labels_count=500, calc_on_every_tick=true)
+
+// ------------------------------------------------------
+// LiquidSniper Pine Strategy v1 - Mentorship fidelity pass
+// Mirrors v1 indicator signal model and adds deterministic
+// execution with fixed invalidation + single full TP.
+// ------------------------------------------------------
+
+g_meta = "00. Metadata"
+ls_version = input.string("tv-swing-strategy-v1.6.0-alpha", "Logic Version", group=g_meta)
+profile = input.string("I", "Profile (C/I/S) [deprecated in swing mode]", options=["C", "I", "S"], group=g_meta)
+swing_tf_stack = input.string("D/W/M", "Swing TF Stack", options=["D/W/M", "D/D/W"], group=g_meta)
+allow_longs = input.bool(true, "Allow Longs", group=g_meta)
+allow_shorts = input.bool(true, "Allow Shorts", group=g_meta)
+
+g_logic = "01. Logic"
+require_candle_close = input.bool(true, "Require Candle Close", group=g_logic)
+structure_swing_len = input.int(3, "Structure Swing Length", minval=2, maxval=10, group=g_logic)
+retest_window_bars = input.int(24, "Retest Window Bars", minval=3, maxval=300, group=g_logic)
+chop_ci_max = input.float(61.0, "HTF Chop CI Max", minval=20.0, maxval=80.0, group=g_logic)
+chop_adx_min = input.float(17.0, "HTF Trend ADX Min", minval=5.0, maxval=60.0, group=g_logic)
+enable_short_adx_bump = input.bool(false, "Enable Short-side ADX Bump", group=g_logic)
+short_adx_bump = input.float(2.0, "Short ADX Bump", minval=0.0, maxval=20.0, step=0.5, group=g_logic)
+trigger_score = input.float(7.2, "Trigger Score Min", minval=0.0, maxval=10.0, group=g_logic)
+trend_gate_mode = input.string("strict_dual", "Trend Gate Mode", options=["strict_dual", "htf_primary"], group=g_logic)
+require_first_retest = input.bool(false, "Require First Retest (Hard Gate)", group=g_logic)
+
+// Pass 1: true SR zone engine
+// Pass 2: wire zones into gates + first-retest state machine
+g_sr = "01c. SR Zones"
+sr_zone_half_bps = input.float(35.0, "Zone Half Width (bps)", minval=5.0, maxval=300.0, step=1.0, group=g_sr)
+sr_merge_bps = input.float(40.0, "Zone Merge Distance (bps)", minval=5.0, maxval=500.0, step=1.0, group=g_sr)
+sr_min_touches = input.int(2, "Min Touches for Active Zone", minval=1, maxval=10, group=g_sr)
+sr_max_age_bars = input.int(800, "Max Zone Age (bars)", minval=50, maxval=5000, group=g_sr)
+sr_max_zones = input.int(24, "Max Stored Zones", minval=6, maxval=100, group=g_sr)
+sr_opposing_block_pct = input.float(1.0, "Opposing Zone Block Distance (%)", minval=0.05, maxval=10.0, step=0.05, group=g_sr)
+sr_opposing_block_mode = input.string("ATR-relative", "Opposing Block Mode", options=["ATR-relative", "Percent"], group=g_sr)
+sr_opposing_block_atr_mult = input.float(1.0, "Opposing Block ATR Mult", minval=0.1, maxval=10.0, step=0.1, group=g_sr)
+enforce_opposing_zone_block = input.bool(false, "Enforce Opposing Zone Block (Hard Gate)", group=g_sr)
+sr_confluence_dist_pct = input.float(2.0, "Confluence Distance to Zone (%)", minval=0.05, maxval=10.0, step=0.05, group=g_sr)
+sr_retest_sep_bps = input.float(30.0, "Retest Separation Min (bps)", minval=5.0, maxval=500.0, step=1.0, group=g_sr)
+sr_retest_cons_min = input.int(4, "Retest Consolidation Min Bars", minval=1, maxval=20, group=g_sr)
+sr_retest_cons_max = input.int(5, "Retest Consolidation Max Bars", minval=1, maxval=30, group=g_sr)
+
+g_time = "01b. Time Filters"
+enable_time_block = input.bool(false, "Enable Time Block", group=g_time)
+blocked_session = input.session("0800-1100", "Blocked Session", group=g_time)
+blocked_tz = input.string("America/New_York", "Blocked Session Timezone", group=g_time)
+
+g_diag = "01d. Diagnostics"
+show_diag_box = input.bool(true, "Show Diagnostics Box (bottom-right)", group=g_diag)
+
+g_risk = "02. Risk"
+rr_target = input.float(2.0, "Risk:Reward Target", minval=1.0, step=0.1, group=g_risk)
+enforce_tp3_rr_floor = input.bool(false, "Enforce TP3 RR Floor", group=g_risk)
+tp3_rr_floor = input.float(3.0, "TP3 RR Floor", minval=0.5, step=0.1, group=g_risk)
+tp1_qty_pct = input.float(40.0, "TP1 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+tp2_qty_pct = input.float(30.0, "TP2 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+tp3_qty_pct = input.float(30.0, "TP3 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+atr_stop_mult = input.float(1.4, "ATR Stop Mult (fallback)", minval=0.5, step=0.1, group=g_risk)
+enable_short_stop_mult = input.bool(false, "Enable Short-side Stop Multiplier", group=g_risk)
+short_stop_mult_factor = input.float(0.9, "Short Stop Mult Factor", minval=0.1, maxval=2.0, step=0.05, group=g_risk)
+be_enabled = input.bool(true, "Enable Break-even Stop", group=g_risk)
+be_trigger_r = input.float(1.0, "Break-even Trigger (R)", minval=0.1, step=0.1, group=g_risk)
+be_offset_pct = input.float(0.0, "Break-even Offset %", minval=0.0, step=0.05, group=g_risk)
+enable_time_stop = input.bool(false, "Enable Time Stop", group=g_risk)
+max_bars_in_trade = input.int(12, "Max Bars In Trade", minval=1, group=g_risk)
+cooldown_bars = input.int(3, "Cooldown Bars", minval=0, group=g_risk)
+entry_signal_mode = input.string("edge", "Entry Signal Mode", options=["edge", "bar"], group=g_risk)
+allow_flip_on_opposite_edge = input.bool(true, "Allow Flip on Opposite Trigger Edge", group=g_risk)
+flip_min_score_delta = input.float(0.5, "Flip Min Score Delta", minval=0.0, maxval=5.0, step=0.1, group=g_risk)
+
+enable_lifecycle_governor = input.bool(true, "Enable Lifecycle Governor", group=g_risk)
+be_stale_reduce_bars = input.int(12, "BE Stale Reduce Bars", minval=1, group=g_risk)
+be_stale_reduce_pct = input.float(50.0, "BE Stale Reduce Qty %", minval=1.0, maxval=100.0, step=1.0, group=g_risk)
+be_stale_full_exit_bars = input.int(24, "BE Stale Full Exit Bars", minval=1, group=g_risk)
+enable_trend_invalidation_exit = input.bool(true, "Enable Trend Invalidation Exit", group=g_risk)
+trend_invalidation_max_r = input.float(0.5, "Trend Invalidation Max R", minval=-2.0, maxval=5.0, step=0.1, group=g_risk)
+
+enable_daily_loss_cb = input.bool(true, "Enable Daily Loss Circuit Breaker", group=g_risk)
+max_daily_loss_r = input.float(2.0, "Max Daily Loss (R)", minval=0.1, step=0.1, group=g_risk)
+enable_daily_trade_cap = input.bool(false, "Enable Daily Trade Cap", group=g_risk)
+max_daily_trades = input.int(3, "Max Trades Per Day", minval=1, group=g_risk)
+min_stop_atr_floor = input.float(0.35, "Min Stop Distance (ATR x)", minval=0.05, step=0.05, group=g_risk)
+min_stop_pct_floor = input.float(0.25, "Min Stop Distance (%)", minval=0.01, step=0.01, group=g_risk)
+min_position_notional = input.float(25.0, "Min Position Notional (USDT)", minval=0.0, step=1.0, group=g_risk)
+
+sizing_mode = input.string("percent_of_equity", "Sizing Mode", options=["percent_of_equity", "risk_based"], group=g_risk)
+risk_pct_low_conf = input.float(1.0, "Risk % (Low Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+risk_pct_high_conf = input.float(5.0, "Risk % (High Confluence)", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+high_conf_score_threshold = input.float(8.0, "High Confluence Score Threshold", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+enable_profile_risk_cap = input.bool(true, "Enable Profile Risk Cap", group=g_risk)
+enable_manual_profile_risk_caps = input.bool(false, "Manual Profile Risk Cap Overrides", group=g_risk)
+profile_cap_c = input.float(1.0, "Profile C Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+profile_cap_i = input.float(5.0, "Profile I Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+profile_cap_s = input.float(5.0, "Profile S Max Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+
+clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+adx_calc(len) =>
+    up = ta.change(high)
+    down = -ta.change(low)
+    plus_dm = up > down and up > 0 ? up : 0.0
+    minus_dm = down > up and down > 0 ? down : 0.0
+    trur = ta.rma(ta.tr(true), len)
+    plus = 100.0 * ta.rma(plus_dm, len) / math.max(trur, 1e-9)
+    minus = 100.0 * ta.rma(minus_dm, len) / math.max(trur, 1e-9)
+    dx = 100.0 * math.abs(plus - minus) / math.max(plus + minus, 1e-9)
+    ta.rma(dx, len)
+
+safe_nonneg(v) =>
+    na(v) ? 0.0 : math.max(v, 0.0)
+
+entry_tf = "D"
+itf_tf = swing_tf_stack == "D/W/M" ? "W" : "D"
+htf_tf = swing_tf_stack == "D/W/M" ? "M" : "W"
+
+entry_close = request.security(syminfo.tickerid, entry_tf, close)
+entry_high = request.security(syminfo.tickerid, entry_tf, high)
+entry_low = request.security(syminfo.tickerid, entry_tf, low)
+entry_ema20 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 20))
+entry_ema50 = request.security(syminfo.tickerid, entry_tf, ta.ema(close, 50))
+itf_ema20 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 20))
+itf_ema50 = request.security(syminfo.tickerid, itf_tf, ta.ema(close, 50))
+htf_ema20 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 20))
+htf_ema50 = request.security(syminfo.tickerid, htf_tf, ta.ema(close, 50))
+
+trend_long = itf_ema20 > itf_ema50 and htf_ema20 > htf_ema50
+trend_short = itf_ema20 < itf_ema50 and htf_ema20 < htf_ema50
+trend_dir = trend_long ? 1 : trend_short ? -1 : 0
+htf_trend_long = htf_ema20 > htf_ema50
+htf_trend_short = htf_ema20 < htf_ema50
+htf_trend_dir = htf_trend_long ? 1 : htf_trend_short ? -1 : 0
+
+piv_hi = ta.pivothigh(entry_high, structure_swing_len, structure_swing_len)
+piv_lo = ta.pivotlow(entry_low, structure_swing_len, structure_swing_len)
+
+var float last_swing_high = na
+var float last_swing_low = na
+if not na(piv_hi)
+    last_swing_high := piv_hi
+if not na(piv_lo)
+    last_swing_low := piv_lo
+
+bos_up = not na(last_swing_high) and entry_close > last_swing_high
+bos_down = not na(last_swing_low) and entry_close < last_swing_low
+
+var int structure_dir = 0
+prior_structure_dir = structure_dir
+if bos_up
+    structure_dir := 1
+if bos_down
+    structure_dir := -1
+
+choch_up = bos_up and prior_structure_dir == -1
+choch_down = bos_down and prior_structure_dir == 1
+
+chop_len = 14
+htf_tr_sum = request.security(syminfo.tickerid, htf_tf, ta.sma(ta.tr(true), chop_len) * chop_len)
+htf_span = request.security(syminfo.tickerid, htf_tf, ta.highest(high, chop_len) - ta.lowest(low, chop_len))
+htf_ci_raw = htf_span <= 1e-9 ? 100.0 : 100.0 * math.log10(math.max(htf_tr_sum / htf_span, 1e-9)) / math.log10(chop_len)
+htf_ci = clamp(htf_ci_raw, 0.0, 100.0)
+htf_adx = request.security(syminfo.tickerid, htf_tf, adx_calc(14))
+short_adx_min_effective = chop_adx_min + (enable_short_adx_bump ? short_adx_bump : 0.0)
+chop_ok_long = htf_ci <= chop_ci_max and htf_adx >= chop_adx_min
+chop_ok_short = htf_ci <= chop_ci_max and htf_adx >= short_adx_min_effective
+
+// ---------- SR Zone Engine (Daily, horizontal rejection clusters) ----------
+var zone_mid = array.new_float()
+var zone_top = array.new_float()
+var zone_bot = array.new_float()
+var zone_type = array.new_int()      // +1 resistance, -1 support
+var zone_touches = array.new_int()
+var zone_last_touch = array.new_int()
+
+f_add_zone(_lvl, _type) =>
+    if not na(_lvl)
+        merge_idx = -1
+        best_dist = 1e9
+        if array.size(zone_mid) > 0
+            for i = 0 to array.size(zone_mid) - 1
+                if array.get(zone_type, i) == _type
+                    z_mid = array.get(zone_mid, i)
+                    dist_bps = math.abs(_lvl - z_mid) / math.max(_lvl, 1e-9) * 10000.0
+                    if dist_bps <= sr_merge_bps and dist_bps < best_dist
+                        best_dist := dist_bps
+                        merge_idx := i
+        if merge_idx >= 0
+            old_mid = array.get(zone_mid, merge_idx)
+            old_touches = array.get(zone_touches, merge_idx)
+            new_touches = old_touches + 1
+            new_mid = (old_mid * old_touches + _lvl) / new_touches
+            half = new_mid * (sr_zone_half_bps / 10000.0)
+            array.set(zone_mid, merge_idx, new_mid)
+            array.set(zone_top, merge_idx, new_mid + half)
+            array.set(zone_bot, merge_idx, new_mid - half)
+            array.set(zone_touches, merge_idx, new_touches)
+            array.set(zone_last_touch, merge_idx, bar_index)
+        else
+            if array.size(zone_mid) >= sr_max_zones
+                rm_idx = 0
+                rm_score = -1e9
+                for j = 0 to array.size(zone_mid) - 1
+                    age = bar_index - array.get(zone_last_touch, j)
+                    score = age - array.get(zone_touches, j) * 10.0
+                    if score > rm_score
+                        rm_score := score
+                        rm_idx := j
+                array.remove(zone_mid, rm_idx)
+                array.remove(zone_top, rm_idx)
+                array.remove(zone_bot, rm_idx)
+                array.remove(zone_type, rm_idx)
+                array.remove(zone_touches, rm_idx)
+                array.remove(zone_last_touch, rm_idx)
+            half = _lvl * (sr_zone_half_bps / 10000.0)
+            array.push(zone_mid, _lvl)
+            array.push(zone_top, _lvl + half)
+            array.push(zone_bot, _lvl - half)
+            array.push(zone_type, _type)
+            array.push(zone_touches, 1)
+            array.push(zone_last_touch, bar_index)
+
+if not na(piv_hi)
+    f_add_zone(piv_hi, 1)
+if not na(piv_lo)
+    f_add_zone(piv_lo, -1)
+
+float nearest_res_dist_pct = na
+float nearest_sup_dist_pct = na
+float nearest_res_top = na
+float nearest_res_bot = na
+float nearest_sup_top = na
+float nearest_sup_bot = na
+int active_zone_count = 0
+if array.size(zone_mid) > 0
+    for i = 0 to array.size(zone_mid) - 1
+        z_age = bar_index - array.get(zone_last_touch, i)
+        z_touches = array.get(zone_touches, i)
+        if z_age <= sr_max_age_bars and z_touches >= sr_min_touches
+            active_zone_count += 1
+            z_top = array.get(zone_top, i)
+            z_bot = array.get(zone_bot, i)
+            z_type = array.get(zone_type, i)
+            if z_type == 1
+                dist = entry_close > z_top ? na : (entry_close >= z_bot ? 0.0 : (z_bot - entry_close) / math.max(entry_close, 1e-9) * 100.0)
+                if not na(dist) and (na(nearest_res_dist_pct) or dist < nearest_res_dist_pct)
+                    nearest_res_dist_pct := dist
+                    nearest_res_top := z_top
+                    nearest_res_bot := z_bot
+            if z_type == -1
+                dist = entry_close < z_bot ? na : (entry_close <= z_top ? 0.0 : (entry_close - z_top) / math.max(entry_close, 1e-9) * 100.0)
+                if not na(dist) and (na(nearest_sup_dist_pct) or dist < nearest_sup_dist_pct)
+                    nearest_sup_dist_pct := dist
+                    nearest_sup_top := z_top
+                    nearest_sup_bot := z_bot
+
+// ---------- First retest state machine on real SR zones ----------
+var int long_retest_state = 0      // 0 idle, 1 broken, 2 separated/monitoring consolidation
+var int short_retest_state = 0
+var float long_break_top = na
+var float long_break_bot = na
+var float short_break_top = na
+var float short_break_bot = na
+var int long_break_bar = na
+var int short_break_bar = na
+var int long_cons_bars = 0
+var int short_cons_bars = 0
+
+long_first_retest = false
+short_first_retest = false
+
+res_break_up = not na(nearest_res_top) and ta.crossover(entry_close, nearest_res_top)
+sup_break_down = not na(nearest_sup_bot) and ta.crossunder(entry_close, nearest_sup_bot)
+
+if res_break_up
+    long_retest_state := 1
+    long_break_top := nearest_res_top
+    long_break_bot := nearest_res_bot
+    long_break_bar := bar_index
+    long_cons_bars := 0
+
+if sup_break_down
+    short_retest_state := 1
+    short_break_top := nearest_sup_top
+    short_break_bot := nearest_sup_bot
+    short_break_bar := bar_index
+    short_cons_bars := 0
+
+if long_retest_state > 0 and not na(long_break_top) and not na(long_break_bar)
+    sep_ok = ((entry_close - long_break_top) / math.max(entry_close, 1e-9) * 10000.0) >= sr_retest_sep_bps
+    if long_retest_state == 1 and sep_ok
+        long_retest_state := 2
+    if long_retest_state >= 2 and bar_index > long_break_bar
+        if entry_low > long_break_top
+            long_cons_bars += 1
+        zone_touch = entry_low <= long_break_top and entry_high >= long_break_bot
+        if zone_touch
+            if long_cons_bars >= sr_retest_cons_min and long_cons_bars <= sr_retest_cons_max
+                long_first_retest := true
+            long_retest_state := 0
+            long_cons_bars := 0
+    if (bar_index - long_break_bar) > retest_window_bars
+        long_retest_state := 0
+        long_cons_bars := 0
+
+if short_retest_state > 0 and not na(short_break_bot) and not na(short_break_bar)
+    sep_ok = ((short_break_bot - entry_close) / math.max(entry_close, 1e-9) * 10000.0) >= sr_retest_sep_bps
+    if short_retest_state == 1 and sep_ok
+        short_retest_state := 2
+    if short_retest_state >= 2 and bar_index > short_break_bar
+        if entry_high < short_break_bot
+            short_cons_bars += 1
+        zone_touch = entry_high >= short_break_bot and entry_low <= short_break_top
+        if zone_touch
+            if short_cons_bars >= sr_retest_cons_min and short_cons_bars <= sr_retest_cons_max
+                short_first_retest := true
+            short_retest_state := 0
+            short_cons_bars := 0
+    if (bar_index - short_break_bar) > retest_window_bars
+        short_retest_state := 0
+        short_cons_bars := 0
+
+atr_entry = request.security(syminfo.tickerid, entry_tf, ta.atr(14))
+atr_block_dist_pct = (atr_entry / math.max(entry_close, 1e-9)) * 100.0 * sr_opposing_block_atr_mult
+opposing_block_dist_pct = sr_opposing_block_mode == "ATR-relative" ? atr_block_dist_pct : sr_opposing_block_pct
+oppose_long_near = not na(nearest_res_dist_pct) and nearest_res_dist_pct <= opposing_block_dist_pct
+oppose_short_near = not na(nearest_sup_dist_pct) and nearest_sup_dist_pct <= opposing_block_dist_pct
+
+bar_closed = time_close <= timenow
+candle_ok = not require_candle_close or bar_closed
+ema_stack_long = entry_close > entry_ema20 and entry_ema20 > entry_ema50
+ema_stack_short = entry_close < entry_ema20 and entry_ema20 < entry_ema50
+
+score_long = 0.0
+score_long += trend_long ? 2.0 : 0.0
+score_long += (bos_up or choch_up) ? 2.0 : 0.0
+score_long += long_first_retest ? 2.0 : 0.0
+score_long += ema_stack_long ? 1.0 : 0.0
+score_long += chop_ok_long ? 1.0 : 0.0
+score_long += candle_ok ? 1.0 : 0.0
+score_long += (not na(nearest_sup_dist_pct) and nearest_sup_dist_pct <= sr_confluence_dist_pct) ? 1.0 : 0.0
+score_long += oppose_long_near ? -1.0 : 0.0
+
+score_short = 0.0
+score_short += trend_short ? 2.0 : 0.0
+score_short += (bos_down or choch_down) ? 2.0 : 0.0
+score_short += short_first_retest ? 2.0 : 0.0
+score_short += ema_stack_short ? 1.0 : 0.0
+score_short += chop_ok_short ? 1.0 : 0.0
+score_short += candle_ok ? 1.0 : 0.0
+score_short += (not na(nearest_res_dist_pct) and nearest_res_dist_pct <= sr_confluence_dist_pct) ? 1.0 : 0.0
+score_short += oppose_short_near ? -1.0 : 0.0
+
+in_blocked_session = not na(time(timeframe.period, blocked_session, blocked_tz))
+time_ok = not enable_time_block or not in_blocked_session
+
+// ===== Daily Swing v1 TV Alpha scaffold =====
+// Reason code constants
+RC_OK = "OK"
+RC_HG = "HG"
+RC_BG = "BG" // TODO: wire behavior gates once telemetry model is finalized
+RC_RG = "RG"
+RC_TM = "TM"
+RC_SR = "SR"
+
+// Deterministic gate pipeline skeleton (HG-1..HG-5 + RG)
+trend_gate_long_ok = trend_gate_mode == "htf_primary" ? (htf_trend_dir == 1 and structure_dir != -1) : (trend_dir == 1)
+trend_gate_short_ok = trend_gate_mode == "htf_primary" ? (htf_trend_dir == -1 and structure_dir != 1) : (trend_dir == -1)
+
+hg1_long = allow_longs and trend_gate_long_ok
+hg2_long = (not enforce_opposing_zone_block) or (not oppose_long_near)
+hg3_long = chop_ok_long
+hg4_long = candle_ok
+hg5_long = score_long >= trigger_score
+hg6_long = (not require_first_retest) or long_first_retest // mentorship: strong confluence, optional hard gate
+
+hg1_short = allow_shorts and trend_gate_short_ok
+hg2_short = (not enforce_opposing_zone_block) or (not oppose_short_near)
+hg3_short = chop_ok_short
+hg4_short = candle_ok
+hg5_short = score_short >= trigger_score
+hg6_short = (not require_first_retest) or short_first_retest // mentorship: strong confluence, optional hard gate
+
+long_hg_pass = hg1_long and hg2_long and hg3_long and hg4_long and hg5_long and hg6_long
+short_hg_pass = hg1_short and hg2_short and hg3_short and hg4_short and hg5_short and hg6_short
+
+first_fail_reason_long = not hg1_long ? RC_HG : not hg2_long ? RC_SR : not hg3_long ? RC_HG : not hg4_long ? RC_HG : not hg5_long ? RC_HG : not hg6_long ? RC_SR : RC_OK
+first_fail_reason_short = not hg1_short ? RC_HG : not hg2_short ? RC_SR : not hg3_short ? RC_HG : not hg4_short ? RC_HG : not hg5_short ? RC_HG : not hg6_short ? RC_SR : RC_OK
+all_reasons_long = (hg1_long ? "" : "HG-1,") + (hg2_long ? "" : "HG-2/SR_OPPOSE,") + (hg3_long ? "" : "HG-3,") + (hg4_long ? "" : "HG-4,") + (hg5_long ? "" : "HG-5,") + (hg6_long ? "" : "HG-6/SR_RETEST,")
+all_reasons_short = (hg1_short ? "" : "HG-1,") + (hg2_short ? "" : "HG-2/SR_OPPOSE,") + (hg3_short ? "" : "HG-3,") + (hg4_short ? "" : "HG-4,") + (hg5_short ? "" : "HG-5,") + (hg6_short ? "" : "HG-6/SR_RETEST,")
+
+// Gate-waterfall diagnostics (Pass 1 visibility)
+var int diag_candidates = 0
+var int diag_fail_hg1 = 0
+var int diag_fail_hg2 = 0
+var int diag_fail_hg3 = 0
+var int diag_fail_hg4 = 0
+var int diag_fail_hg5 = 0
+var int diag_fail_hg6 = 0
+
+// Per-side census (starvation diagnostics)
+var int diag_long_candidates = 0
+var int diag_long_pass = 0
+var int diag_long_fail_hg1 = 0
+var int diag_long_fail_hg2 = 0
+var int diag_long_fail_hg3 = 0
+var int diag_long_fail_hg4 = 0
+var int diag_long_fail_hg5 = 0
+var int diag_long_fail_hg6 = 0
+
+var int diag_short_candidates = 0
+var int diag_short_pass = 0
+var int diag_short_fail_hg1 = 0
+var int diag_short_fail_hg2 = 0
+var int diag_short_fail_hg3 = 0
+var int diag_short_fail_hg4 = 0
+var int diag_short_fail_hg5 = 0
+var int diag_short_fail_hg6 = 0
+
+// Post-HG execution funnel diagnostics
+var int diag_long_trigger_count = 0
+var int diag_long_rg_block_count = 0
+var int diag_long_qty_fail_count = 0
+var int diag_long_entry_count = 0
+
+var int diag_short_trigger_count = 0
+var int diag_short_rg_block_count = 0
+var int diag_short_qty_fail_count = 0
+var int diag_short_entry_count = 0
+
+var int diag_long_entry_signal_count = 0
+var int diag_short_entry_signal_count = 0
+
+// Trigger quality + post-trigger block reasons
+var int diag_long_trigger_edge_count = 0
+var int diag_long_block_open_pos = 0
+var int diag_long_block_cooldown = 0
+var int diag_long_block_daily_loss = 0
+var int diag_long_block_daily_cap = 0
+
+var int diag_short_trigger_edge_count = 0
+var int diag_short_block_open_pos = 0
+var int diag_short_block_cooldown = 0
+var int diag_short_block_daily_loss = 0
+var int diag_short_block_daily_cap = 0
+
+// Lifecycle governor diagnostics
+var int diag_long_be_stale_reduce_count = 0
+var int diag_short_be_stale_reduce_count = 0
+var int diag_long_be_stale_full_exit_count = 0
+var int diag_short_be_stale_full_exit_count = 0
+var int diag_long_trend_invalidation_exit_count = 0
+var int diag_short_trend_invalidation_exit_count = 0
+
+if bar_closed
+    prefer_long = score_long >= score_short
+    diag_candidates += 1
+    if prefer_long
+        if not hg1_long
+            diag_fail_hg1 += 1
+        else if not hg2_long
+            diag_fail_hg2 += 1
+        else if not hg3_long
+            diag_fail_hg3 += 1
+        else if not hg4_long
+            diag_fail_hg4 += 1
+        else if not hg5_long
+            diag_fail_hg5 += 1
+        else if not hg6_long
+            diag_fail_hg6 += 1
+    else
+        if not hg1_short
+            diag_fail_hg1 += 1
+        else if not hg2_short
+            diag_fail_hg2 += 1
+        else if not hg3_short
+            diag_fail_hg3 += 1
+        else if not hg4_short
+            diag_fail_hg4 += 1
+        else if not hg5_short
+            diag_fail_hg5 += 1
+        else if not hg6_short
+            diag_fail_hg6 += 1
+
+    if allow_longs
+        diag_long_candidates += 1
+        if not hg1_long
+            diag_long_fail_hg1 += 1
+        else if not hg2_long
+            diag_long_fail_hg2 += 1
+        else if not hg3_long
+            diag_long_fail_hg3 += 1
+        else if not hg4_long
+            diag_long_fail_hg4 += 1
+        else if not hg5_long
+            diag_long_fail_hg5 += 1
+        else if not hg6_long
+            diag_long_fail_hg6 += 1
+        else
+            diag_long_pass += 1
+
+    if allow_shorts
+        diag_short_candidates += 1
+        if not hg1_short
+            diag_short_fail_hg1 += 1
+        else if not hg2_short
+            diag_short_fail_hg2 += 1
+        else if not hg3_short
+            diag_short_fail_hg3 += 1
+        else if not hg4_short
+            diag_short_fail_hg4 += 1
+        else if not hg5_short
+            diag_short_fail_hg5 += 1
+        else if not hg6_short
+            diag_short_fail_hg6 += 1
+        else
+            diag_short_pass += 1
+
+selected_score = long_hg_pass ? score_long : short_hg_pass ? score_short : 0.0
+is_high_conf = selected_score >= high_conf_score_threshold
+base_risk_pct = is_high_conf ? risk_pct_high_conf : risk_pct_low_conf
+profile_cap_default = profile == "C" ? 1.0 : profile == "I" ? 5.0 : 5.0
+profile_cap_selected = profile == "C" ? profile_cap_c : profile == "I" ? profile_cap_i : profile_cap_s
+profile_risk_cap = enable_manual_profile_risk_caps ? profile_cap_selected : profile_cap_default
+risk_pct_effective = enable_profile_risk_cap ? math.min(base_risk_pct, profile_risk_cap) : base_risk_pct
+risk_pct_effective := safe_nonneg(risk_pct_effective)
+
+short_atr_mult_effective = enable_short_stop_mult ? atr_stop_mult * short_stop_mult_factor : atr_stop_mult
+long_zone_stop = not na(nearest_sup_bot) ? (nearest_sup_bot - atr_entry * 0.1) : na
+short_zone_stop = not na(nearest_res_top) ? (nearest_res_top + atr_entry * 0.1) : na
+long_stop_ref = not na(long_zone_stop) ? long_zone_stop : (na(last_swing_low) ? (entry_close - atr_entry * atr_stop_mult) : math.min(last_swing_low, entry_close - atr_entry * 0.5))
+short_stop_ref = not na(short_zone_stop) ? short_zone_stop : (na(last_swing_high) ? (entry_close + atr_entry * short_atr_mult_effective) : math.max(last_swing_high, entry_close + atr_entry * 0.5))
+
+min_stop_distance = math.max(math.max(entry_close * (min_stop_pct_floor / 100.0), atr_entry * min_stop_atr_floor), syminfo.mintick * 2.0)
+long_stop_distance = math.abs(entry_close - long_stop_ref)
+short_stop_distance = math.abs(short_stop_ref - entry_close)
+long_stop_valid = not na(long_stop_distance) and not na(long_stop_ref) and long_stop_distance >= min_stop_distance
+short_stop_valid = not na(short_stop_distance) and not na(short_stop_ref) and short_stop_distance >= min_stop_distance
+
+risk_budget_usd = strategy.equity * (risk_pct_effective / 100.0)
+risk_budget_valid = not na(risk_budget_usd) and risk_budget_usd > 0
+long_qty_calc = long_stop_valid and risk_budget_valid ? (risk_budget_usd / long_stop_distance) : na
+short_qty_calc = short_stop_valid and risk_budget_valid ? (risk_budget_usd / short_stop_distance) : na
+long_position_notional = not na(long_qty_calc) ? long_qty_calc * entry_close : na
+short_position_notional = not na(short_qty_calc) ? short_qty_calc * entry_close : na
+long_qty_valid = not na(long_qty_calc) and long_qty_calc > 0 and (na(long_position_notional) ? false : long_position_notional >= min_position_notional)
+short_qty_valid = not na(short_qty_calc) and short_qty_calc > 0 and (na(short_position_notional) ? false : short_position_notional >= min_position_notional)
+
+var int last_trade_bar = na
+var int position_entry_bar = na
+var float entry_risk_budget_usd = na
+var float prior_netprofit = na
+
+var bool long_stale_reduce_done = false
+var bool short_stale_reduce_done = false
+var bool long_stale_full_exit_fired = false
+var bool short_stale_full_exit_fired = false
+var bool long_trend_exit_fired = false
+var bool short_trend_exit_fired = false
+
+curr_day = year(time) * 10000 + month(time) * 100 + dayofmonth(time)
+var int day_key = curr_day
+var int day_trade_count = 0
+var float day_realized_r = 0.0
+if day_key != curr_day
+    day_key := curr_day
+    day_trade_count := 0
+    day_realized_r := 0.0
+
+if na(prior_netprofit)
+    prior_netprofit := strategy.netprofit
+
+just_closed = strategy.position_size == 0 and strategy.position_size[1] != 0
+if just_closed
+    pnl_delta = strategy.netprofit - prior_netprofit
+    realized_r_delta = na(entry_risk_budget_usd) or entry_risk_budget_usd <= 0 ? 0.0 : pnl_delta / entry_risk_budget_usd
+    day_realized_r += realized_r_delta
+
+prior_netprofit := strategy.netprofit
+
+daily_loss_hit = enable_daily_loss_cb and day_realized_r <= -math.abs(max_daily_loss_r)
+daily_trade_cap_hit = enable_daily_trade_cap and day_trade_count >= max_daily_trades
+rg_long = time_ok and not daily_loss_hit and not daily_trade_cap_hit
+rg_short = time_ok and not daily_loss_hit and not daily_trade_cap_hit
+
+long_trigger = long_hg_pass and rg_long
+short_trigger = short_hg_pass and rg_short
+prev_long_trigger = bar_index > 0 ? long_trigger[1] : false
+prev_short_trigger = bar_index > 0 ? short_trigger[1] : false
+long_trigger_edge = long_trigger and not prev_long_trigger
+short_trigger_edge = short_trigger and not prev_short_trigger
+
+long_entry_signal = entry_signal_mode == "edge" ? long_trigger_edge : long_trigger
+short_entry_signal = entry_signal_mode == "edge" ? short_trigger_edge : short_trigger
+
+cooldown_active = not na(last_trade_bar) and (bar_index - last_trade_bar <= cooldown_bars)
+daily_loss_lock = daily_loss_hit
+daily_trade_cap_lock = daily_trade_cap_hit
+can_trade = (not cooldown_active) and (not daily_loss_lock) and (not daily_trade_cap_lock)
+
+long_flip_hysteresis_ok = score_long >= (score_short + flip_min_score_delta)
+short_flip_hysteresis_ok = score_short >= (score_long + flip_min_score_delta)
+long_flip_allowed = allow_flip_on_opposite_edge and long_trigger_edge and strategy.position_size < 0 and long_flip_hysteresis_ok
+short_flip_allowed = allow_flip_on_opposite_edge and short_trigger_edge and strategy.position_size > 0 and short_flip_hysteresis_ok
+long_position_block = strategy.position_size != 0 and not long_flip_allowed
+short_position_block = strategy.position_size != 0 and not short_flip_allowed
+
+if bar_closed
+    if long_hg_pass and not rg_long
+        diag_long_rg_block_count += 1
+    if short_hg_pass and not rg_short
+        diag_short_rg_block_count += 1
+    if long_hg_pass and daily_loss_lock
+        diag_long_block_daily_loss += 1
+    if short_hg_pass and daily_loss_lock
+        diag_short_block_daily_loss += 1
+    if long_hg_pass and daily_trade_cap_lock
+        diag_long_block_daily_cap += 1
+    if short_hg_pass and daily_trade_cap_lock
+        diag_short_block_daily_cap += 1
+    if long_trigger
+        diag_long_trigger_count += 1
+    if short_trigger
+        diag_short_trigger_count += 1
+    if long_trigger_edge
+        diag_long_trigger_edge_count += 1
+    if short_trigger_edge
+        diag_short_trigger_edge_count += 1
+    if long_entry_signal
+        diag_long_entry_signal_count += 1
+    if short_entry_signal
+        diag_short_entry_signal_count += 1
+    if long_entry_signal and cooldown_active
+        diag_long_block_cooldown += 1
+    else if long_entry_signal and can_trade and long_position_block
+        diag_long_block_open_pos += 1
+    if short_entry_signal and cooldown_active
+        diag_short_block_cooldown += 1
+    else if short_entry_signal and can_trade and short_position_block
+        diag_short_block_open_pos += 1
+
+decision = long_entry_signal ? "LONG_TRIGGER" : short_entry_signal ? "SHORT_TRIGGER" : "NO_TRADE"
+first_fail_reason = long_hg_pass and not rg_long ? RC_RG : short_hg_pass and not rg_short ? RC_RG : (score_long >= score_short ? first_fail_reason_long : first_fail_reason_short)
+all_reasons = (score_long >= score_short ? all_reasons_long : all_reasons_short) + (rg_long and rg_short ? "" : "RG,")
+
+if long_entry_signal and can_trade and not long_position_block
+    if sizing_mode == "risk_based"
+        if long_qty_valid
+            strategy.entry("LSV1-LONG", strategy.long, qty=long_qty_calc)
+            last_trade_bar := bar_index
+            day_trade_count += 1
+            entry_risk_budget_usd := risk_budget_usd
+            if bar_closed
+                diag_long_entry_count += 1
+        else
+            if bar_closed
+                diag_long_qty_fail_count += 1
+    else
+        strategy.entry("LSV1-LONG", strategy.long)
+        last_trade_bar := bar_index
+        day_trade_count += 1
+        entry_risk_budget_usd := risk_budget_usd
+        if bar_closed
+            diag_long_entry_count += 1
+
+if short_entry_signal and can_trade and not short_position_block
+    if sizing_mode == "risk_based"
+        if short_qty_valid
+            strategy.entry("LSV1-SHORT", strategy.short, qty=short_qty_calc)
+            last_trade_bar := bar_index
+            day_trade_count += 1
+            entry_risk_budget_usd := risk_budget_usd
+            if bar_closed
+                diag_short_entry_count += 1
+        else
+            if bar_closed
+                diag_short_qty_fail_count += 1
+    else
+        strategy.entry("LSV1-SHORT", strategy.short)
+        last_trade_bar := bar_index
+        day_trade_count += 1
+        entry_risk_budget_usd := risk_budget_usd
+        if bar_closed
+            diag_short_entry_count += 1
+
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    position_entry_bar := bar_index
+if strategy.position_size == 0
+    position_entry_bar := na
+    long_stale_reduce_done := false
+    short_stale_reduce_done := false
+    long_stale_full_exit_fired := false
+    short_stale_full_exit_fired := false
+    long_trend_exit_fired := false
+    short_trend_exit_fired := false
+
+bars_held = strategy.position_size != 0 and not na(position_entry_bar) ? (bar_index - position_entry_bar) : na
+if enable_time_stop and strategy.position_size != 0 and not na(bars_held)
+    if bars_held >= max_bars_in_trade
+        if strategy.position_size > 0
+            strategy.close("LSV1-LONG", comment="TIME_STOP")
+        if strategy.position_size < 0
+            strategy.close("LSV1-SHORT", comment="TIME_STOP")
+
+long_invalidation = not na(nearest_sup_bot) ? (nearest_sup_bot - atr_entry * 0.1) : (na(last_swing_low) ? (strategy.position_avg_price - atr_entry * atr_stop_mult) : math.min(last_swing_low, strategy.position_avg_price - atr_entry * 0.5))
+short_invalidation = not na(nearest_res_top) ? (nearest_res_top + atr_entry * 0.1) : (na(last_swing_high) ? (strategy.position_avg_price + atr_entry * short_atr_mult_effective) : math.max(last_swing_high, strategy.position_avg_price + atr_entry * 0.5))
+
+long_risk = math.max(strategy.position_avg_price - long_invalidation, atr_entry * 0.2)
+short_risk = math.max(short_invalidation - strategy.position_avg_price, atr_entry * 0.2)
+
+// TP ladder scaffold (3 TP), TP1 -> BE, no runner beyond TP3
+rr_tp3_effective = enforce_tp3_rr_floor ? math.max(rr_target, tp3_rr_floor) : rr_target
+tp_split_sum = tp1_qty_pct + tp2_qty_pct + tp3_qty_pct
+tp1_qty_eff = tp_split_sum > 0 ? (tp1_qty_pct / tp_split_sum) * 100.0 : 40.0
+tp2_qty_eff = tp_split_sum > 0 ? (tp2_qty_pct / tp_split_sum) * 100.0 : 30.0
+tp3_qty_eff = tp_split_sum > 0 ? (tp3_qty_pct / tp_split_sum) * 100.0 : 30.0
+
+long_tp1 = strategy.position_avg_price + long_risk * 1.0
+long_tp2 = strategy.position_avg_price + long_risk * 2.0
+long_tp3 = strategy.position_avg_price + long_risk * rr_tp3_effective
+short_tp1 = strategy.position_avg_price - short_risk * 1.0
+short_tp2 = strategy.position_avg_price - short_risk * 2.0
+short_tp3 = strategy.position_avg_price - short_risk * rr_tp3_effective
+
+long_be_trigger_px = strategy.position_avg_price + long_risk * be_trigger_r
+short_be_trigger_px = strategy.position_avg_price - short_risk * be_trigger_r
+long_be_stop = strategy.position_avg_price * (1.0 + be_offset_pct / 100.0)
+short_be_stop = strategy.position_avg_price * (1.0 - be_offset_pct / 100.0)
+
+var bool long_tp1_hit = false
+var bool long_tp2_hit = false
+var bool long_tp3_hit = false
+var bool short_tp1_hit = false
+var bool short_tp2_hit = false
+var bool short_tp3_hit = false
+var bool long_be_active = false
+var bool short_be_active = false
+
+if strategy.position_size == 0
+    long_tp1_hit := false
+    long_tp2_hit := false
+    long_tp3_hit := false
+    short_tp1_hit := false
+    short_tp2_hit := false
+    short_tp3_hit := false
+    long_be_active := false
+    short_be_active := false
+
+if strategy.position_size > 0
+    long_tp1_hit := long_tp1_hit or high >= long_tp1
+    long_tp2_hit := long_tp2_hit or high >= long_tp2
+    long_tp3_hit := long_tp3_hit or high >= long_tp3
+if strategy.position_size < 0
+    short_tp1_hit := short_tp1_hit or low <= short_tp1
+    short_tp2_hit := short_tp2_hit or low <= short_tp2
+    short_tp3_hit := short_tp3_hit or low <= short_tp3
+
+if be_enabled and strategy.position_size > 0 and (high >= long_be_trigger_px or long_tp1_hit)
+    long_be_active := true
+if be_enabled and strategy.position_size < 0 and (low <= short_be_trigger_px or short_tp1_hit)
+    short_be_active := true
+
+long_stop_eff = long_be_active ? math.max(long_invalidation, long_be_stop) : long_invalidation
+short_stop_eff = short_be_active ? math.min(short_invalidation, short_be_stop) : short_invalidation
+
+// Lifecycle governor: reduce stale BE trades, force stale full exit, trend invalidation exit
+if enable_lifecycle_governor and strategy.position_size > 0 and not na(bars_held) and long_be_active and not long_tp2_hit
+    if (not long_stale_reduce_done) and bars_held >= be_stale_reduce_bars
+        strategy.close("LSV1-LONG", qty_percent=be_stale_reduce_pct, comment="BE_STALE_REDUCE")
+        long_stale_reduce_done := true
+        if bar_closed
+            diag_long_be_stale_reduce_count += 1
+    if (not long_stale_full_exit_fired) and bars_held >= be_stale_full_exit_bars
+        strategy.close("LSV1-LONG", comment="BE_STALE_FULL_EXIT")
+        long_stale_full_exit_fired := true
+        if bar_closed
+            diag_long_be_stale_full_exit_count += 1
+
+if enable_lifecycle_governor and strategy.position_size < 0 and not na(bars_held) and short_be_active and not short_tp2_hit
+    if (not short_stale_reduce_done) and bars_held >= be_stale_reduce_bars
+        strategy.close("LSV1-SHORT", qty_percent=be_stale_reduce_pct, comment="BE_STALE_REDUCE")
+        short_stale_reduce_done := true
+        if bar_closed
+            diag_short_be_stale_reduce_count += 1
+    if (not short_stale_full_exit_fired) and bars_held >= be_stale_full_exit_bars
+        strategy.close("LSV1-SHORT", comment="BE_STALE_FULL_EXIT")
+        short_stale_full_exit_fired := true
+        if bar_closed
+            diag_short_be_stale_full_exit_count += 1
+
+long_unrealized_r = strategy.position_size > 0 ? (close - strategy.position_avg_price) / math.max(long_risk, syminfo.mintick) : na
+short_unrealized_r = strategy.position_size < 0 ? (strategy.position_avg_price - close) / math.max(short_risk, syminfo.mintick) : na
+
+if enable_lifecycle_governor and enable_trend_invalidation_exit and strategy.position_size > 0 and trend_dir == -1 and not long_trend_exit_fired and (na(long_unrealized_r) or long_unrealized_r <= trend_invalidation_max_r)
+    strategy.close("LSV1-LONG", comment="TREND_INVALIDATION")
+    long_trend_exit_fired := true
+    if bar_closed
+        diag_long_trend_invalidation_exit_count += 1
+
+if enable_lifecycle_governor and enable_trend_invalidation_exit and strategy.position_size < 0 and trend_dir == 1 and not short_trend_exit_fired and (na(short_unrealized_r) or short_unrealized_r <= trend_invalidation_max_r)
+    strategy.close("LSV1-SHORT", comment="TREND_INVALIDATION")
+    short_trend_exit_fired := true
+    if bar_closed
+        diag_short_trend_invalidation_exit_count += 1
+
+strategy.exit("LSV1-LONG-TP1", "LSV1-LONG", stop=long_stop_eff, limit=long_tp1, qty_percent=tp1_qty_eff)
+strategy.exit("LSV1-LONG-TP2", "LSV1-LONG", stop=long_stop_eff, limit=long_tp2, qty_percent=tp2_qty_eff)
+strategy.exit("LSV1-LONG-TP3", "LSV1-LONG", stop=long_stop_eff, limit=long_tp3, qty_percent=tp3_qty_eff)
+strategy.exit("LSV1-SHORT-TP1", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp1, qty_percent=tp1_qty_eff)
+strategy.exit("LSV1-SHORT-TP2", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp2, qty_percent=tp2_qty_eff)
+strategy.exit("LSV1-SHORT-TP3", "LSV1-SHORT", stop=short_stop_eff, limit=short_tp3, qty_percent=tp3_qty_eff)
+
+if strategy.position_size > 0 and long_tp3_hit
+    strategy.close("LSV1-LONG", comment="TP3_FLAT")
+if strategy.position_size < 0 and short_tp3_hit
+    strategy.close("LSV1-SHORT", comment="TP3_FLAT")
+
+projected_r = long_trigger or short_trigger ? rr_tp3_effective : 0.0
+
+plot(entry_ema20, "Entry EMA20", color=color.new(color.teal, 0))
+plot(entry_ema50, "Entry EMA50", color=color.new(color.orange, 0))
+plot(nearest_res_top, "Nearest Resistance Top", color=color.new(color.red, 30))
+plot(nearest_res_bot, "Nearest Resistance Bottom", color=color.new(color.red, 70))
+plot(nearest_sup_top, "Nearest Support Top", color=color.new(color.green, 70))
+plot(nearest_sup_bot, "Nearest Support Bottom", color=color.new(color.green, 30))
+plotchar(long_trigger, "Long Trigger", "▲", location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotchar(short_trigger, "Short Trigger", "▼", location.abovebar, color=color.new(color.red, 0), size=size.tiny)
+plotchar(long_be_active or short_be_active, "BE Active", "B", location.top, color=color.new(color.yellow, 0), size=size.tiny)
+plotchar(long_tp1_hit or short_tp1_hit, "TP1 Hit", "1", location.top, color=color.new(color.green, 0), size=size.tiny)
+plotchar(long_tp2_hit or short_tp2_hit, "TP2 Hit", "2", location.top, color=color.new(color.green, 0), size=size.tiny)
+plotchar(long_tp3_hit or short_tp3_hit, "TP3 Hit", "3", location.top, color=color.new(color.green, 0), size=size.tiny)
+
+// Diagnostic box (bottom-right)
+var table diag_t = table.new(position.bottom_right, 1, 14, border_width=1)
+if show_diag_box and bar_closed
+    table.cell(diag_t, 0, 0, "Decision: " + decision + " | FF=" + first_fail_reason, text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 1, "Reasons: " + all_reasons, text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 2, "SRa=" + str.tostring(active_zone_count) + " | dR=" + str.tostring(nearest_res_dist_pct, "#.##") + " | dS=" + str.tostring(nearest_sup_dist_pct, "#.##") + " | OB=" + str.tostring(opposing_block_dist_pct, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 3, "WF C/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_candidates) + "/" + str.tostring(diag_fail_hg1) + "/" + str.tostring(diag_fail_hg2) + "/" + str.tostring(diag_fail_hg3) + "/" + str.tostring(diag_fail_hg4) + "/" + str.tostring(diag_fail_hg5) + "/" + str.tostring(diag_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 4, "L C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_long_candidates) + "/" + str.tostring(diag_long_pass) + "/" + str.tostring(diag_long_fail_hg1) + "/" + str.tostring(diag_long_fail_hg2) + "/" + str.tostring(diag_long_fail_hg3) + "/" + str.tostring(diag_long_fail_hg4) + "/" + str.tostring(diag_long_fail_hg5) + "/" + str.tostring(diag_long_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 5, "S C/P/H1/H2/H3/H4/H5/H6: " + str.tostring(diag_short_candidates) + "/" + str.tostring(diag_short_pass) + "/" + str.tostring(diag_short_fail_hg1) + "/" + str.tostring(diag_short_fail_hg2) + "/" + str.tostring(diag_short_fail_hg3) + "/" + str.tostring(diag_short_fail_hg4) + "/" + str.tostring(diag_short_fail_hg5) + "/" + str.tostring(diag_short_fail_hg6), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 6, "pR=" + str.tostring(projected_r, "#.00") + " | TP=" + ((long_tp1_hit or short_tp1_hit) ? "1" : "0") + ((long_tp2_hit or short_tp2_hit) ? "1" : "0") + ((long_tp3_hit or short_tp3_hit) ? "1" : "0") + " | BE=" + ((long_be_active or short_be_active) ? "1" : "0"), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 7, "PostHG L trigBars/trigEdges/entrySig/rgBlk/qtyFail/entry: " + str.tostring(diag_long_trigger_count) + "/" + str.tostring(diag_long_trigger_edge_count) + "/" + str.tostring(diag_long_entry_signal_count) + "/" + str.tostring(diag_long_rg_block_count) + "/" + str.tostring(diag_long_qty_fail_count) + "/" + str.tostring(diag_long_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 8, "PostHG S trigBars/trigEdges/entrySig/rgBlk/qtyFail/entry: " + str.tostring(diag_short_trigger_count) + "/" + str.tostring(diag_short_trigger_edge_count) + "/" + str.tostring(diag_short_entry_signal_count) + "/" + str.tostring(diag_short_rg_block_count) + "/" + str.tostring(diag_short_qty_fail_count) + "/" + str.tostring(diag_short_entry_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 9, "Block L open/cooldown/dLoss/dCap: " + str.tostring(diag_long_block_open_pos) + "/" + str.tostring(diag_long_block_cooldown) + "/" + str.tostring(diag_long_block_daily_loss) + "/" + str.tostring(diag_long_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 10, "Block S open/cooldown/dLoss/dCap: " + str.tostring(diag_short_block_open_pos) + "/" + str.tostring(diag_short_block_cooldown) + "/" + str.tostring(diag_short_block_daily_loss) + "/" + str.tostring(diag_short_block_daily_cap), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 11, "LCycle L reduce/full/trend: " + str.tostring(diag_long_be_stale_reduce_count) + "/" + str.tostring(diag_long_be_stale_full_exit_count) + "/" + str.tostring(diag_long_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 12, "LCycle S reduce/full/trend: " + str.tostring(diag_short_be_stale_reduce_count) + "/" + str.tostring(diag_short_be_stale_full_exit_count) + "/" + str.tostring(diag_short_trend_invalidation_exit_count), text_color=color.white, bgcolor=color.new(color.black, 20))
+    table.cell(diag_t, 0, 13, "Mode=" + sr_opposing_block_mode + " | HardOppose=" + (enforce_opposing_zone_block ? "ON" : "OFF") + " | TrendGate=" + trend_gate_mode + " | Trigger=" + str.tostring(trigger_score, "#.##") + " | EntrySig=" + entry_signal_mode + " | Flip=" + (allow_flip_on_opposite_edge ? "ON" : "OFF") + " | FlipDelta=" + str.tostring(flip_min_score_delta, "#.##") + " | LCycle=" + (enable_lifecycle_governor ? "ON" : "OFF") + " | TP=" + str.tostring(tp1_qty_eff, "#.0") + "/" + str.tostring(tp2_qty_eff, "#.0") + "/" + str.tostring(tp3_qty_eff, "#.0") + " | TP3R=" + str.tostring(rr_tp3_effective, "#.##"), text_color=color.white, bgcolor=color.new(color.black, 20))
+if not show_diag_box and bar_closed
+    for r = 0 to 13
+        table.cell(diag_t, 0, r, "")

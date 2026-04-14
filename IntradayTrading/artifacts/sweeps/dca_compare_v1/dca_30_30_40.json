@@ -1,0 +1,69 @@
+{
+  "model": "dca_30_30_40",
+  "params": {
+    "zone_width": 0.0015,
+    "retest_max_bars": 8,
+    "reclaim_buffer_frac": 0.00035,
+    "momentum_min_frac": 0.0012,
+    "trend_slope_min": 0.0002,
+    "chop_slope_abs_max": 0.00012,
+    "strict_retest_bps_max": 18.0,
+    "near_retest_bps_max": 24.0,
+    "score_gate_min": 5.8,
+    "risk_pct_high_conf": 1.6,
+    "trigger_score_min": 7.2,
+    "stop_buffer_frac": 0.0013,
+    "rr_tp2": 2.2,
+    "near_retest_penalty_max": 0.8
+  },
+  "fill_formula": {
+    "description": "Signal unchanged; split per-trade risk across tranche limits placed from entry toward stop by adverse-move fraction. Stop remains fixed at original invalidation. TP is recalculated after each realized tranche fill from current blended entry and fixed stop, using RR=rr_tp2.",
+    "levels": [
+      {
+        "adverse_frac_to_stop": 0.0,
+        "risk_weight": 0.3
+      },
+      {
+        "adverse_frac_to_stop": 0.33,
+        "risk_weight": 0.3
+      },
+      {
+        "adverse_frac_to_stop": 0.66,
+        "risk_weight": 0.4
+      }
+    ],
+    "risk_rule": "sum(tranche risk weights)=1.0, so full-planned stop loss equals configured per-trade risk_pct and never exceeds it.",
+    "planning_assumption": "RR design assumes intended tranches fill; execution may exit early on partial filled size if TP is reached before full DCA completion."
+  },
+  "btc": {
+    "trades": 40,
+    "wins": 18,
+    "losses": 22,
+    "win_rate": 0.45,
+    "gross_profit": 482.52680381530075,
+    "gross_loss": 1892.225480664655,
+    "pf": 0.25500491814844944,
+    "net": -1409.6986768493541,
+    "max_dd": 1443.1025230031992,
+    "max_dd_pct": 14.382980543102436,
+    "final_equity": 8590.301323150647
+  },
+  "eth": {
+    "trades": 34,
+    "wins": 10,
+    "losses": 24,
+    "win_rate": 0.29411764705882354,
+    "gross_profit": 304.9401678243725,
+    "gross_loss": 1694.2237582533837,
+    "pf": 0.179988131047544,
+    "net": -1389.2835904290112,
+    "max_dd": 1426.3133475323084,
+    "max_dd_pct": 14.210512293469025,
+    "final_equity": 8610.71640957099
+  },
+  "avg_pf": 0.21749652459799673,
+  "worst_dd_pct": 14.382980543102436,
+  "total_trades": 74,
+  "avg_win_rate": 0.3720588235294118,
+  "total_net": -2798.9822672783653
+}
