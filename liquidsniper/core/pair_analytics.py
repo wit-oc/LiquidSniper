@@ -4,13 +4,20 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from IntradayTrading.engine.htf_phase1 import run_phase1_htf_structure
+from IntradayTrading.engine.phase1_contract import (
+    PHASE1_STRUCTURE_CONTRACT,
+    PHASE1_STRUCTURE_CONTRACT_LEGACY,
+    PHASE1_STRUCTURE_PROFILE_CANONICAL,
+    PHASE1_STRUCTURE_PROFILE_LEGACY,
+    run_phase1_structure_contract_from_candles,
+)
 
 from liquidsniper.core.zone_engine_v3 import nearest_four_levels
 from liquidsniper.core.zone_primitives import ROLE_SEMANTICS_CONTRACT, derive_role_semantics
 
 PAIR_ANALYTICS_CONTRACT = "pair_analytics_v3"
 STRUCTURE_DIAGNOSTIC_CONTRACT = "market_structure_diagnostic_v2"
+STRUCTURE_COMPARISON_CONTRACT = "market_structure_comparison_v1"
 DISPLAY_WIDTH_FLOOR_CONTRACT = "display_width_floor_v1"
 
 
@@ -235,7 +242,12 @@ def summarize_zone_for_pair_analytics(
     }
 
 
-def build_market_structure_diagnostic(*, candles: list[dict[str, Any]], tf: str) -> dict[str, Any]:
+def build_market_structure_diagnostic(
+    *,
+    candles: list[dict[str, Any]],
+    tf: str,
+    phase1_profile: str = PHASE1_STRUCTURE_PROFILE_CANONICAL,
+) -> dict[str, Any]:
     contract = {
         "contract": STRUCTURE_DIAGNOSTIC_CONTRACT,
         "timeframe": tf,
@@ -253,22 +265,7 @@ def build_market_structure_diagnostic(*, candles: list[dict[str, Any]], tf: str)
             "diagnostics": {"reason": "need >= 8 candles for phase1 structure adapter"},
         }
 
-    highs = [_as_float(row.get("high")) or 0.0 for row in candles]
-    lows = [_as_float(row.get("low")) or 0.0 for row in candles]
-    closes = [_as_float(row.get("close")) or 0.0 for row in candles]
-    bars, events, _swings = run_phase1_htf_structure(
-        highs,
-        lows,
-        closes,
-        left=2,
-        right=2,
-        n_init=min(25, len(candles)),
-        break_min_frac_of_candle=0.20,
-        choch_break_min_frac_of_candle=0.15,
-        strict_gating=False,
-        bos_require_fresh_cross=True,
-        enable_continuation_break=True,
-    )
+    bars, events, _swings = run_phase1_structure_contract_from_candles(candles, profile=phase1_profile)
     latest_bar = bars[-1] if bars else {}
     event_counts: dict[str, int] = {}
     for event in events:
@@ -279,6 +276,7 @@ def build_market_structure_diagnostic(*, candles: list[dict[str, Any]], tf: str)
     return {
         **contract,
         "status": "ok",
+        "phase1_profile": phase1_profile,
         "trend": latest_bar.get("regime_direction"),
         "confidence": latest_bar.get("regime_confidence"),
         "last_transition_reason": latest_bar.get("regime_reason") or latest_bar.get("transition_reason"),
@@ -289,10 +287,51 @@ def build_market_structure_diagnostic(*, candles: list[dict[str, Any]], tf: str)
         "latest_event": latest_event,
         "diagnostics": {
             "bar_index": latest_bar.get("index"),
+            "phase1_structure_contract": PHASE1_STRUCTURE_CONTRACT if phase1_profile == PHASE1_STRUCTURE_PROFILE_CANONICAL else PHASE1_STRUCTURE_CONTRACT_LEGACY,
             "bos_check": latest_bar.get("bos_check"),
             "choch_check": latest_bar.get("choch_check"),
             "cb_check": latest_bar.get("cb_check"),
         },
+    }
+
+
+def build_market_structure_comparison(*, candles: list[dict[str, Any]], tf: str) -> dict[str, Any]:
+    legacy = build_market_structure_diagnostic(candles=candles, tf=tf, phase1_profile=PHASE1_STRUCTURE_PROFILE_LEGACY)
+    canonical = build_market_structure_diagnostic(candles=candles, tf=tf, phase1_profile=PHASE1_STRUCTURE_PROFILE_CANONICAL)
+
+    diffs: list[dict[str, Any]] = []
+    for field in ["trend", "confidence", "last_transition_reason", "active_choch_level", "protected_high", "protected_low"]:
+        legacy_value = legacy.get(field)
+        canonical_value = canonical.get(field)
+        if legacy_value != canonical_value:
+            diffs.append({
+                "field": field,
+                "legacy": legacy_value,
+                "canonical": canonical_value,
+            })
+
+    legacy_counts = legacy.get("event_counts") if isinstance(legacy.get("event_counts"), dict) else {}
+    canonical_counts = canonical.get("event_counts") if isinstance(canonical.get("event_counts"), dict) else {}
+    count_keys = sorted(set(legacy_counts.keys()) | set(canonical_counts.keys()))
+    event_count_diffs = [
+        {
+            "event": key,
+            "legacy": int(legacy_counts.get(key) or 0),
+            "canonical": int(canonical_counts.get(key) or 0),
+            "delta": int(canonical_counts.get(key) or 0) - int(legacy_counts.get(key) or 0),
+        }
+        for key in count_keys
+        if int(legacy_counts.get(key) or 0) != int(canonical_counts.get(key) or 0)
+    ]
+
+    return {
+        "contract": STRUCTURE_COMPARISON_CONTRACT,
+        "timeframe": tf,
+        "legacy": legacy,
+        "canonical": canonical,
+        "field_diffs": diffs,
+        "event_count_diffs": event_count_diffs,
+        "changed": bool(diffs or event_count_diffs),
     }
 
 
@@ -347,10 +386,12 @@ def build_pair_analytics_snapshot(
         reverse=True,
     )
     structure_by_tf: dict[str, Any] = {}
+    structure_comparison_by_tf: dict[str, Any] = {}
     availability = {str(tf).upper(): dict(payload) for tf, payload in (timeframe_availability or {}).items()}
     for tf, candles in (candles_by_tf or {}).items():
         tf_key = str(tf).upper()
         structure_by_tf[tf_key] = build_market_structure_diagnostic(candles=candles, tf=tf_key)
+        structure_comparison_by_tf[tf_key] = build_market_structure_comparison(candles=candles, tf=tf_key)
         availability.setdefault(tf_key, {})
         availability[tf_key].update({
             "timeframe": tf_key,
@@ -378,6 +419,8 @@ def build_pair_analytics_snapshot(
         "market_structure": {
             "contract": STRUCTURE_DIAGNOSTIC_CONTRACT,
             "timeframes": structure_by_tf,
+            "comparison_contract": STRUCTURE_COMPARISON_CONTRACT,
+            "comparisons": structure_comparison_by_tf,
             "available_timeframes": sorted(structure_by_tf.keys()),
             "availability": [availability[key] for key in sorted(availability.keys())],
         },

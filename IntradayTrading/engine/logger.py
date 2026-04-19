@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Iterable, Mapping
 
 
 EVENT_KEYS = [
@@ -20,10 +20,15 @@ EVENT_KEYS = [
     "breaker_open",
     "action",
     "reason",
+    "dynamic_levels",
 ]
 
 
 def _to_native(v):
+    if isinstance(v, Mapping):
+        return {k: _to_native(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [_to_native(item) for item in v]
     if hasattr(v, "item"):
         try:
             return v.item()

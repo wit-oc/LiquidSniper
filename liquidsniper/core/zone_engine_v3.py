@@ -23,7 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from IntradayTrading.engine.htf_phase1 import run_phase1_htf_structure
+from IntradayTrading.engine.phase1_contract import (
+    PHASE1_STRUCTURE_CONTRACT,
+    phase1_structure_contract_config,
+    normalize_phase1_structure_profile,
+    run_phase1_structure_contract_from_candles,
+)
 from liquidsniper.core.sr_engine_v2 import _zone_fmt_with_distance, build_zones_for_tf, profile_anchor_and_eligible
 from liquidsniper.core.zone_primitives import ROLE_SEMANTICS_CONTRACT, derive_role_semantics, local_atr, side_aware_interaction
 from liquidsniper.core.zone_selectors import select_daily_majors, select_operational_zones
@@ -89,7 +94,11 @@ def structure_seed_rules() -> dict[str, Any]:
     }
 
 
-def extract_structure_anchor_seeds(candles: list[dict[str, Any]]) -> list[StructureAnchorSeed]:
+def extract_structure_anchor_seeds(
+    candles: list[dict[str, Any]],
+    *,
+    phase1_profile: str | None = None,
+) -> list[StructureAnchorSeed]:
     """Return native structure anchor seeds derived from phase1 BoS / flip events.
 
     This helper deliberately emits *anchor seeds*, not finished zones. It keeps
@@ -99,24 +108,14 @@ def extract_structure_anchor_seeds(candles: list[dict[str, Any]]) -> list[Struct
     if len(candles) < 8:
         return []
 
-    highs, lows, closes = _structure_series(candles)
-    _bars, events, _swings = run_phase1_htf_structure(
-        highs,
-        lows,
-        closes,
-        left=2,
-        right=2,
-        n_init=min(25, len(candles)),
-        break_min_frac_of_candle=0.20,
-        choch_break_min_frac_of_candle=0.15,
-        strict_gating=False,
-        bos_require_fresh_cross=True,
-        enable_continuation_break=True,
-    )
+    normalized_profile = normalize_phase1_structure_profile(phase1_profile)
+    _bars, events, _swings = run_phase1_structure_contract_from_candles(candles, profile=normalized_profile)
     if not events:
         return []
 
     policy = structure_seed_rules()
+    policy["phase1_structure_contract"] = phase1_structure_contract_config(candle_count=len(candles), profile=normalized_profile)
+    policy["phase1_structure_contract"]["contract"] = policy["phase1_structure_contract"].get("contract") or PHASE1_STRUCTURE_CONTRACT
     max_lock_distance = int(policy["protected_level_policy"]["max_lock_distance_bars"])
     seeds: list[StructureAnchorSeed] = []
     seen: set[tuple[str, str, int, int]] = set()
@@ -191,8 +190,8 @@ def zone_candidates_from_structure(symbol: str, tf: str, candles: list[dict[str,
     the BoS/CHoCH event, carries explicit provenance, and keeps shadow-mode
     diagnostics rich enough for later tranche review.
     """
-    _ = kwargs
-    anchor_seeds = extract_structure_anchor_seeds(candles)
+    phase1_profile = normalize_phase1_structure_profile(kwargs.get("phase1_profile"))
+    anchor_seeds = extract_structure_anchor_seeds(candles, phase1_profile=phase1_profile)
     if not anchor_seeds:
         return []
 
@@ -278,6 +277,7 @@ def zone_candidates_from_structure(symbol: str, tf: str, candles: list[dict[str,
                 "engine_contract": V3A_CONTRACT,
                 "atr_local": round(atr_ref, 8),
                 "structure_seed_policy": policy,
+                "phase1_structure_profile": phase1_profile,
                 "candidate_provenance": provenance,
                 "structure_provenance": provenance,
                 "shadow_diagnostics": {

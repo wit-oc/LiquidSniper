@@ -10,6 +10,15 @@ from .signals import SignalContext, should_enter_long, should_enter_short
 from .structure import RegimeState, StructureBias
 from .zones import Zone
 from .zones_runtime import ZoneInteraction, find_interaction
+from .fib_context import FibConfig, FibTimeframe, aggregate_fib_context, compute_timeframe_state
+from .dynamic_levels import build_dynamic_level_packet, flatten_dynamic_level_packet
+from .fib_anchors import (
+    build_phase1_contract_context_for_timeframe,
+    compute_fib_level_tap_history_for_timeframe,
+    select_phase1_contract_anchor_for_timeframe,
+    select_latest_impulse_anchor_for_timeframe,
+    tag_anchor_as_debug_fallback,
+)
 
 
 @dataclass
@@ -19,6 +28,8 @@ class Bar:
     high: float
     low: float
     close: float
+    timestamp: int | None = None
+    volume: float | None = None
 
 
 @dataclass
@@ -89,8 +100,10 @@ class RunnerConfig:
     enable_fib_directional_gate: bool = True
     fib_long_min: float = 0.618
     fib_long_max: float = 0.786
-    fib_short_min: float = 0.214
-    fib_short_max: float = 0.382
+    fib_short_min: float = 0.618
+    fib_short_max: float = 0.786
+    fib_use_phase1_contract_anchors: bool = True
+    fib_allow_debug_anchor_fallback: bool = True
     retest_ordinal_decay: float = 0.35
     retest_ordinal_max_bonus: float = 0.8
 
@@ -341,8 +354,27 @@ class SignalRunner:
         prev_bar: Bar | None = None
         watch_long: EntryWatch | None = None
         watch_short: EntryWatch | None = None
+        fib_cfg = FibConfig()
+        fib_phase1_ctx_1d = (
+            build_phase1_contract_context_for_timeframe(bars, base_tf=tf, target_tf="1d")
+            if self.cfg.fib_use_phase1_contract_anchors
+            else None
+        )
+        fib_phase1_ctx_4h = (
+            build_phase1_contract_context_for_timeframe(bars, base_tf=tf, target_tf="4h")
+            if self.cfg.fib_use_phase1_contract_anchors
+            else None
+        )
+        fib_phase1_ctx_1w = (
+            build_phase1_contract_context_for_timeframe(bars, base_tf=tf, target_tf="1w")
+            if self.cfg.fib_use_phase1_contract_anchors
+            else None
+        )
+        zone_by_id = {zone.id: zone for zone in zones}
+        dynamic_timestamps = [int(bar.timestamp) for bar in bars] if bars and all(getattr(bar, "timestamp", None) is not None for bar in bars) else None
+        dynamic_volumes = [float(bar.volume) for bar in bars] if bars and all(getattr(bar, "volume", None) is not None for bar in bars) else None
 
-        for b in bars:
+        for bar_pos, b in enumerate(bars):
             self._update_positions(b, positions, events, stop_exit_bars)
             at_risk_count = self._count_at_risk(positions)
 
@@ -463,6 +495,147 @@ class SignalRunner:
             short_loc_ok = (swing_loc >= self.cfg.short_location_min) if self.cfg.enable_swing_location_gate else True
 
             fib_pos = swing_loc
+
+            fib_as_of_ts = f"idx:{b.index}"
+            default_fib_bias_side = "long" if regime == RegimeState.BULLISH else "short"
+
+            def resolve_anchor(target_tf: str, phase1_ctx):
+                phase1_conf = "unknown"
+                if self.cfg.fib_use_phase1_contract_anchors:
+                    phase1_anchor, phase1_bias_side, phase1_conf = select_phase1_contract_anchor_for_timeframe(
+                        phase1_ctx,
+                        as_of_bar_count=bar_pos + 1,
+                        fallback_bias_side=default_fib_bias_side,
+                    )
+                    if phase1_anchor.available:
+                        return phase1_anchor, phase1_bias_side, phase1_conf
+
+                    if self.cfg.fib_allow_debug_anchor_fallback:
+                        fallback = select_latest_impulse_anchor_for_timeframe(
+                            bars[: bar_pos + 1],
+                            phase1_bias_side,
+                            base_tf=tf,
+                            target_tf=target_tf,
+                        )
+                        if fallback.available:
+                            return tag_anchor_as_debug_fallback(fallback, target_tf=target_tf), phase1_bias_side, phase1_conf
+                    return phase1_anchor, phase1_bias_side, phase1_conf
+
+                fallback = select_latest_impulse_anchor_for_timeframe(
+                    bars[: bar_pos + 1],
+                    default_fib_bias_side,
+                    base_tf=tf,
+                    target_tf=target_tf,
+                )
+                return fallback, default_fib_bias_side, phase1_conf
+
+            fib_anchor_1d, fib_bias_side_1d, fib_phase1_conf_1d = resolve_anchor("1d", fib_phase1_ctx_1d)
+            fib_anchor_4h, fib_bias_side_4h, fib_phase1_conf_4h = resolve_anchor("4h", fib_phase1_ctx_4h)
+            fib_anchor_1w, fib_bias_side_1w, fib_phase1_conf_1w = resolve_anchor("1w", fib_phase1_ctx_1w)
+
+            structure_superseded = bool(regime_transition and regime_transition.startswith("bos_confirmed_flip"))
+
+            fib_1d = compute_timeframe_state(
+                timeframe=FibTimeframe.D1,
+                as_of_index=b.index,
+                as_of_ts=fib_as_of_ts,
+                bias_side=fib_bias_side_1d,
+                anchor_start_id=fib_anchor_1d.start_id,
+                anchor_end_id=fib_anchor_1d.end_id,
+                anchor_start_price=fib_anchor_1d.start_price,
+                anchor_end_price=fib_anchor_1d.end_price,
+                opposite_end_swept=fib_anchor_1d.opposite_end_swept,
+                structure_superseded=structure_superseded,
+                bar_high=b.high,
+                bar_low=b.low,
+                bar_close=b.close,
+                cfg=fib_cfg,
+            )
+            fib_4h = compute_timeframe_state(
+                timeframe=FibTimeframe.H4,
+                as_of_index=b.index,
+                as_of_ts=fib_as_of_ts,
+                bias_side=fib_bias_side_4h,
+                anchor_start_id=fib_anchor_4h.start_id,
+                anchor_end_id=fib_anchor_4h.end_id,
+                anchor_start_price=fib_anchor_4h.start_price,
+                anchor_end_price=fib_anchor_4h.end_price,
+                opposite_end_swept=fib_anchor_4h.opposite_end_swept,
+                structure_superseded=structure_superseded,
+                bar_high=b.high,
+                bar_low=b.low,
+                bar_close=b.close,
+                cfg=fib_cfg,
+            )
+            fib_1w = compute_timeframe_state(
+                timeframe=FibTimeframe.W1,
+                as_of_index=b.index,
+                as_of_ts=fib_as_of_ts,
+                bias_side=fib_bias_side_1w,
+                anchor_start_id=fib_anchor_1w.start_id,
+                anchor_end_id=fib_anchor_1w.end_id,
+                anchor_start_price=fib_anchor_1w.start_price,
+                anchor_end_price=fib_anchor_1w.end_price,
+                opposite_end_swept=fib_anchor_1w.opposite_end_swept,
+                structure_superseded=structure_superseded,
+                bar_high=b.high,
+                bar_low=b.low,
+                bar_close=b.close,
+                cfg=fib_cfg,
+            )
+            fib_ctx = aggregate_fib_context(
+                as_of_index=b.index,
+                as_of_ts=fib_as_of_ts,
+                timeframe_states=[fib_1d, fib_4h, fib_1w],
+                cfg=fib_cfg,
+            )
+            dynamic_levels_log = None
+            if dynamic_timestamps is not None and dynamic_volumes is not None:
+                selected_zone = zone_by_id.get(interaction.zone_id) if interaction is not None else None
+                dynamic_packet = build_dynamic_level_packet(
+                    bars,
+                    as_of_bar_index=bar_pos,
+                    symbol=symbol,
+                    base_tf=tf,
+                    intended_direction=bias.value,
+                    selected_zone=selected_zone,
+                    timestamps=dynamic_timestamps,
+                    volumes=dynamic_volumes,
+                    feed_provider="OKX",
+                    feed_provenance_note="runner_log_adapter.raw_dynamic_export",
+                    source_contract_version="phase2a3.dynamic_levels.v2.raw_only",
+                    fib_context_id=f"fib:{fib_ctx.as_of_ts}",
+                )
+                dynamic_levels_log = dict(flatten_dynamic_level_packet(dynamic_packet))
+
+            fib_taps_1d = compute_fib_level_tap_history_for_timeframe(
+                bars[: bar_pos + 1],
+                base_tf=tf,
+                target_tf="1d",
+                anchor=fib_anchor_1d,
+                level_0_618=fib_1d.level_0_618,
+                level_0_705=fib_1d.level_0_705,
+                level_0_786=fib_1d.level_0_786,
+            )
+            fib_taps_4h = compute_fib_level_tap_history_for_timeframe(
+                bars[: bar_pos + 1],
+                base_tf=tf,
+                target_tf="4h",
+                anchor=fib_anchor_4h,
+                level_0_618=fib_4h.level_0_618,
+                level_0_705=fib_4h.level_0_705,
+                level_0_786=fib_4h.level_0_786,
+            )
+            fib_taps_1w = compute_fib_level_tap_history_for_timeframe(
+                bars[: bar_pos + 1],
+                base_tf=tf,
+                target_tf="1w",
+                anchor=fib_anchor_1w,
+                level_0_618=fib_1w.level_0_618,
+                level_0_705=fib_1w.level_0_705,
+                level_0_786=fib_1w.level_0_786,
+            )
+
             long_fib_ok = (self.cfg.fib_long_min <= fib_pos <= self.cfg.fib_long_max) if self.cfg.enable_fib_directional_gate else True
             short_fib_ok = (self.cfg.fib_short_min <= fib_pos <= self.cfg.fib_short_max) if self.cfg.enable_fib_directional_gate else True
 
@@ -639,7 +812,7 @@ class SignalRunner:
             logs.append(
                 {
                     "index": b.index,
-                    "timestamp": None,
+                    "timestamp": getattr(b, "timestamp", None),
                     "symbol": symbol,
                     "tf": tf,
                     "structure_bias": bias.value,
@@ -667,6 +840,95 @@ class SignalRunner:
                     "short_loc_ok": short_loc_ok,
                     "long_fib_ok": long_fib_ok,
                     "short_fib_ok": short_fib_ok,
+                    "fib_position": fib_pos,
+                    "fib_1d_anchor_source": fib_anchor_1d.source,
+                    "fib_1d_anchor_reason": fib_anchor_1d.reason,
+                    "fib_1d_anchor_available": fib_anchor_1d.available,
+                    "fib_1d_anchor_bias_side": fib_bias_side_1d,
+                    "fib_1d_phase1_confidence": fib_phase1_conf_1d,
+                    "fib_1d_anchor_start_id": fib_anchor_1d.start_id,
+                    "fib_1d_anchor_end_id": fib_anchor_1d.end_id,
+                    "fib_1d_anchor_start_price": fib_anchor_1d.start_price,
+                    "fib_1d_anchor_end_price": fib_anchor_1d.end_price,
+                    "fib_4h_anchor_source": fib_anchor_4h.source,
+                    "fib_4h_anchor_reason": fib_anchor_4h.reason,
+                    "fib_4h_anchor_available": fib_anchor_4h.available,
+                    "fib_4h_anchor_bias_side": fib_bias_side_4h,
+                    "fib_4h_phase1_confidence": fib_phase1_conf_4h,
+                    "fib_4h_anchor_start_id": fib_anchor_4h.start_id,
+                    "fib_4h_anchor_end_id": fib_anchor_4h.end_id,
+                    "fib_4h_anchor_start_price": fib_anchor_4h.start_price,
+                    "fib_4h_anchor_end_price": fib_anchor_4h.end_price,
+                    "fib_1w_anchor_source": fib_anchor_1w.source,
+                    "fib_1w_anchor_reason": fib_anchor_1w.reason,
+                    "fib_1w_anchor_available": fib_anchor_1w.available,
+                    "fib_1w_anchor_bias_side": fib_bias_side_1w,
+                    "fib_1w_phase1_confidence": fib_phase1_conf_1w,
+                    "fib_1w_anchor_start_id": fib_anchor_1w.start_id,
+                    "fib_1w_anchor_end_id": fib_anchor_1w.end_id,
+                    "fib_1w_anchor_start_price": fib_anchor_1w.start_price,
+                    "fib_1w_anchor_end_price": fib_anchor_1w.end_price,
+                    "fib_quality_score": fib_ctx.fib_quality_score,
+                    "fib_overall_state": fib_ctx.overall_state,
+                    "fib_overall_reason": fib_ctx.overall_reason,
+                    "fib_overlap_cluster": fib_ctx.overlap_cluster,
+                    "fib_has_1d_4h_overlap": fib_ctx.has_1d_4h_overlap,
+                    "fib_has_1w_bonus_overlap": fib_ctx.has_1w_bonus_overlap,
+                    "fib_active_timeframes": ",".join(fib_ctx.active_timeframes),
+                    "fib_1d_state": fib_1d.fib_state.value,
+                    "fib_1d_interaction": fib_1d.band_interaction.value,
+                    "fib_1d_sub_zone": fib_1d.sub_zone.value,
+                    "fib_1d_disarm_reason": fib_1d.disarm_reason.value,
+                    "fib_1d_level_0_618": fib_1d.level_0_618,
+                    "fib_1d_level_0_705": fib_1d.level_0_705,
+                    "fib_1d_level_0_786": fib_1d.level_0_786,
+                    "fib_1d_level_0_886": fib_1d.level_0_886,
+                    "fib_1d_band_low": fib_1d.band_low,
+                    "fib_1d_band_high": fib_1d.band_high,
+                    "fib_1d_score_contribution": fib_1d.tf_score_contribution,
+                    "fib_1d_level_0_618_tapped_before": fib_taps_1d["level_0_618_tapped_before"],
+                    "fib_1d_level_0_705_tapped_before": fib_taps_1d["level_0_705_tapped_before"],
+                    "fib_1d_level_0_786_tapped_before": fib_taps_1d["level_0_786_tapped_before"],
+                    "fib_1d_band_tapped_before": fib_taps_1d["band_tapped_before"],
+                    "fib_1d_band_tap_count_before": fib_taps_1d["band_tap_count_before"],
+                    "fib_1d_band_first_tap_index": fib_taps_1d["band_first_tap_index"],
+                    "fib_1d_band_last_tap_index": fib_taps_1d["band_last_tap_index"],
+                    "fib_4h_state": fib_4h.fib_state.value,
+                    "fib_4h_interaction": fib_4h.band_interaction.value,
+                    "fib_4h_sub_zone": fib_4h.sub_zone.value,
+                    "fib_4h_disarm_reason": fib_4h.disarm_reason.value,
+                    "fib_4h_level_0_618": fib_4h.level_0_618,
+                    "fib_4h_level_0_705": fib_4h.level_0_705,
+                    "fib_4h_level_0_786": fib_4h.level_0_786,
+                    "fib_4h_level_0_886": fib_4h.level_0_886,
+                    "fib_4h_band_low": fib_4h.band_low,
+                    "fib_4h_band_high": fib_4h.band_high,
+                    "fib_4h_score_contribution": fib_4h.tf_score_contribution,
+                    "fib_4h_level_0_618_tapped_before": fib_taps_4h["level_0_618_tapped_before"],
+                    "fib_4h_level_0_705_tapped_before": fib_taps_4h["level_0_705_tapped_before"],
+                    "fib_4h_level_0_786_tapped_before": fib_taps_4h["level_0_786_tapped_before"],
+                    "fib_4h_band_tapped_before": fib_taps_4h["band_tapped_before"],
+                    "fib_4h_band_tap_count_before": fib_taps_4h["band_tap_count_before"],
+                    "fib_4h_band_first_tap_index": fib_taps_4h["band_first_tap_index"],
+                    "fib_4h_band_last_tap_index": fib_taps_4h["band_last_tap_index"],
+                    "fib_1w_state": fib_1w.fib_state.value,
+                    "fib_1w_interaction": fib_1w.band_interaction.value,
+                    "fib_1w_sub_zone": fib_1w.sub_zone.value,
+                    "fib_1w_disarm_reason": fib_1w.disarm_reason.value,
+                    "fib_1w_level_0_618": fib_1w.level_0_618,
+                    "fib_1w_level_0_705": fib_1w.level_0_705,
+                    "fib_1w_level_0_786": fib_1w.level_0_786,
+                    "fib_1w_level_0_886": fib_1w.level_0_886,
+                    "fib_1w_band_low": fib_1w.band_low,
+                    "fib_1w_band_high": fib_1w.band_high,
+                    "fib_1w_score_contribution": fib_1w.tf_score_contribution,
+                    "fib_1w_level_0_618_tapped_before": fib_taps_1w["level_0_618_tapped_before"],
+                    "fib_1w_level_0_705_tapped_before": fib_taps_1w["level_0_705_tapped_before"],
+                    "fib_1w_level_0_786_tapped_before": fib_taps_1w["level_0_786_tapped_before"],
+                    "fib_1w_band_tapped_before": fib_taps_1w["band_tapped_before"],
+                    "fib_1w_band_tap_count_before": fib_taps_1w["band_tap_count_before"],
+                    "fib_1w_band_first_tap_index": fib_taps_1w["band_first_tap_index"],
+                    "fib_1w_band_last_tap_index": fib_taps_1w["band_last_tap_index"],
                     "long_candle_ok": long_candle_ok,
                     "short_candle_ok": short_candle_ok,
                     "retest_ordinal": retest_ordinal,
@@ -695,6 +957,7 @@ class SignalRunner:
                     "breaker_open": breaker.is_open,
                     "action": action,
                     "reason": reason,
+                    "dynamic_levels": dynamic_levels_log,
                 }
             )
             prev_bar = b
