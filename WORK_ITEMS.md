@@ -76,6 +76,25 @@ Recent safety hardening:
 
 ---
 
+## Phase 2 certification wave (2026-04-13)
+
+- [x] **[Done]** Task DL-01 — Phase 2A.3 dynamic-level packet helper: lock contract, raw `1D`/`4H` anchored `YVWAP` / `QVWAP`, `1D` rolling `RYVWAP` / `RQVWAP`, `EMA200` / `EMA12`, and deterministic provenance threading.
+- [x] **[Done]** Task DL-02 — Phase 2A.3 price-relative + zone-relative mapping plus raw-only runner/log adapter export, with evaluative labels removed from the canonical packet.
+- [x] **[Done]** Task DL-03 — Phase 2A.3 replay certification artifacts (BTC + ETH), raw-only Phase 2A.4 handoff compatibility note, and runner/log adapter proof artifacts.
+
+## Surveyor v1 checkpoint (2026-04-19)
+
+Completed in the current checkpoint:
+- [x] **[Done]** SV-01 — Canonical Surveyor packet assembly path wired from repo-local structure/Fib/dynamic-level contracts plus authoritative SR surfaces (`liquidsniper/core/surveyor_snapshot.py`, `IntradayTrading/engine/surveyor_packet.py`).
+- [x] **[Done]** SV-02 — Canonical feed refresh path for Surveyor via OKX/CCXT into `market_candles` + `feed_checkpoints` for `5m`, `4h`, `1d`, `1w` (`liquidsniper/ops/surveyor_feed_refresh.py`).
+- [x] **[Done]** SV-03 — Streamlit Surveyor Packet tab wired into the audit UI, with repo-root path fixes so the app can launch outside the repo cwd (`liquidsniper/web/app.py`).
+- [x] **[Done]** SV-04 — Snapshot tests covering store-preferred timeframe loading and complete/partial packet states (`tests/test_surveyor_snapshot.py`).
+
+Next:
+- [ ] **[Next]** SV-05 — Freeze one shared structure/provenance adapter across Surveyor packet assembly and downstream consumers.
+- [ ] **[Next]** SV-06 — Define the Arbiter handoff contract so interpretation/decision logic stays separate from Surveyor’s descriptive packet.
+- [ ] **[Next]** SV-07 — Build robust backtesting/simulation on top of the canonical Surveyor packet + canonical candle store, rather than ad hoc legacy analytics paths.
+
 ## Deferred backlog (not dropped)
 
 - [ ] Dynamic S/R level initiative integration (phase-gated sidecar)

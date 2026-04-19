@@ -7,13 +7,31 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Any
 
+_LIQUIDSNIPER_ROOT = Path(__file__).resolve().parents[2]
+if str(_LIQUIDSNIPER_ROOT) not in sys.path:
+    sys.path.append(str(_LIQUIDSNIPER_ROOT))
+
+from IntradayTrading.engine.phase1_contract import (
+    PHASE1_STRUCTURE_PROFILE_CANONICAL,
+    PHASE1_STRUCTURE_PROFILE_LEGACY,
+)
 from liquidsniper.core.db import init_db
 from liquidsniper.core.pair_analytics import build_pair_analytics_snapshot, load_candles_from_csv
+from liquidsniper.core.surveyor_snapshot import build_surveyor_packet_snapshot
 from liquidsniper.core.sr_engine_v2 import nearest_sr_levels_v1
 from liquidsniper.core.sr_universe import resolve_market_structure_csv
 from liquidsniper.core.tv_artifacts import query_ui_artifact_links
+from liquidsniper.core.zone_engine_v3 import (
+    build_base_candidates,
+    build_reaction_candidates,
+    build_structure_candidates,
+    merge_candidate_zones,
+    score_zone as score_zone_v3,
+)
+from liquidsniper.core.zone_selectors import select_daily_majors as select_daily_majors_v3, select_operational_zones as select_operational_zones_v3
 
 try:
     import plotly.graph_objects as go
@@ -43,6 +61,33 @@ class DiagnosticCard:
     context_score: float
     agent_confidence_score: float
     rationale: str
+
+
+_PHASE1_COMPARISON_TUNING: dict[str, dict[str, float | int | bool]] = {
+    "1D": {
+        "cluster_eps": 1.25,
+        "reaction_atr_min": 0.60,
+        "min_meaningful_touches": 5,
+        "min_zone_separation_bps": 250.0,
+        "max_zones": 8,
+        "min_strength": 70.0,
+        "require_first_retest_quality": True,
+    },
+    "4H": {
+        "cluster_eps": 1.10,
+        "reaction_atr_min": 0.45,
+        "min_meaningful_touches": 4,
+        "min_zone_separation_bps": 180.0,
+        "max_zones": 12,
+        "min_strength": 65.0,
+        "require_first_retest_quality": False,
+    },
+}
+
+_PHASE1_COMPARISON_CANDLE_LIMITS = {
+    "1D": 20000,
+    "4H": 800,
+}
 
 
 def query_diagnostic_cards(
@@ -364,14 +409,17 @@ def _format_zone_summary(zone: dict[str, Any] | None) -> str:
     if not zone:
         return "(none)"
     bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
-    low = bounds.get("low")
-    mid = bounds.get("mid")
-    high = bounds.get("high")
+    low = bounds.get("low") if bounds.get("low") is not None else zone.get("zone_low")
+    mid = bounds.get("mid") if bounds.get("mid") is not None else zone.get("zone_mid")
+    high = bounds.get("high") if bounds.get("high") is not None else zone.get("zone_high")
+    core_low = zone.get("core_low")
+    core_high = zone.get("core_high")
     distance = zone.get("distance_bps")
     selection = zone.get("selection_score")
-    retest = zone.get("first_retest_status") or "n/a"
+    retest = zone.get("first_retest_status") or zone.get("first_retest_result") or "n/a"
     touches = zone.get("meaningful_touch_count") if zone.get("meaningful_touch_count") is not None else zone.get("touch_count")
     span = f"{float(low):,.4f} -> {float(high):,.4f}" if low is not None and high is not None else "n/a"
+    core_span = f"{float(core_low):,.4f} -> {float(core_high):,.4f}" if core_low is not None and core_high is not None else None
     mid_text = f"{float(mid):,.4f}" if mid is not None else "n/a"
     current_role = zone.get("current_role") or zone.get("kind") or zone.get("zone_kind") or "n/a"
     relative_position = zone.get("relative_position") or "unknown"
@@ -379,6 +427,7 @@ def _format_zone_summary(zone: dict[str, Any] | None) -> str:
     pieces = [
         f"mid {mid_text}",
         f"band {span}",
+        f"core {core_span}" if core_span else None,
         f"role {current_role} / pos {relative_position} / origin {origin_kind}",
         f"dist {float(distance):.1f}bps" if distance is not None else "dist n/a",
         f"sel {float(selection):.1f}" if selection is not None else "sel n/a",
@@ -386,7 +435,45 @@ def _format_zone_summary(zone: dict[str, Any] | None) -> str:
         f"touches {touches if touches is not None else 'n/a'}",
         f"anchor {_format_anchor_summary(zone)}",
     ]
-    return " · ".join(pieces)
+    return " · ".join(piece for piece in pieces if piece)
+
+
+def _format_zone_focus_summary(zone: dict[str, Any] | None) -> str:
+    if not zone:
+        return "(none)"
+    bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
+    macro_bounds = zone.get("macro_bounds") if isinstance(zone.get("macro_bounds"), dict) else {}
+    core_bounds = zone.get("core_bounds") if isinstance(zone.get("core_bounds"), dict) else {}
+
+    effective_low = bounds.get("low") if bounds.get("low") is not None else zone.get("zone_low")
+    effective_mid = bounds.get("mid") if bounds.get("mid") is not None else zone.get("zone_mid")
+    effective_high = bounds.get("high") if bounds.get("high") is not None else zone.get("zone_high")
+    macro_low = macro_bounds.get("low") if macro_bounds.get("low") is not None else zone.get("zone_low")
+    macro_high = macro_bounds.get("high") if macro_bounds.get("high") is not None else zone.get("zone_high")
+    core_low = core_bounds.get("low") if core_bounds.get("low") is not None else zone.get("core_low")
+    core_high = core_bounds.get("high") if core_bounds.get("high") is not None else zone.get("core_high")
+
+    effective_span = f"{float(effective_low):,.4f} -> {float(effective_high):,.4f}" if effective_low is not None and effective_high is not None else "n/a"
+    macro_span = f"{float(macro_low):,.4f} -> {float(macro_high):,.4f}" if macro_low is not None and macro_high is not None else None
+    core_span = f"{float(core_low):,.4f} -> {float(core_high):,.4f}" if core_low is not None and core_high is not None else None
+    effective_mid_text = f"{float(effective_mid):,.4f}" if effective_mid is not None else "n/a"
+    distance = zone.get("distance_bps")
+    selection = zone.get("selection_score")
+    current_role = zone.get("current_role") or zone.get("kind") or zone.get("zone_kind") or "n/a"
+    relative_position = zone.get("relative_position") or "unknown"
+    origin_kind = zone.get("origin_kind") or zone.get("zone_kind") or "n/a"
+
+    pieces = [
+        f"effective band {effective_span}",
+        f"effective mid {effective_mid_text}",
+        f"macro context {macro_span}" if macro_span and macro_span != effective_span else None,
+        f"embedded core {core_span}" if core_span and core_span != effective_span else None,
+        f"role {current_role} / pos {relative_position} / origin {origin_kind}",
+        f"dist {float(distance):.1f}bps" if distance is not None else "dist n/a",
+        f"sel {float(selection):.1f}" if selection is not None else "sel n/a",
+        f"anchor {_format_anchor_summary(zone)}",
+    ]
+    return " · ".join(piece for piece in pieces if piece)
 
 
 def _format_arbitration_summary(zone: dict[str, Any] | None) -> str:
@@ -407,13 +494,14 @@ def _format_arbitration_summary(zone: dict[str, Any] | None) -> str:
     )
 
 
-def _render_zone_block(label: str, zone: dict[str, Any] | None) -> None:
+def _render_zone_block(label: str, zone: dict[str, Any] | None, *, focus_labels: bool = False) -> None:
     st.markdown(f"**{label}**")
     if not zone:
         st.write("(none)")
         return
     st.caption(_format_zone_badges(zone))
-    st.write(_format_zone_summary(zone))
+    formatter = _format_zone_focus_summary if focus_labels else _format_zone_summary
+    st.write(formatter(zone))
     arbitration_summary = _format_arbitration_summary(zone)
     if arbitration_summary:
         st.caption(f"Arbitration: {arbitration_summary}")
@@ -532,6 +620,140 @@ def _authoritative_view_scope_caption() -> str:
 
 
 
+def _focused_sr_scope_caption() -> str:
+    return (
+        "Surveyor-style SR view = minimal operator-facing surface. "
+        "Read the effective band first. Treat macro bounds as context, not as the primary reaction band."
+    )
+
+
+
+def _format_bounds_span(bounds: dict[str, Any] | None) -> str | None:
+    if not isinstance(bounds, dict):
+        return None
+    low = bounds.get("low")
+    high = bounds.get("high")
+    if low is None or high is None:
+        return None
+    return f"{float(low):,.4f} -> {float(high):,.4f}"
+
+
+
+def _format_sr_focus_line(zone: dict[str, Any]) -> str:
+    bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else {}
+    core_bounds = zone.get("core_bounds") if isinstance(zone.get("core_bounds"), dict) else {}
+    macro_bounds = zone.get("macro_bounds") if isinstance(zone.get("macro_bounds"), dict) else {}
+    current_role = zone.get("current_role") or zone.get("kind") or zone.get("zone_kind") or "n/a"
+    distance = zone.get("distance_bps")
+    selection = zone.get("selection_score")
+    selector_reason = zone.get("selector_reason")
+
+    effective_span = _format_bounds_span(bounds)
+    core_span = _format_bounds_span(core_bounds)
+    macro_span = _format_bounds_span(macro_bounds)
+    if macro_span is None:
+        macro_span = _format_bounds_span({"low": zone.get("zone_low"), "high": zone.get("zone_high")})
+
+    effective_label = "core / effective" if core_span else "effective"
+    pieces = [
+        f"{effective_label} {effective_span or 'n/a'}",
+        f"macro {macro_span}" if macro_span and macro_span != effective_span else None,
+        f"role {current_role}",
+        f"dist {float(distance):.1f}bps" if distance is not None else None,
+        f"sel {float(selection):.1f}" if selection is not None else None,
+        selector_reason,
+    ]
+    return " · ".join(piece for piece in pieces if piece)
+
+
+
+def _render_sr_focus_bucket(label: str, zones: list[dict[str, Any]]) -> None:
+    st.caption(f"{label} · {len(zones)} level(s)")
+    if not zones:
+        st.write("(none)")
+        return
+    for zone in zones:
+        zone_ref = str(zone.get("zone_id") or zone.get("id") or "").strip()
+        caption = _format_zone_badges(zone)
+        if zone_ref:
+            caption = f"{caption} · `{zone_ref}`" if caption else f"`{zone_ref}`"
+        if caption:
+            st.caption(caption)
+        st.write(_format_sr_focus_line(zone))
+
+
+
+def _count_authoritative_levels(payload: dict[str, Any] | None) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    groups = payload.get("groups") if isinstance(payload.get("groups"), dict) else {}
+    return sum(len(groups.get(group_key) or []) for group_key in ["below_price", "contains_price", "above_price"])
+
+
+
+def _render_surveyor_sr_levels_view(
+    *,
+    symbol: str,
+    entry: float,
+    shadow_snapshot: dict[str, Any] | None,
+    analytics: dict[str, Any],
+) -> None:
+    st.markdown("**Surveyor SR Levels View**")
+    st.info(_focused_sr_scope_caption())
+
+    shadow_payload = None
+    if shadow_snapshot and isinstance(shadow_snapshot.get("symbols"), dict):
+        candidate = shadow_snapshot["symbols"].get(symbol)
+        if isinstance(candidate, dict):
+            shadow_payload = candidate
+
+    authoritative_view = shadow_payload.get("authoritative_view") if isinstance(shadow_payload, dict) and isinstance(shadow_payload.get("authoritative_view"), dict) else {}
+    timeframes = authoritative_view.get("timeframes") if isinstance(authoritative_view.get("timeframes"), dict) else {}
+    daily_payload = timeframes.get("1D") if isinstance(timeframes.get("1D"), dict) else None
+    h4_payload = timeframes.get("4H") if isinstance(timeframes.get("4H"), dict) else None
+
+    metric_a, metric_b, metric_c = st.columns(3)
+    metric_a.metric("Current price", f"{float(entry):,.4f}")
+    metric_b.metric("1D selected levels", _count_authoritative_levels(daily_payload))
+    metric_c.metric("4H selected levels", _count_authoritative_levels(h4_payload))
+
+    st.markdown("**Surfaced ladder**")
+    sr_levels = analytics.get("sr", {}).get("nearest_levels", {}) if isinstance(analytics.get("sr"), dict) else {}
+    left, right = st.columns(2)
+    with left:
+        _render_zone_block("Nearest support", sr_levels.get("nearest_support"), focus_labels=True)
+        _render_zone_block("Next support", sr_levels.get("next_support"), focus_labels=True)
+    with right:
+        _render_zone_block("Nearest resistance", sr_levels.get("nearest_resistance"), focus_labels=True)
+        _render_zone_block("Next resistance", sr_levels.get("next_resistance"), focus_labels=True)
+
+    st.markdown("**Authoritative surfaces**")
+    st.caption(
+        "This is the Surveyor seed view: simple authoritative levels first, review/debug second. "
+        "For 1D, read the effective/core band first and the macro band second."
+    )
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**1D Authoritative Levels**")
+        if not daily_payload:
+            st.write("(none)")
+        else:
+            groups = daily_payload.get("groups") if isinstance(daily_payload.get("groups"), dict) else {}
+            _render_sr_focus_bucket("Support context (below current price)", groups.get("below_price") or [])
+            _render_sr_focus_bucket("Active band (contains current price)", groups.get("contains_price") or [])
+            _render_sr_focus_bucket("Resistance context (above current price)", groups.get("above_price") or [])
+    with right:
+        st.markdown("**4H Authoritative Levels**")
+        if not h4_payload:
+            st.write("(none)")
+        else:
+            groups = h4_payload.get("groups") if isinstance(h4_payload.get("groups"), dict) else {}
+            _render_sr_focus_bucket("Support context (below current price)", groups.get("below_price") or [])
+            _render_sr_focus_bucket("Active band (contains current price)", groups.get("contains_price") or [])
+            _render_sr_focus_bucket("Resistance context (above current price)", groups.get("above_price") or [])
+
+
+
 def _review_surface_scope_caption() -> str:
     return (
         "Review = comparison surface. Use this tab to compare baseline vs shadow and raw/merged candidate counts vs selected surfaces. "
@@ -573,6 +795,137 @@ def _render_authoritative_levels_view(symbol: str, shadow_snapshot: dict[str, An
         _render_authoritative_tf_surface("1D Authoritative Levels", (authoritative_view.get("timeframes") or {}).get("1D"))
     with right:
         _render_authoritative_tf_surface("4H Authoritative Levels", (authoritative_view.get("timeframes") or {}).get("4H"))
+
+
+def _render_surveyor_packet_view(packet: dict[str, Any]) -> None:
+    st.markdown("**Surveyor Packet (packet-faithful audit surface)**")
+    meta = packet.get("meta") if isinstance(packet.get("meta"), dict) else {}
+    packet_status = str(meta.get("packet_status") or "unknown")
+    if packet_status == "complete":
+        st.success(f"Packet status: {packet_status}")
+    elif packet_status == "partial":
+        st.warning(f"Packet status: {packet_status}")
+    else:
+        st.error(f"Packet status: {packet_status}")
+
+    st.caption(
+        "This tab renders the unified Surveyor packet directly. "
+        "If this view is wrong, the packet or feed wiring is wrong."
+    )
+    st.write(
+        {
+            "symbol": meta.get("symbol"),
+            "as_of_ts": meta.get("as_of_ts"),
+            "intended_direction_context": meta.get("intended_direction_context"),
+            "build_mode": meta.get("build_mode"),
+            "packet_id": meta.get("packet_id"),
+        }
+    )
+
+    market_timeframes = packet.get("market_data", {}).get("timeframes", {}) if isinstance(packet.get("market_data"), dict) else {}
+    feed_rows: list[dict[str, Any]] = []
+    for tf in ["1W", "1D", "4H", "5m"]:
+        row = market_timeframes.get(tf) if isinstance(market_timeframes, dict) else None
+        if not isinstance(row, dict):
+            continue
+        feed_rows.append(
+            {
+                "timeframe": tf,
+                "provider": row.get("feed_provider"),
+                "mode": row.get("dataset_mode"),
+                "freshness": row.get("freshness_state"),
+                "reason": row.get("freshness_reason"),
+                "bars": row.get("bar_count_available"),
+                "latest_close_time": row.get("latest_close_time"),
+                "latest_ingested_at": row.get("latest_ingested_at"),
+                "dataset_id": row.get("dataset_id"),
+            }
+        )
+    if feed_rows:
+        st.markdown("**Feed coverage**")
+        st.dataframe(feed_rows, use_container_width=True)
+
+    structure_timeframes = packet.get("structure", {}).get("timeframes", {}) if isinstance(packet.get("structure"), dict) else {}
+    structure_rows: list[dict[str, Any]] = []
+    for tf in ["1W", "1D", "4H", "5m"]:
+        row = structure_timeframes.get(tf) if isinstance(structure_timeframes, dict) else None
+        if not isinstance(row, dict):
+            continue
+        structure_rows.append(
+            {
+                "timeframe": tf,
+                "status": row.get("status"),
+                "direction": row.get("regime_direction"),
+                "confidence": row.get("regime_confidence"),
+                "reason": row.get("regime_reason") or row.get("transition_reason"),
+                "latest_bar_close": row.get("latest_bar_close"),
+                "source_bar_ts": row.get("source_bar_ts"),
+                "events": len(row.get("events") or []),
+                "swings": len(row.get("swings") or []),
+            }
+        )
+    if structure_rows:
+        st.markdown("**Structure coverage**")
+        st.dataframe(structure_rows, use_container_width=True)
+
+    fib_contexts = packet.get("fib", {}).get("contexts_by_timeframe", {}) if isinstance(packet.get("fib"), dict) else {}
+    if isinstance(fib_contexts, dict) and fib_contexts:
+        fib_rows = []
+        for tf in ["1W", "1D", "4H"]:
+            row = fib_contexts.get(tf)
+            if not isinstance(row, dict):
+                continue
+            fib_rows.append(
+                {
+                    "timeframe": tf,
+                    "state": row.get("state"),
+                    "direction": row.get("direction"),
+                    "active": row.get("active"),
+                    "band_low": row.get("levels", {}).get("band_low") if isinstance(row.get("levels"), dict) else None,
+                    "band_high": row.get("levels", {}).get("band_high") if isinstance(row.get("levels"), dict) else None,
+                    "source_event_id": row.get("source_event_id"),
+                }
+            )
+        if fib_rows:
+            st.markdown("**Fib context**")
+            st.dataframe(fib_rows, use_container_width=True)
+
+    dynamic_levels = packet.get("dynamic_levels", {}).get("levels", []) if isinstance(packet.get("dynamic_levels"), dict) else []
+    if dynamic_levels:
+        st.markdown("**Dynamic levels**")
+        dynamic_rows = [
+            {
+                "timeframe": row.get("timeframe"),
+                "level_name": row.get("level_name"),
+                "available": row.get("available"),
+                "level_value": row.get("level_value"),
+                "price_side": row.get("price_side"),
+                "zone_relation": row.get("zone_relation"),
+                "timeframe_bar_ts": row.get("timeframe_bar_ts"),
+                "availability_reason": row.get("availability_reason"),
+            }
+            for row in dynamic_levels
+            if isinstance(row, dict)
+        ]
+        st.dataframe(dynamic_rows, use_container_width=True)
+
+    lifecycle = packet.get("interaction_lifecycle") if isinstance(packet.get("interaction_lifecycle"), dict) else {}
+    st.markdown("**Interaction lifecycle**")
+    st.write(
+        {
+            "zone_interactions": len(lifecycle.get("zone_interactions") or []),
+            "level_interactions": len(lifecycle.get("level_interactions") or []),
+            "retests": len(lifecycle.get("retests") or []),
+            "breaches": len(lifecycle.get("breaches") or []),
+            "state_changes": len(lifecycle.get("state_changes") or []),
+        }
+    )
+
+    with st.expander("Surveyor packet JSON", expanded=False):
+        st.json(packet)
+
+    with st.expander("Contract versions", expanded=False):
+        st.json(packet.get("contract_versions") or {})
 
 
 def _surface_group_label(position: str) -> str:
@@ -776,6 +1129,174 @@ def _render_shadow_comparison(symbol: str, baseline_snapshot: dict[str, Any] | N
         st.json(shadow_payload)
 
 
+def _build_phase1_profile_surface(
+    *,
+    symbol: str,
+    tf: str,
+    candles: list[dict[str, Any]],
+    entry: float,
+    phase1_profile: str,
+) -> dict[str, Any]:
+    tuning = _PHASE1_COMPARISON_TUNING.get(str(tf).upper())
+    if tuning is None:
+        return {"timeframe": tf, "profile": phase1_profile, "status": "unsupported_tf"}
+
+    candidate_kwargs = {
+        "cluster_eps": tuning["cluster_eps"],
+        "reaction_atr_min": tuning["reaction_atr_min"],
+        "min_meaningful_touches": tuning["min_meaningful_touches"],
+    }
+    structure = build_structure_candidates(symbol, tf, candles, phase1_profile=phase1_profile, **candidate_kwargs)
+    base = build_base_candidates(symbol, tf, candles, **candidate_kwargs)
+    reaction = build_reaction_candidates(symbol, tf, candles, **candidate_kwargs)
+    merged = merge_candidate_zones(structure, base, reaction)
+    scored = [score_zone_v3(zone, last_price=float(entry)) for zone in merged]
+
+    if str(tf).upper() == "1D":
+        selected = select_daily_majors_v3(
+            scored,
+            min_strength=float(tuning["min_strength"]),
+            min_zone_separation_bps=float(tuning["min_zone_separation_bps"]),
+            max_zones=int(tuning["max_zones"]),
+            strict_retest_quality=bool(tuning["require_first_retest_quality"]),
+            reference_price=float(entry),
+        )
+    else:
+        selected = select_operational_zones_v3(
+            scored,
+            min_strength=float(tuning["min_strength"]),
+            min_zone_separation_bps=float(tuning["min_zone_separation_bps"]),
+            max_zones=int(tuning["max_zones"]),
+        )
+
+    return {
+        "timeframe": tf,
+        "profile": phase1_profile,
+        "structure_candidates": structure,
+        "base_candidates": base,
+        "reaction_candidates": reaction,
+        "merged_candidates": merged,
+        "selected": selected,
+        "counts": {
+            "structure": len(structure),
+            "base": len(base),
+            "reaction": len(reaction),
+            "merged": len(merged),
+            "selected": len(selected),
+        },
+    }
+
+
+def _build_phase1_zone_surface_comparison(symbol: str, entry: float) -> dict[str, Any]:
+    out: dict[str, Any] = {"contract": "phase1_zone_surface_comparison_v1", "timeframes": {}}
+    for tf in ["1D", "4H"]:
+        path = _find_market_structure_csv(symbol, tf)
+        if path is None or not path.exists():
+            out["timeframes"][tf] = {"status": "missing_source", "path": str(path) if path else None}
+            continue
+        candle_limit = int(_PHASE1_COMPARISON_CANDLE_LIMITS.get(str(tf).upper(), 800))
+        candles = load_candles_from_csv(path, limit=candle_limit)
+        legacy = _build_phase1_profile_surface(
+            symbol=symbol,
+            tf=tf,
+            candles=candles,
+            entry=entry,
+            phase1_profile=PHASE1_STRUCTURE_PROFILE_LEGACY,
+        )
+        canonical = _build_phase1_profile_surface(
+            symbol=symbol,
+            tf=tf,
+            candles=candles,
+            entry=entry,
+            phase1_profile=PHASE1_STRUCTURE_PROFILE_CANONICAL,
+        )
+        out["timeframes"][tf] = {
+            "status": "ok",
+            "path": str(path),
+            "candle_count": len(candles),
+            "lookback_contract": "shadow_bootstrap_equivalent_v1",
+            "legacy": legacy,
+            "canonical": canonical,
+        }
+    return out
+
+
+def _phase1_surface_count_rows(comparison: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for tf, payload in (comparison.get("timeframes") or {}).items():
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            continue
+        legacy = payload.get("legacy") if isinstance(payload.get("legacy"), dict) else {}
+        canonical = payload.get("canonical") if isinstance(payload.get("canonical"), dict) else {}
+        legacy_counts = legacy.get("counts") if isinstance(legacy.get("counts"), dict) else {}
+        canonical_counts = canonical.get("counts") if isinstance(canonical.get("counts"), dict) else {}
+        for key in ["structure", "base", "reaction", "merged", "selected"]:
+            rows.append(
+                {
+                    "tf": tf,
+                    "metric": key,
+                    "legacy": legacy_counts.get(key),
+                    "canonical": canonical_counts.get(key),
+                    "delta": (int(canonical_counts.get(key) or 0) - int(legacy_counts.get(key) or 0)),
+                }
+            )
+    return rows
+
+
+def _phase1_selected_zone_delta_rows(comparison: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for tf, payload in (comparison.get("timeframes") or {}).items():
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            continue
+        legacy = payload.get("legacy") if isinstance(payload.get("legacy"), dict) else {}
+        canonical = payload.get("canonical") if isinstance(payload.get("canonical"), dict) else {}
+        legacy_ids = {str(z.get("zone_id") or "") for z in (legacy.get("selected") or []) if str(z.get("zone_id") or "")}
+        canonical_ids = {str(z.get("zone_id") or "") for z in (canonical.get("selected") or []) if str(z.get("zone_id") or "")}
+        for zone_id in sorted(legacy_ids - canonical_ids):
+            rows.append({"tf": tf, "change": "removed_in_canonical", "zone_id": zone_id})
+        for zone_id in sorted(canonical_ids - legacy_ids):
+            rows.append({"tf": tf, "change": "added_in_canonical", "zone_id": zone_id})
+    return rows
+
+
+def _render_phase1_surface_comparison(comparison: dict[str, Any]) -> None:
+    st.markdown("**Phase 1 contract comparison on SR surfaces**")
+    st.caption("Legacy = pre-unification BoS 0.20 / CHoCH 0.15. Canonical = unified 0.15 / 0.15 contract. This recomputes SR surfaces using the shadow-equivalent lookback horizon, full 1D history and 800 bars on 4H, so the comparison matches the authoritative shadow selector more honestly.")
+
+    count_rows = _phase1_surface_count_rows(comparison)
+    if count_rows:
+        st.dataframe(count_rows, use_container_width=True)
+    zone_delta_rows = _phase1_selected_zone_delta_rows(comparison)
+    if zone_delta_rows:
+        st.caption("Selected-zone id deltas")
+        st.dataframe(zone_delta_rows, use_container_width=True)
+    else:
+        st.caption("Selected-zone id deltas: none")
+
+    for tf, payload in (comparison.get("timeframes") or {}).items():
+        st.markdown(f"**{tf} before vs after**")
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            st.info(f"{tf}: {payload.get('status') if isinstance(payload, dict) else 'unavailable'}")
+            continue
+        st.caption(f"Source: {payload.get('path')} · candles {payload.get('candle_count', 'n/a')} · lookback {payload.get('lookback_contract') or 'n/a'}")
+        legacy = payload.get("legacy") if isinstance(payload.get("legacy"), dict) else {}
+        canonical = payload.get("canonical") if isinstance(payload.get("canonical"), dict) else {}
+
+        left, right = st.columns(2)
+        with left:
+            st.caption("Before, legacy structure contract")
+            if str(tf).upper() == "1D":
+                _render_grouped_zone_surface("Legacy selected surface", legacy.get("selected") or [])
+            else:
+                _render_shadow_surface_list("Legacy selected surface", legacy.get("selected") or [])
+        with right:
+            st.caption("After, canonical unified contract")
+            if str(tf).upper() == "1D":
+                _render_grouped_zone_surface("Canonical selected surface", canonical.get("selected") or [])
+            else:
+                _render_shadow_surface_list("Canonical selected surface", canonical.get("selected") or [])
+
+
 def _zone_bounds(zone: dict[str, Any]) -> tuple[float | None, float | None]:
     bounds = zone.get("bounds") if isinstance(zone.get("bounds"), dict) else zone
     low = bounds.get("low") if isinstance(bounds, dict) else None
@@ -950,6 +1471,16 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
 
     analytics = _build_ui_pair_analytics(symbol=symbol, profile=profile, entry=float(entry), zones=zones)
     sr_levels = analytics.get("sr", {}).get("nearest_levels", {})
+    phase1_zone_comparison = _build_phase1_zone_surface_comparison(symbol=symbol, entry=float(entry))
+    shadow_payload = shadow_snapshot.get("symbols", {}).get(symbol) if isinstance(shadow_snapshot, dict) else None
+    authoritative_view = shadow_payload.get("authoritative_view") if isinstance(shadow_payload, dict) else None
+    authoritative_ladders = shadow_payload.get("nearest") if isinstance(shadow_payload, dict) else None
+    surveyor_packet = build_surveyor_packet_snapshot(
+        conn,
+        symbol=symbol,
+        authoritative_view=authoritative_view if isinstance(authoritative_view, dict) else None,
+        ladders=authoritative_ladders if isinstance(authoritative_ladders, dict) else None,
+    )
 
     chart_tf = st.selectbox("Audit chart TF", options=["4H", "1D"], index=0)
     chart_path = _find_market_structure_csv(symbol, chart_tf)
@@ -975,11 +1506,24 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
     else:
         st.info(f"No canonical {chart_tf} flat file found for {symbol}.")
 
-    authoritative_tab, review_tab, debug_tab = st.tabs([
+    packet_tab, focused_tab, authoritative_tab, review_tab, debug_tab = st.tabs([
+        "Surveyor Packet",
+        "Surveyor SR Levels",
         "Authoritative Levels View (shadow-selected)",
         "Review Surfaces (baseline ↔ shadow)",
         "Debug Payloads (raw contracts)",
     ])
+
+    with packet_tab:
+        _render_surveyor_packet_view(surveyor_packet)
+
+    with focused_tab:
+        _render_surveyor_sr_levels_view(
+            symbol=symbol,
+            entry=float(entry),
+            shadow_snapshot=shadow_snapshot,
+            analytics=analytics,
+        )
 
     with authoritative_tab:
         _render_authoritative_levels_view(symbol=symbol, shadow_snapshot=shadow_snapshot)
@@ -1005,6 +1549,7 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
             _render_shadow_surface_list("Operational / selected 4H surface", operational)
 
         _render_shadow_comparison(symbol=symbol, baseline_snapshot=snapshot, shadow_snapshot=shadow_snapshot)
+        _render_phase1_surface_comparison(phase1_zone_comparison)
 
     with debug_tab:
         st.info(_debug_payload_scope_caption())
@@ -1014,28 +1559,48 @@ def _render_sr_verification(conn: sqlite3.Connection, artifact_root: str) -> Non
         with st.expander("Per-pair analytics contract", expanded=False):
             st.json(analytics)
 
-    availability_rows = analytics.get("market_structure", {}).get("availability", [])
-    if availability_rows:
-        st.markdown("**Market structure coverage**")
-        for row in availability_rows:
-            tf_name = row.get("timeframe") or "?"
-            status_label = row.get("status") or "unknown"
-            if status_label == "ready":
-                payload = analytics.get("market_structure", {}).get("timeframes", {}).get(str(tf_name).upper(), {})
-                st.write(
-                    f"{tf_name}: {status_label} · candles {row.get('candle_count', 0)} · "
-                    f"trend {payload.get('trend') or 'n/a'} · conf {payload.get('confidence') or 'n/a'} · "
-                    f"reason {payload.get('last_transition_reason') or 'n/a'}"
-                )
-                st.caption(
-                    f"CHOCH {payload.get('active_choch_level') or 'n/a'} · "
-                    f"events {payload.get('event_counts') or {}}"
-                )
-            else:
-                st.write(f"{tf_name}: {status_label} · {row.get('reason') or row.get('path') or 'unavailable'}")
+        with st.expander("Surveyor packet", expanded=False):
+            st.json(surveyor_packet)
 
-    with st.expander("Historical zones", expanded=False):
-        st.dataframe(zones, use_container_width=True)
+        availability_rows = analytics.get("market_structure", {}).get("availability", [])
+        if availability_rows:
+            st.markdown("**Market structure coverage**")
+            for row in availability_rows:
+                tf_name = row.get("timeframe") or "?"
+                status_label = row.get("status") or "unknown"
+                if status_label == "ready":
+                    payload = analytics.get("market_structure", {}).get("timeframes", {}).get(str(tf_name).upper(), {})
+                    st.write(
+                        f"{tf_name}: {status_label} · candles {row.get('candle_count', 0)} · "
+                        f"trend {payload.get('trend') or 'n/a'} · conf {payload.get('confidence') or 'n/a'} · "
+                        f"reason {payload.get('last_transition_reason') or 'n/a'}"
+                    )
+                    st.caption(
+                        f"CHOCH {payload.get('active_choch_level') or 'n/a'} · "
+                        f"events {payload.get('event_counts') or {}}"
+                    )
+                else:
+                    st.write(f"{tf_name}: {status_label} · {row.get('reason') or row.get('path') or 'unavailable'}")
+
+        structure_comparisons = analytics.get("market_structure", {}).get("comparisons", {})
+        if isinstance(structure_comparisons, dict) and structure_comparisons:
+            st.markdown("**Market structure before vs after**")
+            for tf_name in sorted(structure_comparisons.keys()):
+                payload = structure_comparisons.get(tf_name) if isinstance(structure_comparisons.get(tf_name), dict) else {}
+                st.write(f"{tf_name}: changed = {bool(payload.get('changed'))}")
+                field_diffs = payload.get("field_diffs") if isinstance(payload.get("field_diffs"), list) else []
+                event_diffs = payload.get("event_count_diffs") if isinstance(payload.get("event_count_diffs"), list) else []
+                if field_diffs:
+                    st.caption(f"{tf_name} field deltas")
+                    st.dataframe(field_diffs, use_container_width=True)
+                if event_diffs:
+                    st.caption(f"{tf_name} event count deltas")
+                    st.dataframe(event_diffs, use_container_width=True)
+                if not field_diffs and not event_diffs:
+                    st.caption(f"{tf_name}: no structure-state deltas")
+
+        with st.expander("Historical zones", expanded=False):
+            st.dataframe(zones, use_container_width=True)
 
 
 def run_app(db_path: str, artifact_root: str) -> None:
@@ -1079,12 +1644,19 @@ def run_app(db_path: str, artifact_root: str) -> None:
         conn.close()
 
 
+def _resolve_repo_path(path_value: str) -> str:
+    path = Path(path_value).expanduser()
+    if not path.is_absolute():
+        path = _LIQUIDSNIPER_ROOT / path
+    return str(path)
+
+
 def main() -> None:
     if st is None:
         raise RuntimeError("Streamlit is required to run the diagnostic UI.")
 
-    db_path = os.getenv("LIQUIDSNIPER_DB_PATH", "data/liquidsniper.sqlite")
-    artifact_root = os.getenv("LS_ARTIFACT_ROOT", "data/artifacts")
+    db_path = _resolve_repo_path(os.getenv("LIQUIDSNIPER_DB_PATH", "data/liquidsniper.sqlite"))
+    artifact_root = _resolve_repo_path(os.getenv("LS_ARTIFACT_ROOT", "data/artifacts"))
     run_app(db_path, artifact_root)
 
 

@@ -1,0 +1,1949 @@
+{
+  "contract": "phase1_contract_basket_comparison_v1",
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "entry": 66237.8,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "BTCUSDT:1D:base:270:support",
+            "BTCUSDT:1D:base:349:support",
+            "BTCUSDT:1D:structure:flip_anchor:443:482:resistance"
+          ],
+          "selected_canonical": [
+            "BTCUSDT:1D:base:270:support",
+            "BTCUSDT:1D:base:349:support",
+            "BTCUSDT:1D:structure:flip_anchor:443:482:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 8,
+            "base": 6,
+            "reaction": 11,
+            "merged": 13,
+            "selected": 3
+          },
+          "counts_canonical": {
+            "structure": 8,
+            "base": 6,
+            "reaction": 11,
+            "merged": 13,
+            "selected": 3
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "BTCUSDT:4H:2:62760.15",
+            "BTCUSDT:4H:3:65832.89",
+            "BTCUSDT:4H:base:696:resistance",
+            "BTCUSDT:4H:structure:flip_anchor:141:215:support",
+            "BTCUSDT:4H:base:485:resistance",
+            "BTCUSDT:4H:base:23:resistance"
+          ],
+          "selected_canonical": [
+            "BTCUSDT:4H:2:62760.15",
+            "BTCUSDT:4H:3:65832.89",
+            "BTCUSDT:4H:base:696:resistance",
+            "BTCUSDT:4H:structure:bos_anchor:579:591:resistance",
+            "BTCUSDT:4H:base:485:resistance",
+            "BTCUSDT:4H:base:23:resistance"
+          ],
+          "added_selected": [
+            "BTCUSDT:4H:structure:bos_anchor:579:591:resistance"
+          ],
+          "removed_selected": [
+            "BTCUSDT:4H:structure:flip_anchor:141:215:support"
+          ],
+          "counts_legacy": {
+            "structure": 11,
+            "base": 12,
+            "reaction": 22,
+            "merged": 23,
+            "selected": 6
+          },
+          "counts_canonical": {
+            "structure": 12,
+            "base": 12,
+            "reaction": 22,
+            "merged": 24,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 1,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 1
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [
+            {
+              "field": "confidence",
+              "legacy": "transitional",
+              "canonical": "confirmed"
+            },
+            {
+              "field": "last_transition_reason",
+              "legacy": "choch_detected",
+              "canonical": "bos_confirmed"
+            },
+            {
+              "field": "active_choch_level",
+              "legacy": 84456.2,
+              "canonical": null
+            },
+            {
+              "field": "protected_high",
+              "legacy": 97925.4,
+              "canonical": 79335.5
+            }
+          ],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 0,
+              "canonical": 1,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 1,
+              "canonical": 2,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    },
+    {
+      "symbol": "ETHUSDT",
+      "entry": 1950.82,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "ETHUSDT:1D:base:285:support",
+            "ETHUSDT:1D:structure:bos_anchor:229:233:resistance",
+            "ETHUSDT:1D:structure:bos_anchor:2:4:resistance",
+            "ETHUSDT:1D:9:4148.801",
+            "ETHUSDT:1D:structure:flip_anchor:400:474:resistance"
+          ],
+          "selected_canonical": [
+            "ETHUSDT:1D:base:285:support",
+            "ETHUSDT:1D:structure:bos_anchor:321:325:support",
+            "ETHUSDT:1D:structure:bos_anchor:2:4:resistance",
+            "ETHUSDT:1D:9:4148.801",
+            "ETHUSDT:1D:structure:flip_anchor:400:474:resistance"
+          ],
+          "added_selected": [
+            "ETHUSDT:1D:structure:bos_anchor:321:325:support"
+          ],
+          "removed_selected": [
+            "ETHUSDT:1D:structure:bos_anchor:229:233:resistance"
+          ],
+          "counts_legacy": {
+            "structure": 14,
+            "base": 6,
+            "reaction": 12,
+            "merged": 17,
+            "selected": 5
+          },
+          "counts_canonical": {
+            "structure": 16,
+            "base": 6,
+            "reaction": 12,
+            "merged": 18,
+            "selected": 5
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 1,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 2
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "ETHUSDT:4H:2:1827.637",
+            "ETHUSDT:4H:3:1921.103",
+            "ETHUSDT:4H:base:696:resistance",
+            "ETHUSDT:4H:structure:bos_anchor:587:595:resistance",
+            "ETHUSDT:4H:structure:flip_anchor:141:215:support",
+            "ETHUSDT:4H:base:525:resistance",
+            "ETHUSDT:4H:structure:flip_anchor:25:33:resistance"
+          ],
+          "selected_canonical": [
+            "ETHUSDT:4H:2:1827.637",
+            "ETHUSDT:4H:3:1921.103",
+            "ETHUSDT:4H:base:696:resistance",
+            "ETHUSDT:4H:structure:bos_anchor:587:595:resistance",
+            "ETHUSDT:4H:structure:flip_anchor:141:215:support",
+            "ETHUSDT:4H:base:525:resistance",
+            "ETHUSDT:4H:structure:flip_anchor:25:33:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 9,
+            "base": 10,
+            "reaction": 23,
+            "merged": 22,
+            "selected": 7
+          },
+          "counts_canonical": {
+            "structure": 9,
+            "base": 10,
+            "reaction": 23,
+            "merged": 22,
+            "selected": 7
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "1D": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "candidate_swing_high",
+              "legacy": 35,
+              "canonical": 34,
+              "delta": -1
+            },
+            {
+              "event": "candidate_swing_low",
+              "legacy": 37,
+              "canonical": 38,
+              "delta": 1
+            },
+            {
+              "event": "choch_detected",
+              "legacy": 4,
+              "canonical": 6,
+              "delta": 2
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 8,
+              "canonical": 9,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_locked",
+              "legacy": 6,
+              "canonical": 7,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_validated_by_sweep",
+              "legacy": 12,
+              "canonical": 13,
+              "delta": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "symbol": "XRPUSDT",
+      "entry": 1.3792,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "XRPUSDT:1D:structure:bos_anchor:97:115:support",
+            "XRPUSDT:1D:structure:bos_anchor:127:132:support",
+            "XRPUSDT:1D:structure:flip_anchor:261:364:support",
+            "XRPUSDT:1D:12:2.6823"
+          ],
+          "selected_canonical": [
+            "XRPUSDT:1D:structure:bos_anchor:97:115:support",
+            "XRPUSDT:1D:structure:bos_anchor:127:132:support",
+            "XRPUSDT:1D:structure:flip_anchor:261:364:support",
+            "XRPUSDT:1D:12:2.6823"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 6,
+            "base": 2,
+            "reaction": 17,
+            "merged": 14,
+            "selected": 4
+          },
+          "counts_canonical": {
+            "structure": 6,
+            "base": 2,
+            "reaction": 17,
+            "merged": 14,
+            "selected": 4
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "XRPUSDT:4H:2:1.2702",
+            "XRPUSDT:4H:3:1.3353",
+            "XRPUSDT:4H:4:1.3806",
+            "XRPUSDT:4H:7:1.5295",
+            "XRPUSDT:4H:structure:bos_anchor:570:594:resistance",
+            "XRPUSDT:4H:base:376:resistance",
+            "XRPUSDT:4H:base:486:resistance"
+          ],
+          "selected_canonical": [
+            "XRPUSDT:4H:2:1.2702",
+            "XRPUSDT:4H:3:1.3353",
+            "XRPUSDT:4H:4:1.3806",
+            "XRPUSDT:4H:7:1.5295",
+            "XRPUSDT:4H:structure:bos_anchor:570:594:resistance",
+            "XRPUSDT:4H:base:486:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [
+            "XRPUSDT:4H:base:376:resistance"
+          ],
+          "counts_legacy": {
+            "structure": 9,
+            "base": 7,
+            "reaction": 26,
+            "merged": 25,
+            "selected": 7
+          },
+          "counts_canonical": {
+            "structure": 12,
+            "base": 7,
+            "reaction": 26,
+            "merged": 26,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 1,
+            "reaction": 0,
+            "selected": -1,
+            "structure": 3
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 6,
+              "canonical": 8,
+              "delta": 2
+            },
+            {
+              "event": "candidate_swing_high",
+              "legacy": 11,
+              "canonical": 13,
+              "delta": 2
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 6,
+              "canonical": 7,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_validated_by_sweep",
+              "legacy": 2,
+              "canonical": 3,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_locked",
+              "legacy": 2,
+              "canonical": 3,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    },
+    {
+      "symbol": "SOLUSDT",
+      "entry": 85.69,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "SOLUSDT:1D:structure:flip_anchor:261:266:support",
+            "SOLUSDT:1D:structure:bos_anchor:270:273:support",
+            "SOLUSDT:1D:structure:bos_anchor:395:404:support",
+            "SOLUSDT:1D:structure:bos_anchor:451:471:resistance",
+            "SOLUSDT:1D:structure:flip_anchor:425:448:resistance"
+          ],
+          "selected_canonical": [
+            "SOLUSDT:1D:structure:flip_anchor:261:266:support",
+            "SOLUSDT:1D:structure:bos_anchor:270:273:support",
+            "SOLUSDT:1D:structure:bos_anchor:395:404:support",
+            "SOLUSDT:1D:structure:bos_anchor:451:471:resistance",
+            "SOLUSDT:1D:structure:flip_anchor:425:448:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 22,
+            "base": 0,
+            "reaction": 16,
+            "merged": 16,
+            "selected": 5
+          },
+          "counts_canonical": {
+            "structure": 22,
+            "base": 0,
+            "reaction": 16,
+            "merged": 16,
+            "selected": 5
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "SOLUSDT:4H:2:76.854",
+            "SOLUSDT:4H:3:81.685",
+            "SOLUSDT:4H:base:694:resistance",
+            "SOLUSDT:4H:5:89.351",
+            "SOLUSDT:4H:6:93.11",
+            "SOLUSDT:4H:structure:bos_anchor:579:591:resistance",
+            "SOLUSDT:4H:10:118.102",
+            "SOLUSDT:4H:structure:bos_anchor:509:532:resistance",
+            "SOLUSDT:4H:23:178.62"
+          ],
+          "selected_canonical": [
+            "SOLUSDT:4H:2:76.854",
+            "SOLUSDT:4H:3:81.685",
+            "SOLUSDT:4H:base:694:resistance",
+            "SOLUSDT:4H:5:89.351",
+            "SOLUSDT:4H:6:93.11",
+            "SOLUSDT:4H:structure:bos_anchor:579:591:resistance",
+            "SOLUSDT:4H:10:118.102",
+            "SOLUSDT:4H:structure:bos_anchor:509:532:resistance",
+            "SOLUSDT:4H:23:178.62",
+            "SOLUSDT:4H:structure:bos_anchor:3:8:resistance"
+          ],
+          "added_selected": [
+            "SOLUSDT:4H:structure:bos_anchor:3:8:resistance"
+          ],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 17,
+            "base": 5,
+            "reaction": 26,
+            "merged": 28,
+            "selected": 9
+          },
+          "counts_canonical": {
+            "structure": 18,
+            "base": 5,
+            "reaction": 26,
+            "merged": 28,
+            "selected": 10
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 1,
+            "structure": 1
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 7,
+              "canonical": 8,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 7,
+              "canonical": 8,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "entry": 0.09232,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "DOGEUSDT:1D:base:62:support",
+            "DOGEUSDT:1D:structure:flip_anchor:529:531:support",
+            "DOGEUSDT:1D:8:0.2041",
+            "DOGEUSDT:1D:10:0.2427",
+            "DOGEUSDT:1D:14:0.3084",
+            "DOGEUSDT:1D:16:0.3649"
+          ],
+          "selected_canonical": [
+            "DOGEUSDT:1D:base:62:support",
+            "DOGEUSDT:1D:structure:flip_anchor:529:531:support",
+            "DOGEUSDT:1D:8:0.2041",
+            "DOGEUSDT:1D:10:0.2427",
+            "DOGEUSDT:1D:14:0.3084",
+            "DOGEUSDT:1D:16:0.3649"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 7,
+            "base": 2,
+            "reaction": 21,
+            "merged": 21,
+            "selected": 6
+          },
+          "counts_canonical": {
+            "structure": 7,
+            "base": 2,
+            "reaction": 21,
+            "merged": 21,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "DOGEUSDT:4H:base:789:support",
+            "DOGEUSDT:4H:4:0.1028",
+            "DOGEUSDT:4H:5:0.1065",
+            "DOGEUSDT:4H:6:0.111",
+            "DOGEUSDT:4H:base:376:resistance",
+            "DOGEUSDT:4H:15:0.1652",
+            "DOGEUSDT:4H:17:0.1775",
+            "DOGEUSDT:4H:structure:bos_anchor:3:3:resistance"
+          ],
+          "selected_canonical": [
+            "DOGEUSDT:4H:base:789:support",
+            "DOGEUSDT:4H:4:0.1028",
+            "DOGEUSDT:4H:5:0.1065",
+            "DOGEUSDT:4H:6:0.111",
+            "DOGEUSDT:4H:base:376:resistance",
+            "DOGEUSDT:4H:15:0.1652",
+            "DOGEUSDT:4H:17:0.1775",
+            "DOGEUSDT:4H:structure:bos_anchor:3:3:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 9,
+            "base": 10,
+            "reaction": 20,
+            "merged": 21,
+            "selected": 8
+          },
+          "counts_canonical": {
+            "structure": 10,
+            "base": 10,
+            "reaction": 20,
+            "merged": 21,
+            "selected": 8
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 1
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 4,
+              "canonical": 5,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 5,
+              "canonical": 6,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    },
+    {
+      "symbol": "ADAUSDT",
+      "entry": 0.2595,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "ADAUSDT:1D:6:0.4436",
+            "ADAUSDT:1D:16:0.8644",
+            "ADAUSDT:1D:20:1.019"
+          ],
+          "selected_canonical": [
+            "ADAUSDT:1D:6:0.4436",
+            "ADAUSDT:1D:16:0.8644",
+            "ADAUSDT:1D:20:1.019"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 6,
+            "base": 0,
+            "reaction": 23,
+            "merged": 20,
+            "selected": 3
+          },
+          "counts_canonical": {
+            "structure": 7,
+            "base": 0,
+            "reaction": 23,
+            "merged": 20,
+            "selected": 3
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 1
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "ADAUSDT:4H:2:0.2556",
+            "ADAUSDT:4H:structure:bos_anchor:585:597:resistance",
+            "ADAUSDT:4H:base:525:resistance",
+            "ADAUSDT:4H:structure:bos_anchor:15:30:resistance"
+          ],
+          "selected_canonical": [
+            "ADAUSDT:4H:2:0.2556",
+            "ADAUSDT:4H:structure:bos_anchor:585:597:resistance",
+            "ADAUSDT:4H:base:525:resistance",
+            "ADAUSDT:4H:structure:bos_anchor:15:30:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 22,
+            "base": 6,
+            "reaction": 30,
+            "merged": 28,
+            "selected": 4
+          },
+          "counts_canonical": {
+            "structure": 22,
+            "base": 6,
+            "reaction": 30,
+            "merged": 28,
+            "selected": 4
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "1D": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 4,
+              "canonical": 5,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 4,
+              "canonical": 5,
+              "delta": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "symbol": "BCHUSDT",
+      "entry": 447.7,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "BCHUSDT:1D:structure:flip_anchor:261:532:support",
+            "BCHUSDT:1D:base:81:support",
+            "BCHUSDT:1D:structure:bos_anchor:2:3:resistance",
+            "BCHUSDT:1D:structure:flip_anchor:9:15:resistance",
+            "BCHUSDT:1D:structure:flip_anchor:139:262:resistance"
+          ],
+          "selected_canonical": [
+            "BCHUSDT:1D:structure:flip_anchor:261:342:support",
+            "BCHUSDT:1D:base:81:support",
+            "BCHUSDT:1D:structure:bos_anchor:2:3:resistance",
+            "BCHUSDT:1D:structure:flip_anchor:9:15:resistance",
+            "BCHUSDT:1D:structure:flip_anchor:425:448:resistance"
+          ],
+          "added_selected": [
+            "BCHUSDT:1D:structure:flip_anchor:261:342:support",
+            "BCHUSDT:1D:structure:flip_anchor:425:448:resistance"
+          ],
+          "removed_selected": [
+            "BCHUSDT:1D:structure:flip_anchor:139:262:resistance",
+            "BCHUSDT:1D:structure:flip_anchor:261:532:support"
+          ],
+          "counts_legacy": {
+            "structure": 6,
+            "base": 9,
+            "reaction": 9,
+            "merged": 10,
+            "selected": 5
+          },
+          "counts_canonical": {
+            "structure": 11,
+            "base": 9,
+            "reaction": 9,
+            "merged": 13,
+            "selected": 5
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 3,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 5
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "BCHUSDT:4H:structure:flip_anchor:600:646:support",
+            "BCHUSDT:4H:structure:bos_anchor:545:555:resistance"
+          ],
+          "selected_canonical": [
+            "BCHUSDT:4H:structure:flip_anchor:600:646:support",
+            "BCHUSDT:4H:structure:bos_anchor:545:555:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 16,
+            "base": 0,
+            "reaction": 16,
+            "merged": 14,
+            "selected": 2
+          },
+          "counts_canonical": {
+            "structure": 18,
+            "base": 0,
+            "reaction": 16,
+            "merged": 14,
+            "selected": 2
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 2
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 5,
+              "canonical": 7,
+              "delta": 2
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 5,
+              "canonical": 7,
+              "delta": 2
+            }
+          ]
+        },
+        "1D": {
+          "changed": true,
+          "field_diffs": [
+            {
+              "field": "trend",
+              "legacy": "bullish",
+              "canonical": "bearish"
+            },
+            {
+              "field": "active_choch_level",
+              "legacy": 639.7,
+              "canonical": 514.6
+            },
+            {
+              "field": "protected_high",
+              "legacy": 639.7,
+              "canonical": 650.8
+            },
+            {
+              "field": "protected_low",
+              "legacy": 249.2,
+              "canonical": 514.6
+            }
+          ],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 1,
+              "canonical": 5,
+              "delta": 4
+            },
+            {
+              "event": "candidate_swing_high",
+              "legacy": 10,
+              "canonical": 19,
+              "delta": 9
+            },
+            {
+              "event": "candidate_swing_low",
+              "legacy": 6,
+              "canonical": 12,
+              "delta": 6
+            },
+            {
+              "event": "choch_detected",
+              "legacy": 5,
+              "canonical": 6,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 3,
+              "canonical": 5,
+              "delta": 2
+            },
+            {
+              "event": "swing_high_validated_by_sweep",
+              "legacy": 5,
+              "canonical": 10,
+              "delta": 5
+            },
+            {
+              "event": "swing_low_locked",
+              "legacy": 3,
+              "canonical": 6,
+              "delta": 3
+            },
+            {
+              "event": "swing_low_validated_by_sweep",
+              "legacy": 4,
+              "canonical": 9,
+              "delta": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "symbol": "LINKUSDT",
+      "entry": 8.965,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "LINKUSDT:1D:2:8.2005",
+            "LINKUSDT:1D:13:22.0488"
+          ],
+          "selected_canonical": [
+            "LINKUSDT:1D:2:8.2005",
+            "LINKUSDT:1D:13:22.0488"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 16,
+            "base": 0,
+            "reaction": 20,
+            "merged": 15,
+            "selected": 2
+          },
+          "counts_canonical": {
+            "structure": 17,
+            "base": 0,
+            "reaction": 20,
+            "merged": 15,
+            "selected": 2
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 1
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "LINKUSDT:4H:2:8.17",
+            "LINKUSDT:4H:3:8.5742",
+            "LINKUSDT:4H:base:773:resistance",
+            "LINKUSDT:4H:5:9.2718",
+            "LINKUSDT:4H:6:9.5719",
+            "LINKUSDT:4H:7:9.96",
+            "LINKUSDT:4H:base:485:resistance",
+            "LINKUSDT:4H:structure:bos_anchor:30:31:resistance",
+            "LINKUSDT:4H:structure:bos_anchor:5:9:resistance"
+          ],
+          "selected_canonical": [
+            "LINKUSDT:4H:2:8.17",
+            "LINKUSDT:4H:3:8.5742",
+            "LINKUSDT:4H:base:773:resistance",
+            "LINKUSDT:4H:5:9.2718",
+            "LINKUSDT:4H:6:9.5719",
+            "LINKUSDT:4H:7:9.96",
+            "LINKUSDT:4H:base:485:resistance",
+            "LINKUSDT:4H:structure:bos_anchor:30:31:resistance",
+            "LINKUSDT:4H:structure:bos_anchor:5:9:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 7,
+            "base": 5,
+            "reaction": 26,
+            "merged": 23,
+            "selected": 9
+          },
+          "counts_canonical": {
+            "structure": 7,
+            "base": 5,
+            "reaction": 26,
+            "merged": 23,
+            "selected": 9
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "1D": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 12,
+              "canonical": 13,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 7,
+              "canonical": 8,
+              "delta": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "symbol": "XLMUSDT",
+      "entry": 0.15668,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "XLMUSDT:1D:base:104:support",
+            "XLMUSDT:1D:3:0.1466",
+            "XLMUSDT:1D:6:0.2036",
+            "XLMUSDT:1D:9:0.2751",
+            "XLMUSDT:1D:12:0.3424",
+            "XLMUSDT:1D:16:0.429",
+            "XLMUSDT:1D:20:0.5174"
+          ],
+          "selected_canonical": [
+            "XLMUSDT:1D:base:104:support",
+            "XLMUSDT:1D:3:0.1466",
+            "XLMUSDT:1D:6:0.2036",
+            "XLMUSDT:1D:9:0.2751",
+            "XLMUSDT:1D:12:0.3424",
+            "XLMUSDT:1D:16:0.429",
+            "XLMUSDT:1D:20:0.5174"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 0,
+            "base": 1,
+            "reaction": 22,
+            "merged": 22,
+            "selected": 7
+          },
+          "counts_canonical": {
+            "structure": 0,
+            "base": 1,
+            "reaction": 22,
+            "merged": 22,
+            "selected": 7
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "XLMUSDT:4H:2:0.1493",
+            "XLMUSDT:4H:3:0.1558",
+            "XLMUSDT:4H:base:690:resistance",
+            "XLMUSDT:4H:structure:bos_anchor:579:595:resistance",
+            "XLMUSDT:4H:7:0.191",
+            "XLMUSDT:4H:structure:flip_anchor:366:382:resistance",
+            "XLMUSDT:4H:20:0.2973",
+            "XLMUSDT:4H:structure:bos_anchor:3:8:resistance"
+          ],
+          "selected_canonical": [
+            "XLMUSDT:4H:2:0.1493",
+            "XLMUSDT:4H:3:0.1558",
+            "XLMUSDT:4H:base:690:resistance",
+            "XLMUSDT:4H:structure:bos_anchor:579:595:resistance",
+            "XLMUSDT:4H:7:0.191",
+            "XLMUSDT:4H:structure:flip_anchor:327:347:resistance",
+            "XLMUSDT:4H:structure:bos_anchor:3:8:resistance"
+          ],
+          "added_selected": [
+            "XLMUSDT:4H:structure:flip_anchor:327:347:resistance"
+          ],
+          "removed_selected": [
+            "XLMUSDT:4H:20:0.2973",
+            "XLMUSDT:4H:structure:flip_anchor:366:382:resistance"
+          ],
+          "counts_legacy": {
+            "structure": 11,
+            "base": 2,
+            "reaction": 22,
+            "merged": 22,
+            "selected": 8
+          },
+          "counts_canonical": {
+            "structure": 13,
+            "base": 2,
+            "reaction": 22,
+            "merged": 21,
+            "selected": 7
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": -1,
+            "reaction": 0,
+            "selected": -1,
+            "structure": 2
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 4,
+              "canonical": 5,
+              "delta": 1
+            },
+            {
+              "event": "candidate_swing_low",
+              "legacy": 21,
+              "canonical": 26,
+              "delta": 5
+            },
+            {
+              "event": "swing_high_validated_by_sweep",
+              "legacy": 5,
+              "canonical": 4,
+              "delta": -1
+            },
+            {
+              "event": "swing_low_locked",
+              "legacy": 2,
+              "canonical": 3,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_validated_by_sweep",
+              "legacy": 6,
+              "canonical": 7,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    },
+    {
+      "symbol": "LTCUSDT",
+      "entry": 53.8,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "LTCUSDT:1D:2:50.965",
+            "LTCUSDT:1D:3:57.564",
+            "LTCUSDT:1D:structure:bos_anchor:556:560:resistance",
+            "LTCUSDT:1D:structure:bos_anchor:258:260:resistance",
+            "LTCUSDT:1D:12:106.536",
+            "LTCUSDT:1D:structure:flip_anchor:138:252:resistance"
+          ],
+          "selected_canonical": [
+            "LTCUSDT:1D:2:50.965",
+            "LTCUSDT:1D:3:57.564",
+            "LTCUSDT:1D:structure:bos_anchor:556:560:resistance",
+            "LTCUSDT:1D:structure:bos_anchor:258:260:resistance",
+            "LTCUSDT:1D:12:106.536",
+            "LTCUSDT:1D:structure:flip_anchor:138:252:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 9,
+            "base": 0,
+            "reaction": 19,
+            "merged": 15,
+            "selected": 6
+          },
+          "counts_canonical": {
+            "structure": 9,
+            "base": 0,
+            "reaction": 19,
+            "merged": 15,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "LTCUSDT:4H:2:51.213",
+            "LTCUSDT:4H:3:53.25",
+            "LTCUSDT:4H:6:57.65",
+            "LTCUSDT:4H:structure:bos_anchor:545:558:resistance",
+            "LTCUSDT:4H:structure:bos_anchor:200:201:resistance",
+            "LTCUSDT:4H:structure:flip_anchor:71:198:resistance"
+          ],
+          "selected_canonical": [
+            "LTCUSDT:4H:2:51.213",
+            "LTCUSDT:4H:3:53.25",
+            "LTCUSDT:4H:6:57.65",
+            "LTCUSDT:4H:structure:bos_anchor:545:558:resistance",
+            "LTCUSDT:4H:structure:bos_anchor:200:201:resistance",
+            "LTCUSDT:4H:structure:flip_anchor:71:198:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 10,
+            "base": 0,
+            "reaction": 32,
+            "merged": 26,
+            "selected": 6
+          },
+          "counts_canonical": {
+            "structure": 10,
+            "base": 0,
+            "reaction": 32,
+            "merged": 26,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    },
+    {
+      "symbol": "AVAXUSDT",
+      "entry": 9.581,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "AVAXUSDT:1D:6:15.0491",
+            "AVAXUSDT:1D:11:22.5939",
+            "AVAXUSDT:1D:18:30.8883",
+            "AVAXUSDT:1D:structure:bos_anchor:181:192:resistance",
+            "AVAXUSDT:1D:structure:flip_anchor:137:154:resistance"
+          ],
+          "selected_canonical": [
+            "AVAXUSDT:1D:6:15.0491",
+            "AVAXUSDT:1D:11:22.5939",
+            "AVAXUSDT:1D:18:30.8883",
+            "AVAXUSDT:1D:structure:bos_anchor:181:192:resistance",
+            "AVAXUSDT:1D:structure:flip_anchor:137:154:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 15,
+            "base": 0,
+            "reaction": 31,
+            "merged": 29,
+            "selected": 5
+          },
+          "counts_canonical": {
+            "structure": 15,
+            "base": 0,
+            "reaction": 31,
+            "merged": 29,
+            "selected": 5
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "AVAXUSDT:4H:2:8.3513",
+            "AVAXUSDT:4H:structure:bos_anchor:587:597:resistance",
+            "AVAXUSDT:4H:7:10.703",
+            "AVAXUSDT:4H:structure:bos_anchor:128:130:resistance",
+            "AVAXUSDT:4H:18:16.8397",
+            "AVAXUSDT:4H:19:17.6987",
+            "AVAXUSDT:4H:20:18.5378"
+          ],
+          "selected_canonical": [
+            "AVAXUSDT:4H:2:8.3513",
+            "AVAXUSDT:4H:structure:bos_anchor:587:597:resistance",
+            "AVAXUSDT:4H:7:10.703",
+            "AVAXUSDT:4H:structure:bos_anchor:128:130:resistance",
+            "AVAXUSDT:4H:18:16.8397",
+            "AVAXUSDT:4H:19:17.6987",
+            "AVAXUSDT:4H:20:18.5378"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 16,
+            "base": 5,
+            "reaction": 22,
+            "merged": 24,
+            "selected": 7
+          },
+          "counts_canonical": {
+            "structure": 17,
+            "base": 5,
+            "reaction": 22,
+            "merged": 24,
+            "selected": 7
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 1
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 6,
+              "canonical": 7,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 5,
+              "canonical": 6,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    },
+    {
+      "symbol": "HBARUSDT",
+      "entry": 0.09432,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "HBARUSDT:1D:structure:flip_anchor:106:118:support",
+            "HBARUSDT:1D:structure:bos_anchor:70:105:resistance",
+            "HBARUSDT:1D:8:0.1269",
+            "HBARUSDT:1D:11:0.1536",
+            "HBARUSDT:1D:13:0.1781",
+            "HBARUSDT:1D:17:0.2298",
+            "HBARUSDT:1D:21:0.2741",
+            "HBARUSDT:1D:27:0.339"
+          ],
+          "selected_canonical": [
+            "HBARUSDT:1D:structure:flip_anchor:106:118:support",
+            "HBARUSDT:1D:structure:bos_anchor:557:559:resistance",
+            "HBARUSDT:1D:8:0.1269",
+            "HBARUSDT:1D:11:0.1536",
+            "HBARUSDT:1D:13:0.1781",
+            "HBARUSDT:1D:17:0.2298",
+            "HBARUSDT:1D:21:0.2741",
+            "HBARUSDT:1D:27:0.339"
+          ],
+          "added_selected": [
+            "HBARUSDT:1D:structure:bos_anchor:557:559:resistance"
+          ],
+          "removed_selected": [
+            "HBARUSDT:1D:structure:bos_anchor:70:105:resistance"
+          ],
+          "counts_legacy": {
+            "structure": 2,
+            "base": 2,
+            "reaction": 30,
+            "merged": 31,
+            "selected": 8
+          },
+          "counts_canonical": {
+            "structure": 6,
+            "base": 2,
+            "reaction": 30,
+            "merged": 30,
+            "selected": 8
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": -1,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 4
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "HBARUSDT:4H:structure:flip_anchor:600:647:support",
+            "HBARUSDT:4H:3:0.0871",
+            "HBARUSDT:4H:structure:bos_anchor:579:597:resistance",
+            "HBARUSDT:4H:17:0.1417",
+            "HBARUSDT:4H:26:0.1811",
+            "HBARUSDT:4H:27:0.1864"
+          ],
+          "selected_canonical": [
+            "HBARUSDT:4H:structure:flip_anchor:600:647:support",
+            "HBARUSDT:4H:3:0.0871",
+            "HBARUSDT:4H:structure:bos_anchor:579:597:resistance",
+            "HBARUSDT:4H:17:0.1417",
+            "HBARUSDT:4H:26:0.1811",
+            "HBARUSDT:4H:27:0.1864"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 21,
+            "base": 1,
+            "reaction": 31,
+            "merged": 29,
+            "selected": 6
+          },
+          "counts_canonical": {
+            "structure": 25,
+            "base": 1,
+            "reaction": 31,
+            "merged": 30,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 1,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 4
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 11,
+              "canonical": 12,
+              "delta": 1
+            },
+            {
+              "event": "candidate_swing_high",
+              "legacy": 14,
+              "canonical": 16,
+              "delta": 2
+            },
+            {
+              "event": "candidate_swing_low",
+              "legacy": 46,
+              "canonical": 45,
+              "delta": -1
+            },
+            {
+              "event": "choch_detected",
+              "legacy": 5,
+              "canonical": 7,
+              "delta": 2
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 10,
+              "canonical": 12,
+              "delta": 2
+            },
+            {
+              "event": "swing_high_validated_by_sweep",
+              "legacy": 8,
+              "canonical": 9,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_locked",
+              "legacy": 6,
+              "canonical": 7,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": true,
+          "field_diffs": [
+            {
+              "field": "trend",
+              "legacy": "bullish",
+              "canonical": "bearish"
+            },
+            {
+              "field": "confidence",
+              "legacy": "transitional",
+              "canonical": "confirmed"
+            },
+            {
+              "field": "last_transition_reason",
+              "legacy": "choch_detected",
+              "canonical": "bos_confirmed"
+            },
+            {
+              "field": "active_choch_level",
+              "legacy": 0.06382,
+              "canonical": null
+            },
+            {
+              "field": "protected_high",
+              "legacy": 0.06382,
+              "canonical": 0.10909
+            },
+            {
+              "field": "protected_low",
+              "legacy": 0.04162,
+              "canonical": 0.12588
+            }
+          ],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 1,
+              "canonical": 4,
+              "delta": 3
+            },
+            {
+              "event": "candidate_swing_low",
+              "legacy": 13,
+              "canonical": 26,
+              "delta": 13
+            },
+            {
+              "event": "choch_detected",
+              "legacy": 1,
+              "canonical": 2,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 1,
+              "canonical": 4,
+              "delta": 3
+            },
+            {
+              "event": "swing_low_locked",
+              "legacy": 1,
+              "canonical": 2,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_validated_by_sweep",
+              "legacy": 3,
+              "canonical": 7,
+              "delta": 4
+            }
+          ]
+        }
+      }
+    },
+    {
+      "symbol": "DOTUSDT",
+      "entry": 1.483,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": true,
+          "selected_legacy": [
+            "DOTUSDT:1D:4:1.751",
+            "DOTUSDT:1D:7:2.7927",
+            "DOTUSDT:1D:structure:bos_anchor:296:337:resistance",
+            "DOTUSDT:1D:22:6.4822",
+            "DOTUSDT:1D:25:7.995"
+          ],
+          "selected_canonical": [
+            "DOTUSDT:1D:4:1.751",
+            "DOTUSDT:1D:7:2.7927",
+            "DOTUSDT:1D:structure:bos_anchor:296:337:resistance",
+            "DOTUSDT:1D:structure:bos_anchor:195:197:resistance",
+            "DOTUSDT:1D:25:7.995",
+            "DOTUSDT:1D:structure:flip_anchor:137:152:resistance"
+          ],
+          "added_selected": [
+            "DOTUSDT:1D:structure:bos_anchor:195:197:resistance",
+            "DOTUSDT:1D:structure:flip_anchor:137:152:resistance"
+          ],
+          "removed_selected": [
+            "DOTUSDT:1D:22:6.4822"
+          ],
+          "counts_legacy": {
+            "structure": 4,
+            "base": 0,
+            "reaction": 27,
+            "merged": 19,
+            "selected": 5
+          },
+          "counts_canonical": {
+            "structure": 6,
+            "base": 0,
+            "reaction": 27,
+            "merged": 18,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": -1,
+            "reaction": 0,
+            "selected": 1,
+            "structure": 2
+          }
+        },
+        "4H": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "DOTUSDT:4H:base:709:support",
+            "DOTUSDT:4H:4:1.4114",
+            "DOTUSDT:4H:7:1.603",
+            "DOTUSDT:4H:structure:bos_anchor:342:347:resistance",
+            "DOTUSDT:4H:15:2.1667",
+            "DOTUSDT:4H:structure:flip_anchor:25:32:resistance"
+          ],
+          "selected_canonical": [
+            "DOTUSDT:4H:base:709:support",
+            "DOTUSDT:4H:4:1.4114",
+            "DOTUSDT:4H:7:1.603",
+            "DOTUSDT:4H:structure:bos_anchor:342:347:resistance",
+            "DOTUSDT:4H:15:2.1667",
+            "DOTUSDT:4H:structure:flip_anchor:25:32:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 14,
+            "base": 3,
+            "reaction": 33,
+            "merged": 29,
+            "selected": 6
+          },
+          "counts_canonical": {
+            "structure": 15,
+            "base": 3,
+            "reaction": 33,
+            "merged": 29,
+            "selected": 6
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 1
+          }
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": true,
+          "field_diffs": [],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 7,
+              "canonical": 8,
+              "delta": 1
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 6,
+              "canonical": 7,
+              "delta": 1
+            }
+          ]
+        },
+        "1D": {
+          "changed": true,
+          "field_diffs": [
+            {
+              "field": "protected_low",
+              "legacy": 3.587,
+              "canonical": 7.548
+            }
+          ],
+          "event_count_diffs": [
+            {
+              "event": "bos_confirmed",
+              "legacy": 2,
+              "canonical": 4,
+              "delta": 2
+            },
+            {
+              "event": "candidate_swing_low",
+              "legacy": 16,
+              "canonical": 24,
+              "delta": 8
+            },
+            {
+              "event": "swing_high_locked",
+              "legacy": 3,
+              "canonical": 4,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_locked",
+              "legacy": 1,
+              "canonical": 2,
+              "delta": 1
+            },
+            {
+              "event": "swing_low_validated_by_sweep",
+              "legacy": 4,
+              "canonical": 9,
+              "delta": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "symbol": "TONUSDT",
+      "entry": 1.655,
+      "timeframes": {
+        "1D": {
+          "status": "ok",
+          "selected_changed": false,
+          "selected_legacy": [
+            "TONUSDT:1D:structure:flip_anchor:50:116:support",
+            "TONUSDT:1D:base:38:resistance",
+            "TONUSDT:1D:structure:bos_anchor:10:12:resistance"
+          ],
+          "selected_canonical": [
+            "TONUSDT:1D:structure:flip_anchor:50:116:support",
+            "TONUSDT:1D:base:38:resistance",
+            "TONUSDT:1D:structure:bos_anchor:10:12:resistance"
+          ],
+          "added_selected": [],
+          "removed_selected": [],
+          "counts_legacy": {
+            "structure": 3,
+            "base": 4,
+            "reaction": 6,
+            "merged": 6,
+            "selected": 3
+          },
+          "counts_canonical": {
+            "structure": 3,
+            "base": 4,
+            "reaction": 6,
+            "merged": 6,
+            "selected": 3
+          },
+          "count_deltas": {
+            "base": 0,
+            "merged": 0,
+            "reaction": 0,
+            "selected": 0,
+            "structure": 0
+          }
+        },
+        "4H": {
+          "status": "missing_source"
+        }
+      },
+      "structure": {
+        "1H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "4H": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        },
+        "1D": {
+          "changed": false,
+          "field_diffs": [],
+          "event_count_diffs": []
+        }
+      }
+    }
+  ],
+  "validation_basket_size": 15,
+  "missing_symbols": [
+    "BNBUSDT"
+  ]
+}

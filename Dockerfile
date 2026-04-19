@@ -10,6 +10,7 @@ COPY pyproject.toml README.md ./
 COPY liquidsniper ./liquidsniper
 COPY IntradayTrading/engine ./IntradayTrading/engine
 COPY IntradayTrading/spec ./IntradayTrading/spec
+COPY IntradayTrading/data ./IntradayTrading/data
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .

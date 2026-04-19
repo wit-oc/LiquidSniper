@@ -61,7 +61,19 @@ def run_symbol(symbol: str, input_csv: Path, out_dir: Path) -> None:
     zones = build_zones_from_candles(df_4h["high"].tolist(), df_4h["low"].tolist(), left=2, right=2)
     bmap = bias_map_from_4h(df_4h, df_1h)
 
-    bars = [Bar(index=i, open=r.open, high=r.high, low=r.low, close=r.close) for i, r in df_1h.iterrows()]
+    has_volume = "volume" in df_1h.columns
+    bars = [
+        Bar(
+            index=i,
+            open=r.open,
+            high=r.high,
+            low=r.low,
+            close=r.close,
+            timestamp=int(r.timestamp),
+            volume=(None if not has_volume or pd.isna(r.volume) else float(r.volume)),
+        )
+        for i, r in df_1h.iterrows()
+    ]
     runner = SignalRunner()
     events, logs = runner.run_with_logs(bars, bmap, zones, symbol=symbol, tf="1h")
 
