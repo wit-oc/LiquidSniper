@@ -1,7 +1,7 @@
 # Legacy Surfaces Status
 
 Date: 2026-04-19, updated 2026-04-20  
-Status: path-stable legacy surfaces identified in the first archive pass, selective artifact cleanup completed in the second pass, and first code relocation completed in pass 3
+Status: path-stable legacy surfaces identified in the first archive pass, selective artifact cleanup completed in the second pass, and code relocations completed in passes 3 and 4
 
 This note explains which non-core surfaces are still present in the repo even after the first archive PR, and why they were not moved yet.
 
@@ -42,6 +42,10 @@ Why still present:
 
 Why legacy:
 - TradingView parity/automation is no longer a first-class product center
+
+Update on 2026-04-20:
+- canonical home moved to `legacy/tradingview/`
+- repo-root `tradingview/` remains as a compatibility symlink for existing file-path references
 
 ### `tools/strategy_sweep/`
 Why still present:
@@ -91,7 +95,7 @@ Why still present:
 
 ---
 
-## What happened across passes 1 through 3
+## What happened across passes 1 through 4
 
 ### First archive pass
 Moved out of top-level `docs/`:
@@ -110,6 +114,11 @@ Relocated the first legacy code surface behind a compatibility shim:
 - implementation moved from `liquidsniper/ingestor/main.py` to `legacy/telegram_ingestor/main.py`
 - compatibility kept at `liquidsniper/ingestor/`
 
+### Fourth pass
+Relocated the TradingView surface into an explicit legacy home:
+- canonical home moved from `tradingview/` to `legacy/tradingview/`
+- compatibility kept through repo-root symlink `tradingview -> legacy/tradingview`
+
 Still left in place for later migration:
 - legacy code dirs
 - legacy artifact dirs with live path references
@@ -125,4 +134,4 @@ A later code cleanup pass should:
    - move those surfaces under explicit `legacy/` or `archive/` paths and update references, or
    - delete them if no longer justified
 4. keep Surveyor / Arbiter imports and UI/feed paths green throughout
-5. start with `liquidsniper/ingestor/`, `tradingview/`, `tools/strategy_sweep/`, and paper-runtime modules
+5. continue with `tools/strategy_sweep/` and paper-runtime modules
