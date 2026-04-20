@@ -128,8 +128,10 @@ We’ll start with a minimal schema and extend.
 
 ## Developer workflow
 
-- Local environment setup: `docs/dev_setup.md`
-- Paper daemon operations: `docs/PAPER_DAEMON_RUNBOOK_V1.md`
+- Local environment setup: `docs/DEV_SETUP.md`
+- Current architecture: `docs/INTRADAY_REVISIT_SURVEYOR_ARBITER_ARCHITECTURE_V1.md`
+- Repo refocus / archive plan: `docs/SURVEYOR_ARBITER_REPO_REFOCUS_PLAN_2026-04-19.md`
+- Legacy surfaces still kept in-place for path compatibility: `docs/LEGACY_SURFACES_STATUS_2026-04-19.md`
 - Pre-merge quality gate: `docs/PRE_MERGE_CHECKLIST.md`
 - Codex on Mac mini runbook: `docs/CODEX_CLI_RUNBOOK.md`
 

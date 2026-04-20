@@ -2,7 +2,7 @@
 
 Status: Draft for implementation (2026-02-18)  
 Owner: Redact + Wit  
-Depends on: `docs/DATA_FEED_STRATEGY_V1.md`, `docs/EXECUTION_CORE_COMMAND_CONTRACT_V1.md`
+Depends on: `docs/DATA_FEED_STRATEGY_V1.md`, `docs/archive/2026-04-19-first-archive-pass/paper-runtime/EXECUTION_CORE_COMMAND_CONTRACT_V1.md`
 
 ---
 
