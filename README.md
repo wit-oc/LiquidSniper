@@ -1,89 +1,70 @@
 # LiquidSniper
 
-**LiquidSniper** is a signal-stream + analytics engine for liquidity-level alerts (starting with **Mobchart Liquidity Screener → Telegram notifications**).
+**Current direction:** this repo is being refocused around **Surveyor** and **Arbiter**.
 
-The project is intentionally phased:
+- **Surveyor** = descriptive market-state assembly
+- **Arbiter** = interpretation / decision layer
+- **Execution** = separate future boundary, not the current repo center
 
-- **Phase 1 (MVP):** ingest + log a signal stream (no trading, no keys)
-- **Phase 2:** enrich signals with additional data streams and compute “trade intent” candidates
-- **Phase 3 (future):** isolated execution bot (separate container/process) that consumes trade intents, enforces risk, and places trades
+The current active goal is to:
+- ingest a canonical market-data feed,
+- persist an auditable candle store,
+- assemble a multi-timeframe market-state packet,
+- inspect that packet in an operator UI,
+- and use that packet for replay / simulation / backtesting.
 
-> Design constraint: the analytics engine must be safe to run even on untrusted inputs. It should never hold private keys or have trading privileges.
+> Important: older LiquidSniper surfaces still exist in the repo during cleanup, including ingestion, paper-runtime, and TradingView-heavy lanes. Treat those as **legacy / in refactor**, not the primary product identity.
 
----
-
-## Why
-
-- Scalping / low-timeframe trading is execution- and risk-discipline-heavy.
-- Third-party bots are hard to trust with custody and hard to audit.
-- Even good signals can fail in certain regimes; we want **circuit breakers** and **daily loss limits** before automation exists.
-
-LiquidSniper starts by building the *instrumentation and evidence*:
-- what signals fired
-- when they fired
-- what the market did afterwards
-- which signal settings seem predictive
+Primary architecture references:
+- `docs/INTRADAY_REVISIT_SURVEYOR_ARBITER_ARCHITECTURE_V1.md`
+- `docs/SURVEYOR_ARBITER_REPO_REFOCUS_PLAN_2026-04-19.md`
 
 ---
 
-## High-level architecture
+## Current architecture
 
-### Components
+### Core layers
 
-1) **Signal Ingestor** (Phase 1)
-- Input: Telegram messages (Mobchart notifications)
-- Output: structured `SignalEvent` records appended to a local data store
+1) **Canonical feed ingestion**
+- current checkpoint source: OKX via CCXT
+- persists into canonical SQLite tables such as `market_candles`, `feed_checkpoints`, and `feed_health_events`
 
-2) **Event Store** (Phase 1)
-- Append-only storage (start simple: JSONL; optionally SQLite later)
-- Guarantees reproducibility: raw message + parsed fields + timestamps
+2) **Surveyor packet assembly**
+- builds a descriptive multi-timeframe packet for `1W`, `1D`, `4H`, and `5m`
+- combines candle availability/freshness, structure context, authoritative S/R surfaces, Fib context, dynamic levels, and provenance
 
-3) **Viewer / Explorer** (Phase 1)
-- Small React UI wrapper around the event store
-- Table view + filters + search
-- Allows manual tagging/notes (optional)
+3) **Operator UI**
+- Streamlit inspection surface for reviewing Surveyor packet state
+- intended to make packet freshness, completeness, and traceability visible before downstream interpretation
 
-4) **Enrichment Workers** (Phase 2)
-- Pull additional context (e.g., price candles, funding, volatility proxies)
-- Produce derived metrics (MFE/MAE over time windows, etc.)
-
-5) **Strategy Evaluator** (Phase 2)
-- Runs hypothetical rules on historical events
-- Outputs reports: hit rate, expectancy, sensitivity to fee/slippage assumptions
-
-6) **Execution Bot** (Phase 3 / intentionally separate)
-- Separate container/process with explicit isolation boundaries
-- Consumes only signed/validated “TradeIntents”
-- Enforces:
-  - max risk per trade (e.g., 1%)
-  - daily loss cap (halt until next day)
-  - max position / max leverage
-  - circuit breakers (stale price feed, abnormal slippage, infra issues)
+4) **Arbiter (next boundary)**
+- future explicit interpretation layer that consumes Surveyor output
+- responsible for deciding whether the evidence is strong enough for watch/reject/candidate flows
 
 ### Separation of concerns
 
-- **Analytics engine:** safe, no keys, no trading endpoints.
-- **Execution bot:** dangerous, isolated, least privilege.
+- **Surveyor:** descriptive only
+- **Arbiter:** interpretation / decision logic
+- **Execution:** intentionally downstream and separate
 
 ---
 
-## MVP scope (Phase 1)
+## Current scope
 
-### What it does
+### What the repo is actively optimizing for now
 
-- Listen for Telegram messages (Mobchart Liquidity Screener notifications)
-- Store:
-  - raw message text
-  - message metadata (chat, message id, timestamp)
-  - parsed fields when possible (symbol, side, level price, size, distance, etc.)
-- Provide a UI to browse and export the event stream
+- canonical OHLCV ingestion
+- deterministic market-state packet assembly
+- operator-facing packet inspection
+- robust replay / simulation / backtesting on top of the canonical packet
 
-### What it explicitly does *not* do
+### What is no longer the primary repo identity
 
-- No order placement
-- No wallets / keys
-- No exchange/perps connectivity
-- No “auto trade” or “auto TP/SL”
+- Telegram/Mobchart ingestion as the center of the system
+- paper-trading runtime behavior as the center of the system
+- TradingView automation as the center of the system
+
+Those surfaces may still remain temporarily for reference or migration, but they are no longer the headline architecture.
 
 ---
 

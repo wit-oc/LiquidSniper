@@ -1,6 +1,10 @@
 # LiquidSniper Architecture
 
-This doc expands the README into a more explicit system design.
+> Legacy note: this document reflects an older repo identity centered on signal ingestion and earlier MVP boundaries. For the current Surveyor / Arbiter direction, start with:
+> - `docs/INTRADAY_REVISIT_SURVEYOR_ARBITER_ARCHITECTURE_V1.md`
+> - `docs/SURVEYOR_ARBITER_REPO_REFOCUS_PLAN_2026-04-19.md`
+
+This doc expands the older README into a more explicit system design.
 
 ## Goals
 
