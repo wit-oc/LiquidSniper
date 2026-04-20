@@ -10,7 +10,7 @@ Scope: paper/simulation decisioning vocabulary only (no live-execution authority
 This glossary standardizes trading-strategy terms used across:
 - `docs/TRADING_STRATEGY_RUNBOOK_V1.md`
 - `docs/HTF_ANCHOR_PROFILE_CONTRACT_V1.md`
-- `docs/HYBRID_CONFLUENCE_PIPELINE_SPEC.md`
+- `docs/archive/2026-04-19-first-archive-pass/telegram-mobchart/HYBRID_CONFLUENCE_PIPELINE_SPEC.md`
 - `docs/TASK14_15_HTF_SCORE_PAYLOAD_MAPPING.md`
 
 Use these definitions in code, tests, fixtures, and operator notes to keep decisions deterministic and replay-safe.

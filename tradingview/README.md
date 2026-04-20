@@ -1,5 +1,8 @@
 # LiquidSniper TradingView Foundation
 
+> Legacy surface: this folder is retained for now because some tooling and historical parity work still point at it, but it is no longer part of the primary Surveyor / Arbiter repo center.
+> Current status reference: `docs/LEGACY_SURFACES_STATUS_2026-04-19.md`
+
 This folder is the PineScript branch-out for LiquidSniper.
 
 ## Structure
@@ -25,7 +28,7 @@ This is a deterministic **phase-2 parity baseline**:
 - Score equation, secondary-hit model, profile TF mapping, and chop soft/hard penalty now mirror bot logic closely.
 - Remaining gaps (SR-zone DB parity, throttle/idempotency parity) are documented explicitly.
 
-See `docs/TRADINGVIEW_PINE_IMPLEMENTATION_GUIDE.md` for full details.
+See `docs/archive/2026-04-19-first-archive-pass/tradingview/TRADINGVIEW_PINE_IMPLEMENTATION_GUIDE.md` for full historical details.
 
 ## Release Notes
 
@@ -35,9 +38,9 @@ See `docs/TRADINGVIEW_PINE_IMPLEMENTATION_GUIDE.md` for full details.
   - `strategy/liquidsniper_confluence_strategy_v1_fidelity.pine`
 - v1 emphasizes Foxian-aligned behavior: confluence stack scoring, swing-based BoS/CHoCH proxy, first-retest gating, and anti-chop filtering.
 - Added validation/governance docs:
-  - `docs/TRADINGVIEW_MENTORSHIP_FIDELITY_MAPPING_V1.md`
-  - `docs/TRADINGVIEW_V0_RETIREMENT_CRITERIA.md`
-  - `docs/TRADINGVIEW_V1_TEST_CHECKLIST.md`
+  - `docs/archive/2026-04-19-first-archive-pass/tradingview/TRADINGVIEW_MENTORSHIP_FIDELITY_MAPPING_V1.md`
+  - `docs/archive/2026-04-19-first-archive-pass/tradingview/TRADINGVIEW_V0_RETIREMENT_CRITERIA.md`
+  - `docs/archive/2026-04-19-first-archive-pass/tradingview/TRADINGVIEW_V1_TEST_CHECKLIST.md`
 
 ### v1.1 risk-sizing update
 - Strategy now supports `sizing_mode` with legacy `percent_of_equity` and new `risk_based` sizing.

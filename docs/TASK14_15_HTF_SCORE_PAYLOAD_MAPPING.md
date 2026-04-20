@@ -60,7 +60,7 @@ Apply in strict order:
    - `deny` => `watch_only` (never promote).
    - `degrade` => max tier capped at `publish_candidate`.
 3. **Score thresholds** from Hybrid Confluence v0.
-4. **Runbook confluence gate override** (`docs/HYBRID_CONFLUENCE_PIPELINE_SPEC.md` §4b):
+4. **Runbook confluence gate override** (`docs/archive/2026-04-19-first-archive-pass/telegram-mobchart/HYBRID_CONFLUENCE_PIPELINE_SPEC.md` §4b):
    - missing primary confluences => `watch_only` regardless of score.
 
 ## Output payload contract (score engine egress)

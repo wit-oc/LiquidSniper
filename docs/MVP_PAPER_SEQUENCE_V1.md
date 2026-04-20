@@ -22,27 +22,27 @@ For this sequence, MVP paper means:
 ## A) Architecture / safety references
 
 - `docs/ARCHITECTURE.md`
-- `docs/MVP.md`
-- `docs/MVP_ARCHITECTURE_DECISIONS.md`
+- `docs/archive/2026-04-19-first-archive-pass/telegram-mobchart/MVP.md`
+- `docs/archive/2026-04-19-first-archive-pass/telegram-mobchart/MVP_ARCHITECTURE_DECISIONS.md`
 - `docs/FEASIBILITY_AND_KILL_CRITERIA.md`
 - `docs/trusted_trading_core_v0.md` (workspace-level, outside repo)
 - `initiatives/artifacts/blofin-onchain-trading-bot-proposal-v1.md` (workspace-level, outside repo)
 
 ## B) Pipeline / runtime references
 
-- `docs/HYBRID_CONFLUENCE_PIPELINE_SPEC.md`
+- `docs/archive/2026-04-19-first-archive-pass/telegram-mobchart/HYBRID_CONFLUENCE_PIPELINE_SPEC.md`
 - `docs/PHASE2_CONFLUENCE_RESEARCH_SPEC.md`
 - `docs/DATA_FEED_STRATEGY_V1.md`
 - `docs/OPENCLAW_ORCHESTRATION.md`
-- `docs/TRADINGVIEW_ADAPTER_CONTRACT.md`
-- `docs/SIGNAL_DELIVERY_AND_DRYRUN.md`
-- `docs/GO_NO_GO_CHECKLIST.md`
+- `docs/archive/2026-04-19-first-archive-pass/tradingview/TRADINGVIEW_ADAPTER_CONTRACT.md`
+- `docs/archive/2026-04-19-first-archive-pass/paper-runtime/SIGNAL_DELIVERY_AND_DRYRUN.md`
+- `docs/archive/2026-04-19-first-archive-pass/paper-runtime/GO_NO_GO_CHECKLIST.md`
 
 ## C) Strategy + alignment references
 
 - `docs/TRADING_STRATEGY_RUNBOOK_V1.md`
-- `docs/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md`
-- `docs/EXECUTION_CORE_COMMAND_CONTRACT_V1.md`
+- `docs/archive/2026-04-19-first-archive-pass/paper-runtime/AUTOMATED_TRADING_AGENT_ALIGNMENT_V1.md`
+- `docs/archive/2026-04-19-first-archive-pass/paper-runtime/EXECUTION_CORE_COMMAND_CONTRACT_V1.md`
 
 ## D) Task contracts
 
@@ -87,7 +87,7 @@ This matrix is the canonical baseline for sequence execution in this document an
 
 1. Re-run integration sanity suite on Python 3.11 baseline.
 2. Reconfirm local quality gate and compose reproducibility.
-3. Update `docs/GO_NO_GO_CHECKLIST.md` with current status evidence.
+3. Update `docs/archive/2026-04-19-first-archive-pass/paper-runtime/GO_NO_GO_CHECKLIST.md` with current status evidence.
 
 Why first: avoids building strategy logic on unstable runtime assumptions.
 

@@ -116,7 +116,7 @@ Add explicit regime-permission gate from anchor profile context before promotion
 - TP1 promotion to `stop_state=be` reduces active-risk usage without forcing immediate close.
 - Keep hard guardrails from:
   - `docs/FEASIBILITY_AND_KILL_CRITERIA.md`
-  - `docs/GO_NO_GO_CHECKLIST.md`
+  - `docs/archive/2026-04-19-first-archive-pass/paper-runtime/GO_NO_GO_CHECKLIST.md`
 
 ---
 
