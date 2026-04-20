@@ -1,0 +1,36 @@
+{
+  "date_et": "2026-02-27",
+  "run_type": "day1_baseline",
+  "mode": "paper",
+  "policy_gate_order": [
+    "RISK_DAILY_LOSS_CAP_BREACH"
+  ],
+  "cycle_stats": {
+    "attempted": 1,
+    "blocked": 1,
+    "executed": 0
+  },
+  "feed_health": {
+    "heartbeat_lag_ms": null,
+    "missing_candles": 0,
+    "reconnect_count": 0
+  },
+  "pipeline_counts": {
+    "intents_generated": 0,
+    "intents_filtered": 0,
+    "intents_accepted": 0
+  },
+  "errors_by_class": {
+    "ingest": 0,
+    "policy": 0,
+    "execution": 0
+  },
+  "circuit_breakers": [],
+  "status": "GO",
+  "notes": "Day-1 baseline seeded from current paper runner health + tuning baseline artifacts; no kill criteria observed.",
+  "evidence_sources": [
+    "artifacts/paper_mvp/state/paper_runner.health.json",
+    "artifacts/paper_mvp/tuning_baseline_2026-02-24.json"
+  ],
+  "next_step": "Collect T+60m checkpoint with fresh telemetry fields and append to SOAK_LOG."
+}

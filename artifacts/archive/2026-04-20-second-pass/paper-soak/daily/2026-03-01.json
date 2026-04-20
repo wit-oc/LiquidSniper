@@ -1,0 +1,42 @@
+{
+  "date_et": "2026-03-01",
+  "run_type": "day3_append",
+  "mode": "paper",
+  "policy_gate_order": [
+    "RISK_DAILY_LOSS_CAP_BREACH"
+  ],
+  "cycle_stats": {
+    "attempted": 7,
+    "blocked": 7,
+    "executed": 0,
+    "skipped_preclose": 0
+  },
+  "feed_health": {
+    "freshness_pct": null,
+    "gap_rate": null,
+    "rate_limit_rate": null,
+    "telemetry_updated_at_utc": "2026-02-28T15:00:49.205207+00:00",
+    "telemetry_age_minutes": 1379,
+    "telemetry_stale_over_10m": true
+  },
+  "pipeline_counts": {
+    "intents_generated": null,
+    "intents_filtered": null,
+    "intents_accepted": null
+  },
+  "errors_by_class": {
+    "ingest": null,
+    "policy": null,
+    "execution": null
+  },
+  "circuit_breakers": [],
+  "status": "HOLD",
+  "notes": "Day-3 checkpoint shows core runner telemetry is stale (last update 2026-02-28T15:00:49Z; age 1379 minutes at 2026-03-01 10:00 ET), which triggers protocol kill criterion #3 (missing core telemetry >10m). No live paths were touched; fail-closed HOLD applied.",
+  "evidence_sources": [
+    "artifacts/paper_mvp/state/paper_runner.health.json",
+    "artifacts/paper_soak/daily/2026-02-27.json",
+    "artifacts/paper_soak/daily/2026-02-28.json",
+    "docs/PAPER_SOAK_PROTOCOL_V1.md"
+  ],
+  "next_step": "Restore fresh paper runner telemetry, then rerun daily soak append to re-evaluate GO/HOLD status with same schema."
+}

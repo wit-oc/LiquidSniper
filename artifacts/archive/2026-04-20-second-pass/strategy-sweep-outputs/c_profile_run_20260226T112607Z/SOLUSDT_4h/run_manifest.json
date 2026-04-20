@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-02-26T11:36:07.639113+00:00",
+  "data": "/Users/wit/.openclaw/workspace/LiquidSniper/tools/strategy_sweep/data/sweep_window/SOLUSDT_4h.csv",
+  "profiles": [
+    "C",
+    "I",
+    "S"
+  ],
+  "samples": 80,
+  "seed": 42
+}

@@ -1,6 +1,8 @@
 # Strategy Sweep (Pine v1 scaffold)
 
-This folder ports the **high-level LiquidSniper Pine strategy v1 structure** into Python to run parameter sweeps before pushing shortlisted settings back to TradingView.
+This folder is a **legacy, path-stable sweep surface** retained during the Surveyor / Arbiter repo refocus.
+
+It still ports the high-level LiquidSniper Pine strategy v1 structure into Python to run parameter sweeps before pushing shortlisted settings back to TradingView, but it is no longer part of the primary repo center.
 
 ## Scope / fidelity
 
@@ -48,5 +50,10 @@ Outputs:
 - `leaderboard_S.csv`
 - `tv_shortlist.csv`
 - `run_manifest.json`
+
+Historical generated outputs from the earlier TradingView-focused phase were archived to:
+- `artifacts/archive/2026-04-20-second-pass/strategy-sweep-outputs/`
+
+New outputs can still be written to `tools/strategy_sweep/outputs/`.
 
 See `examples/` for quick commands and sample config.
