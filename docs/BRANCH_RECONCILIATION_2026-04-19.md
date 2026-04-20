@@ -5,7 +5,7 @@ Base: `origin/main` at `73538ee`
 
 This note records the branch state after the Surveyor checkpoint merge and the start of the repo-refocus pass.
 
-During this pass, the obviously merged local branches were deleted, and the matching merged remotes were pruned where they still existed. The remaining branch list below is the part that still needs deliberate treatment.
+During this pass, the obviously merged local branches were deleted, the matching merged remotes were pruned where they still existed, the stale one-commit branches were reviewed and pruned, and the extra worktree tied to the merged paper-runtime branch was removed. The notes below record what was triaged and why.
 
 ---
 
@@ -45,8 +45,8 @@ Note:
 
 ## 2) Not merged into `main`, but only one unique commit ahead
 
-These branches each show exactly one commit not present on `main`.
-They should not be treated as active lanes by default, but they are worth a quick human glance before deletion.
+These branches each showed exactly one commit not present on `main` at review time.
+They were treated as historical artifacts, not active lanes.
 
 ### `chore/lane-cleanup-task18-closeout`
 - unique commit: `14193fd`
@@ -63,22 +63,23 @@ They should not be treated as active lanes by default, but they are worth a quic
 - subject: `Add hybrid confluence pipeline spec with OpenClaw + TV artifact model`
 - upstream remote: still exists
 
-Recommendation:
-- inspect these as historical artifacts, not active product branches
-- if the single unique commit is still useful, preserve it by moving the relevant doc/change into `docs/archive/` or another explicit archive surface
-- otherwise delete the branch after confirmation
+Outcome:
+- `task-03-mobchart-parser`: preserved as archived doc material under `docs/archive/2026-04-19-branch-salvage/`, then deleted
+- `feat/sr-engine-v2-initiative-plan`: no active content preserved beyond summary notes, then deleted
+- `chore/lane-cleanup-task18-closeout`: no active content preserved beyond summary notes, then deleted
 
 ---
 
 ## 3) Practical next actions
 
-Recommended cleanup order:
+Cleanup actions completed in this pass:
 
-1. Delete merged local branches that are no longer needed
-2. Remove merged remote branches that no longer provide value
-3. Review the three one-commit branches above
-4. Preserve any still-useful historical content in archive docs, not active product lanes
-5. Clean up the extra worktree tied to `feat/paper-runtime-controls-thread`
+1. Deleted merged local branches that were no longer needed
+2. Removed merged remote branches that no longer provided value
+3. Reviewed the three one-commit branches above
+4. Preserved the only worth-keeping historical doc in `docs/archive/2026-04-19-branch-salvage/`
+5. Cleaned up the extra worktree tied to `feat/paper-runtime-controls-thread`
+6. Deleted the merged `feat/paper-runtime-controls-thread` branch after worktree cleanup
 
 ---
 
@@ -86,6 +87,10 @@ Recommended cleanup order:
 
 The repo is being refocused around Surveyor and Arbiter.
 Branch hygiene should follow that same rule.
+
+Current result after cleanup:
+- active local branches: `main`, `chore/surveyor-arbiter-repo-refocus`
+- active remote branches: `origin/main`, `origin/chore/surveyor-arbiter-repo-refocus`
 
 If a branch does not represent:
 - active Surveyor work,
