@@ -48,11 +48,15 @@ These are not part of the desired long-term center, but moving them now would cr
 
 ### `liquidsniper/ingestor/`
 Why still in place:
-- ingest code still exists
 - migrations and parser/test surfaces still reference the Telegram-era origin
+- existing entrypoints still targeted this package path during the second pass
 
-Current posture:
+Current posture during pass 2:
 - legacy, non-core, path-stable for now
+
+Update after pass 3:
+- implementation moved to `legacy/telegram_ingestor/`
+- `liquidsniper/ingestor/` now remains only as a compatibility shim
 
 ### `tradingview/`
 Why still in place:
@@ -128,11 +132,10 @@ Reason:
 
 The next cleanup pass should focus on **code relocation or deletion**, not more docs.
 
-Priority order:
-1. `liquidsniper/ingestor/`
-2. `tradingview/`
-3. `tools/strategy_sweep/`
-4. paper-runtime modules under `liquidsniper/core`, `liquidsniper/ops`, `liquidsniper/debug`
+Priority order after the first pass-3 relocation:
+1. `tradingview/`
+2. `tools/strategy_sweep/`
+3. paper-runtime modules under `liquidsniper/core`, `liquidsniper/ops`, `liquidsniper/debug`
 
 That pass should decide, directory by directory:
 - keep
