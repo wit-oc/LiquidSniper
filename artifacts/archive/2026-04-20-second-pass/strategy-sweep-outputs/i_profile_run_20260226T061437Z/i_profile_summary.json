@@ -1,0 +1,6 @@
+{
+  "run_dir": "tools/strategy_sweep/outputs/i_profile_run_20260226T061437Z",
+  "rows": 720,
+  "dd_guardrail": 0.35,
+  "shortlist_rows": 25
+}

@@ -1,7 +1,7 @@
 # Legacy Surfaces Status
 
-Date: 2026-04-19  
-Status: path-stable legacy surfaces kept in place during the first archive pass
+Date: 2026-04-19, updated 2026-04-20  
+Status: path-stable legacy surfaces identified in the first archive pass, with selective artifact cleanup completed in the second pass
 
 This note explains which non-core surfaces are still present in the repo even after the first archive PR, and why they were not moved yet.
 
@@ -64,27 +64,44 @@ Still referenced by:
 - multiple tests and runbooks
 
 ### `artifacts/paper_soak/`
-Still retained as historical paper-run evidence.
+Historical-only paper-run evidence.
+
+Update on 2026-04-20:
+- moved to `artifacts/archive/2026-04-20-second-pass/paper-soak/`
+- no live code-path dependency was kept on the original location
 
 ### `artifacts/tradingview/`
 Still referenced by:
 - TradingView snapshot/bootstrap tools
 - TV artifact helpers/tests
 
+Why still present:
+- live helper/test/tool paths still point here directly
+
 ### `artifacts/validation/`
 Still referenced by:
 - validation sweep tooling and related runbooks
 
+Why still present:
+- current tooling defaults still write here
+
 ---
 
-## What happened in the first archive pass
+## What happened across the first and second archive passes
 
+### First archive pass
 Moved out of top-level `docs/`:
 - Telegram/Mobchart legacy docs
 - paper-runtime legacy docs
 - TradingView legacy docs
 
-Left in place for later migration:
+### Second archive pass
+Archived selected artifact surfaces that were safe to move without breaking path-coupled code:
+- `artifacts/paper_soak/` -> `artifacts/archive/2026-04-20-second-pass/paper-soak/`
+- historical `tools/strategy_sweep/outputs/*` -> `artifacts/archive/2026-04-20-second-pass/strategy-sweep-outputs/`
+- top-level historical artifact notes -> `artifacts/archive/2026-04-20-second-pass/legacy-notes/`
+
+Still left in place for later migration:
 - legacy code dirs
 - legacy artifact dirs with live path references
 
@@ -92,10 +109,11 @@ Left in place for later migration:
 
 ## Recommended next migration pass
 
-A later code/artifact cleanup pass should:
+A later code cleanup pass should:
 1. inventory direct path dependencies in code/tests/tools
 2. decide which legacy code remains worth keeping at all
 3. either:
    - move those surfaces under explicit `legacy/` or `archive/` paths and update references, or
    - delete them if no longer justified
 4. keep Surveyor / Arbiter imports and UI/feed paths green throughout
+5. start with `liquidsniper/ingestor/`, `tradingview/`, `tools/strategy_sweep/`, and paper-runtime modules

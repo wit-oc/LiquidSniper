@@ -1,0 +1,6 @@
+rank,dataset,net_pnl,pf,max_dd,win_rate,structure_swing_len,retest_window_bars,retest_bps,chop_ci_max,chop_adx_min,trigger_score,rr_target,be_enabled,be_trigger_r,be_offset_pct,cooldown_bars,sizing_mode,risk_pct_low_conf,risk_pct_high_conf,high_conf_score_threshold
+1,ETHUSDT_4h,9376.406049091645,7.795297693855504,0.05000000000000003,0.7894736842105263,2,33,28.0,60.0,18.0,6.8,1.8,1,1.2,0.05,5,risk_based,0.8,5.0,7.8
+2,ETHUSDT_4h,7352.660672339309,4.419693635268772,0.0706298316065901,0.8,2,36,12.0,58.0,16.0,7.4,1.8,1,1.0,0.05,3,risk_based,1.4,4.5,7.8
+3,ETHUSDT_4h,6751.125707234576,7.139351258812323,0.04000000000000007,0.8125,2,33,28.0,62.0,24.0,7.0,2.0,1,1.2,0.0,2,risk_based,1.8,4.0,8.0
+4,ETHUSDT_4h,5750.501316815587,4.940421205620315,0.04739458611471276,0.8,2,33,14.0,58.0,20.0,7.8,1.8,1,1.0,0.05,3,risk_based,1.6,3.5,8.0
+5,ETHUSDT_4h,5708.000782473582,7.978923861280621,0.04,0.875,2,30,22.0,64.0,14.0,7.0,2.2,1,1.2,0.05,2,risk_based,1.0,4.0,7.8

@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-02-26T06:16:29.890667+00:00",
+  "data": "/Users/wit/.openclaw/workspace/LiquidSniper/tools/strategy_sweep/data/sweep_window/ETHUSDT_15m.csv",
+  "profiles": [
+    "C",
+    "I",
+    "S"
+  ],
+  "samples": 80,
+  "seed": 42
+}

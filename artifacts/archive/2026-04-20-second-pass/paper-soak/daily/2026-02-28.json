@@ -1,0 +1,42 @@
+{
+  "date_et": "2026-02-28",
+  "run_type": "day2_append",
+  "mode": "paper",
+  "policy_gate_order": [
+    "RISK_DAILY_LOSS_CAP_BREACH"
+  ],
+  "cycle_stats": {
+    "attempted": 7,
+    "blocked": 7,
+    "executed": 0,
+    "skipped_preclose": 0
+  },
+  "feed_health": {
+    "freshness_pct": 1.0,
+    "gap_rate": 0.0,
+    "rate_limit_rate": 0.0,
+    "feed_state_distribution": {
+      "ok": 427
+    },
+    "feed_reason_distribution": {}
+  },
+  "pipeline_counts": {
+    "intents_generated": 427,
+    "intents_filtered": 427,
+    "intents_accepted": 0
+  },
+  "errors_by_class": {
+    "ingest": 0,
+    "policy": 0,
+    "execution": 0
+  },
+  "circuit_breakers": [],
+  "status": "GO",
+  "notes": "Day-2 append captured from fresh 2026-02-28 runner + scorecard telemetry. No protocol kill criteria observed; drift check vs 2026-02-27 baseline shows mode remained paper, telemetry present, and no breaker/order regressions detected.",
+  "evidence_sources": [
+    "artifacts/paper_mvp/state/paper_runner.health.json",
+    "artifacts/paper_mvp/daily/2026-02-28.json",
+    "artifacts/paper_soak/daily/2026-02-27.json"
+  ],
+  "next_step": "Capture the next daily checkpoint artifact and monitor reject-reason trend for non-escalation over the rolling 3-day window."
+}
