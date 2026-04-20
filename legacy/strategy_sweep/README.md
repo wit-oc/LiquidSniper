@@ -1,6 +1,12 @@
 # Strategy Sweep (Pine v1 scaffold)
 
-This folder is a **legacy, path-stable sweep surface** retained during the Surveyor / Arbiter repo refocus.
+This folder is a **legacy sweep surface** retained during the Surveyor / Arbiter repo refocus.
+
+Canonical legacy home as of 2026-04-20:
+- `legacy/strategy_sweep/`
+
+Compatibility path retained:
+- `tools/strategy_sweep/` via symlink
 
 It still ports the high-level LiquidSniper Pine strategy v1 structure into Python to run parameter sweeps before pushing shortlisted settings back to TradingView, but it is no longer part of the primary repo center.
 

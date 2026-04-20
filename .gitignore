@@ -18,6 +18,8 @@ build/
 # LiquidSniper local sweep artifacts
 /tools/strategy_sweep/data/
 /tools/strategy_sweep/outputs/*/
+/legacy/strategy_sweep/data/
+/legacy/strategy_sweep/outputs/*/
 
 # OS
 .DS_Store
