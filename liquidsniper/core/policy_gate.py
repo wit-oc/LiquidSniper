@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-import os
 from typing import Any
 from uuid import UUID
 
@@ -28,7 +27,7 @@ class PolicyGateValidationError(ValueError):
 
 
 TRADE_INTENT_ENUMS = {
-    "mode": {"paper", "live"},
+    "mode": {"live"},
     "venue": {"blofin", "onchain"},
     "side": {"buy", "sell"},
     "order_type": {"market", "limit"},
@@ -38,8 +37,6 @@ TRADE_INTENT_ENUMS = {
 EXECUTION_RESULT_ENUMS = {
     "status": {"accepted", "rejected", "filled", "partial", "failed"},
 }
-
-PAPER_STRATEGIES = {"scalp", "intraday", "swing"}
 
 
 @dataclass(frozen=True)
@@ -119,12 +116,6 @@ def validate_trade_intent(payload: dict[str, Any]) -> ValidationResult:
         raise PolicyGateValidationError("NEGATIVE_VALUE", "max_slippage_bps must be >= 0")
     if not normalized["strategy_id"]:
         raise PolicyGateValidationError("STRATEGY_REQUIRED", "strategy_id is required")
-    if normalized["mode"] == "paper" and normalized["strategy_id"] not in PAPER_STRATEGIES:
-        allow_fallback = os.getenv("LIQUIDSNIPER_ALLOW_LEGACY_STRATEGY_FALLBACK", "false").strip().lower() in {"1", "true", "yes"}
-        if allow_fallback:
-            normalized["strategy_id"] = "intraday"
-        else:
-            raise PolicyGateValidationError("INVALID_STRATEGY", "paper mode requires scalp|intraday|swing strategy")
 
     return ValidationResult(valid=True, normalized=normalized)
 

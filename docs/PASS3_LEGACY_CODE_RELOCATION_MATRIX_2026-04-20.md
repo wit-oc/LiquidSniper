@@ -80,6 +80,6 @@ No delete happened in this pass because the remaining candidates are still too p
    - a separate repo/tooling package,
    - a frozen archive,
    - or be retired outright
-2. follow up on smaller residual paper assumptions in otherwise-generic files like `policy_gate.py`
+2. follow up on mixed historical docs and any remaining paper-era wording that no longer matches the active repo surface
 
 The key rule remains: do not break Surveyor UI/feed paths just to make the tree prettier.

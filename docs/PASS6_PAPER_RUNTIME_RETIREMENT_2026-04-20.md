@@ -56,7 +56,7 @@ Reason:
 These were **not** deleted in this pass because they are broader than the paper-runtime experiment or may still be useful outside it:
 
 - `liquidsniper/core/policy_gate.py`
-  - generic trade-intent validation, though it still contains paper-mode assumptions
+  - generic trade-intent validation, later tightened so only `mode=live` is recognized at the schema layer
 - `liquidsniper/core/signal_delivery.py`
   - generic payload-rendering utility, not paper-runtime-specific by itself
 - mixed historical docs that mention paper outputs but are not themselves the runtime surface
@@ -66,7 +66,7 @@ These were **not** deleted in this pass because they are broader than the paper-
 ## Keep / move / delete judgment
 
 ### Keep
-- `policy_gate.py` for now, pending a later cleanup of paper-specific enum logic
+- `policy_gate.py`
 - `signal_delivery.py`
 
 ### Move
@@ -82,6 +82,5 @@ These were **not** deleted in this pass because they are broader than the paper-
 ## Next follow-up
 
 The remaining cleanup is smaller and more semantic than structural:
-1. remove paper-specific assumptions from `policy_gate.py` if we no longer want `mode=paper` recognized there
-2. optionally archive or prune mixed historical docs that still reference retired paper outputs
-3. after that, reassess whether the repo rename can finally happen without lying
+1. optionally archive or prune mixed historical docs that still reference retired paper outputs
+2. reassess whether the repo rename can finally happen without lying
