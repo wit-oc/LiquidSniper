@@ -47,9 +47,15 @@ Why this was the right first move:
   - canonical implementation home: `legacy/telegram_ingestor/`
   - compatibility shim left at: `liquidsniper/ingestor/`
 
+### Relocated to explicit legacy now
+- Telegram / Mobchart ingestor implementation
+  - canonical implementation home: `legacy/telegram_ingestor/`
+  - compatibility shim left at: `liquidsniper/ingestor/`
+- TradingView surface
+  - canonical implementation home: `legacy/tradingview/`
+  - compatibility kept through repo-root symlink `tradingview -> legacy/tradingview`
+
 ### Keep path-stable for a later relocation pass
-- `tradingview/`
-  - still tied to snapshot/export scripts, result scoring, and historical operator surfaces
 - `tools/strategy_sweep/`
   - still imported directly by tests and still used as the default script/output path
 - paper-runtime modules under `liquidsniper/core`, `liquidsniper/ops`, `liquidsniper/debug`
@@ -67,12 +73,11 @@ No delete happened in this pass because the remaining candidates are still too p
 
 ## Recommended next pass
 
-1. move `tradingview/` into an explicit `legacy/` home using the same shim pattern where needed
-2. decide whether `tools/strategy_sweep/` should become:
+1. decide whether `tools/strategy_sweep/` should become:
    - a fully legacy home,
    - a separate repo/tooling package,
    - or be retired outright
-3. split paper-runtime surfaces into:
+2. split paper-runtime surfaces into:
    - retained reusable primitives
    - operator-only legacy surfaces
    - delete candidates

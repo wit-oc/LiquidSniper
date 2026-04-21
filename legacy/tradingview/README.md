@@ -2,6 +2,7 @@
 
 > Legacy surface: this folder is retained for now because some tooling and historical parity work still point at it, but it is no longer part of the primary Surveyor / Arbiter repo center.
 > Current status reference: `docs/LEGACY_SURFACES_STATUS_2026-04-19.md`
+> Canonical legacy home as of 2026-04-20: `legacy/tradingview/` with compatibility symlink retained at repo-root `tradingview/`.
 
 This folder is the PineScript branch-out for LiquidSniper.
 
