@@ -1,0 +1,39 @@
+{
+  "accepted": 1,
+  "executed": 1,
+  "expectancy_r": null,
+  "feed_health": {
+    "feed_reason_distribution": {},
+    "feed_state_distribution": {},
+    "freshness_pct": 0.0,
+    "gap_rate": 0.0,
+    "rate_limit_rate": 0.0
+  },
+  "posture": {
+    "rationale": "Readiness constraints remain; continue paper operations.",
+    "recommendation": "HOLD",
+    "top_blockers": [
+      {
+        "code": "FEED_INSTABILITY",
+        "count": 1,
+        "detail": "freshness_pct=0.0"
+      },
+      {
+        "code": "NON_POSITIVE_EXPECTANCY",
+        "count": 1
+      },
+      {
+        "code": "SAMPLE_TOO_SMALL",
+        "count": 1,
+        "detail": "runs=1,executed=1"
+      }
+    ],
+    "top_opportunities": []
+  },
+  "profit_factor": null,
+  "reject_reason_distribution": {},
+  "rejected": 0,
+  "runs_total": 1,
+  "week": "2026-W08",
+  "win_rate": null
+}

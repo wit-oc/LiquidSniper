@@ -1,0 +1,55 @@
+{
+  "anchor_profile_id": null,
+  "canonical_trace_id": "smoke-paper",
+  "decision_reason_codes": [],
+  "decision_tier": null,
+  "direction": "buy",
+  "entry": 2012.5,
+  "execution_decision": "executed",
+  "exit_reason": null,
+  "feed_reason_codes": [],
+  "feed_state": null,
+  "htf_anchor_tf": null,
+  "max_adverse_excursion_r": null,
+  "max_favorable_excursion_r": null,
+  "pnl_pct": null,
+  "pnl_r": null,
+  "policy_version": "v1",
+  "proposal_decision": "accepted",
+  "risk_pct_allowed": null,
+  "risk_pct_requested": null,
+  "rulebook_ref": "TRADING_STRATEGY_PLAYBOOK_V1",
+  "run_id": "smoke-paper",
+  "score_gate_passed": false,
+  "score_total": null,
+  "stop_loss_initial": 1978.0,
+  "stop_policy": {
+    "break_even_price": 2012.5,
+    "move_to_break_even_on_tp1": true,
+    "post_tp1_trailing": "disabled_by_default"
+  },
+  "symbol": "ETHUSDT",
+  "timestamp": "2026-02-19T23:51:33.366992+00:00",
+  "tp_events": [],
+  "tp_levels": [
+    2060.0,
+    2125.0,
+    2190.0
+  ],
+  "tp_plan": [
+    {
+      "level": 2060.0,
+      "size_pct": 0.4
+    },
+    {
+      "level": 2125.0,
+      "size_pct": 0.35
+    },
+    {
+      "level": 2190.0,
+      "size_pct": 0.25
+    }
+  ],
+  "trigger_influence": null,
+  "trigger_trace_id": null
+}

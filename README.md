@@ -13,7 +13,7 @@ The current active goal is to:
 - inspect that packet in an operator UI,
 - and use that packet for replay / simulation / backtesting.
 
-> Important: older LiquidSniper surfaces still exist in the repo during cleanup, including ingestion, paper-runtime, and TradingView-heavy lanes. Treat those as **legacy / in refactor**, not the primary product identity.
+> Important: older LiquidSniper surfaces still exist in the repo during cleanup, including ingestion and TradingView-heavy lanes. The experimental paper-runtime stack was retired on 2026-04-20. Treat remaining non-core lanes as **legacy / in refactor**, not the primary product identity.
 
 Primary architecture references:
 - `docs/INTRADAY_REVISIT_SURVEYOR_ARBITER_ARCHITECTURE_V1.md`

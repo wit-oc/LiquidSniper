@@ -1,7 +1,7 @@
 # Legacy Surfaces Status
 
 Date: 2026-04-19, updated 2026-04-20  
-Status: path-stable legacy surfaces identified in the first archive pass, selective artifact cleanup completed in the second pass, and code relocations completed in passes 3 through 5
+Status: path-stable legacy surfaces identified in the first archive pass, selective artifact cleanup completed in the second pass, code relocations completed in passes 3 through 5, and the experimental paper-runtime stack retired in pass 6
 
 This note explains which non-core surfaces are still present in the repo even after the first archive PR, and why they were not moved yet.
 
@@ -59,21 +59,27 @@ Update on 2026-04-20:
 - `tools/strategy_sweep/` remains as a compatibility symlink for existing tests, scripts, and sample commands
 
 ### Paper-runtime surfaces in `liquidsniper/core/`, `liquidsniper/ops/`, and `liquidsniper/debug/`
-Why still present:
-- tests and modules still point to paper runtime state/artifact paths
+Prior state before pass 6:
+- tests and modules still pointed to paper runtime state/artifact paths
+- paper-runtime behavior was no longer the repo’s center, even if some code remained recoverable or reference-worthy
 
-Why legacy:
-- paper-runtime behavior is no longer the repo’s center, even if some code remains recoverable or reference-worthy
+Update on 2026-04-20:
+- retired from the active repo surface in pass 6
+- executable runtime, debug API, scorecard worker, and most paper-only tests were removed instead of preserved as path-stable legacy
 
 ---
 
 ## Legacy artifact surfaces still present
 
 ### `artifacts/paper_mvp/`
-Still referenced by:
+Prior state before pass 6:
 - paper artifact helpers
 - paper daemon/debug code
 - multiple tests and runbooks
+
+Update on 2026-04-20:
+- moved to `artifacts/archive/2026-04-20-paper-runtime-retirement/paper_mvp/`
+- active path retired together with the paper runtime
 
 ### `artifacts/paper_soak/`
 Historical-only paper-run evidence.
@@ -99,7 +105,7 @@ Why still present:
 
 ---
 
-## What happened across passes 1 through 5
+## What happened across passes 1 through 6
 
 ### First archive pass
 Moved out of top-level `docs/`:
@@ -128,6 +134,12 @@ Relocated the strategy-sweep tooling into an explicit legacy home:
 - canonical home moved from `tools/strategy_sweep/` to `legacy/strategy_sweep/`
 - compatibility kept through symlink `tools/strategy_sweep -> ../legacy/strategy_sweep`
 
+### Sixth pass
+Retired the experimental paper-runtime stack:
+- removed active paper runtime/orchestration/debug/config surfaces
+- removed paper-only tests and live operator targets
+- moved tracked `artifacts/paper_mvp/` evidence into `artifacts/archive/2026-04-20-paper-runtime-retirement/paper_mvp/`
+
 Still left in place for later migration:
 - legacy code dirs
 - legacy artifact dirs with live path references
@@ -143,4 +155,4 @@ A later code cleanup pass should:
    - move those surfaces under explicit `legacy/` or `archive/` paths and update references, or
    - delete them if no longer justified
 4. keep Surveyor / Arbiter imports and UI/feed paths green throughout
-5. continue with paper-runtime modules and their artifact/state surfaces
+5. follow up on smaller semantic cleanup, mainly `policy_gate.py` paper assumptions and any mixed historical docs still pointing at retired paper outputs

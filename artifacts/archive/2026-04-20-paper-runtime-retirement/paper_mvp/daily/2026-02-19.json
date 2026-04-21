@@ -1,0 +1,19 @@
+{
+  "accepted": 1,
+  "date": "2026-02-19",
+  "executed": 1,
+  "expectancy_r": null,
+  "feed_health": {
+    "feed_reason_distribution": {},
+    "feed_state_distribution": {},
+    "freshness_pct": 0.0,
+    "gap_rate": 0.0,
+    "rate_limit_rate": 0.0
+  },
+  "profit_factor": null,
+  "reject_reason_distribution": {},
+  "rejected": 0,
+  "runs_total": 1,
+  "top_reject_reasons": [],
+  "win_rate": null
+}
