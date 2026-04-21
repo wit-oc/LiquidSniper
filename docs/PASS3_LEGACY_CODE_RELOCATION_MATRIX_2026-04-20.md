@@ -59,10 +59,12 @@ Why this was the right first move:
   - compatibility kept through symlink `tools/strategy_sweep -> ../legacy/strategy_sweep`
 
 ### Keep path-stable for a later relocation pass
-- paper-runtime modules under `liquidsniper/core`, `liquidsniper/ops`, `liquidsniper/debug`
-  - still heavily referenced by tests, helpers, and artifact persistence logic
 - `artifacts/paper_mvp/`, `artifacts/tradingview/`, `artifacts/validation/`
   - still referenced by current code or tooling defaults
+
+Update after pass 6:
+- the paper-runtime modules were not relocated, they were retired and removed from the active repo surface
+- `artifacts/paper_mvp/` was moved to `artifacts/archive/2026-04-20-paper-runtime-retirement/paper_mvp/`
 
 ### Delete candidate, but only after proof
 - duplicated or obsolete wrapper surfaces inside `tradingview/` and `tools/strategy_sweep/`
@@ -78,9 +80,6 @@ No delete happened in this pass because the remaining candidates are still too p
    - a separate repo/tooling package,
    - a frozen archive,
    - or be retired outright
-2. split paper-runtime surfaces into:
-   - retained reusable primitives
-   - operator-only legacy surfaces
-   - delete candidates
+2. follow up on smaller residual paper assumptions in otherwise-generic files like `policy_gate.py`
 
 The key rule remains: do not break Surveyor UI/feed paths just to make the tree prettier.

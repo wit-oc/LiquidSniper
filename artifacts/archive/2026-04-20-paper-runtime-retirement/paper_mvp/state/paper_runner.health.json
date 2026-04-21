@@ -1,0 +1,43 @@
+{
+  "cycle_count": 486,
+  "cycle_stats": {
+    "attempted": 7,
+    "blocked": 7,
+    "executed": 0,
+    "skipped_preclose": 0
+  },
+  "lanes": [
+    {
+      "attempted": 7,
+      "blocked": 7,
+      "executed": 0,
+      "profile_id": "I",
+      "skipped_preclose": 0,
+      "strategy": "intraday",
+      "symbols": [
+        "SOLUSDT",
+        "AVAXUSDT",
+        "XRPUSDT",
+        "SUIUSDT",
+        "LINKUSDT",
+        "BTCUSDT",
+        "ETHUSDT"
+      ]
+    }
+  ],
+  "loop_seconds": 300,
+  "mode": "paper",
+  "profile_mode": "intraday_only",
+  "service": "paper-runner",
+  "status": "ok",
+  "symbols": [
+    "SOLUSDT",
+    "AVAXUSDT",
+    "XRPUSDT",
+    "SUIUSDT",
+    "LINKUSDT",
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "updated_at": "2026-02-28T15:00:49.205207+00:00"
+}

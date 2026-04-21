@@ -1,0 +1,256 @@
+{
+  "anchor_profile_id": "I",
+  "bankroll": null,
+  "bias_snapshot": {
+    "direction": "short",
+    "mechanism": "bos_choch_confirmed",
+    "profile_id": "I"
+  },
+  "candle_timestamp": "2026-02-21T04:25:00+00:00",
+  "canonical_trace_id": "paper-20260221T042944.503181+0000-intraday-btcusdt",
+  "decision_reason_codes": [
+    "CANDLE_NOT_CLOSED",
+    "HTF_CHOP_BLOCKED",
+    "RETEST_REQUIRED",
+    "CONFLUENCE_TOO_WEAK"
+  ],
+  "decision_tier": "publish_candidate",
+  "direction": "sell",
+  "entry": 157.2549,
+  "execution_decision": "blocked",
+  "exit_reason": null,
+  "feed_reason_codes": [],
+  "feed_state": "ok",
+  "gate_checks": {
+    "bias": {
+      "actual": "short",
+      "expected": "short",
+      "mechanism": "bos_choch_confirmed",
+      "ok": true
+    },
+    "candle_close": {
+      "candle_ts": "2026-02-21T04:25:00+00:00",
+      "ok": false,
+      "required": true
+    },
+    "daily_loss_circuit": {
+      "actual_loss_usd": 0.0,
+      "max_loss_usd": 500.0,
+      "ok": true,
+      "remaining_buffer_usd": 500.0
+    },
+    "gate_trail": [
+      {
+        "ok": true,
+        "reason_code": "RISK_DAILY_LOSS_CAP_BREACH",
+        "stage": "daily_loss_circuit"
+      },
+      {
+        "ok": false,
+        "reason_code": "CANDLE_NOT_CLOSED",
+        "stage": "candle_close"
+      },
+      {
+        "ok": false,
+        "reason_code": "HTF_CHOP_BLOCKED",
+        "stage": "htf_chop"
+      },
+      {
+        "ok": true,
+        "reason_code": "BIAS_NOT_PERMITTED",
+        "stage": "bias_permission"
+      },
+      {
+        "ok": false,
+        "reason_code": "RETEST_REQUIRED",
+        "stage": "sr_retest"
+      },
+      {
+        "ok": false,
+        "reason_code": "CONFLUENCE_TOO_WEAK",
+        "stage": "secondary_confluence"
+      },
+      {
+        "ok": true,
+        "reason_code": "IDEMPOTENCY_DUPLICATE",
+        "stage": "idempotency"
+      },
+      {
+        "ok": true,
+        "reason_code": "DAILY_CAP_REACHED",
+        "stage": "daily_cap"
+      },
+      {
+        "ok": true,
+        "reason_code": "ACTIVE_RISK_CAP_REACHED",
+        "stage": "active_risk_cap"
+      },
+      {
+        "ok": true,
+        "reason_code": "COOLDOWN_ACTIVE",
+        "stage": "cooldown"
+      }
+    ],
+    "htf_chop": {
+      "actual": 61.35,
+      "max": 50.0,
+      "ok": false
+    },
+    "secondary_confluence": {
+      "actual": 1,
+      "min": 2,
+      "ok": false
+    },
+    "sr_first_retest": {
+      "actual": false,
+      "ok": false,
+      "required": true
+    },
+    "throttle": {
+      "active_risk_cap": {
+        "actual": 0,
+        "max": 2,
+        "ok": true
+      },
+      "cooldown": {
+        "elapsed_seconds": null,
+        "ok": true,
+        "seconds": 900
+      },
+      "daily_cap": {
+        "actual": 0,
+        "max": 4,
+        "ok": true
+      },
+      "idempotency": {
+        "ok": true
+      }
+    }
+  },
+  "gate_trail": [
+    {
+      "ok": true,
+      "reason_code": "RISK_DAILY_LOSS_CAP_BREACH",
+      "stage": "daily_loss_circuit"
+    },
+    {
+      "ok": false,
+      "reason_code": "CANDLE_NOT_CLOSED",
+      "stage": "candle_close"
+    },
+    {
+      "ok": false,
+      "reason_code": "HTF_CHOP_BLOCKED",
+      "stage": "htf_chop"
+    },
+    {
+      "ok": true,
+      "reason_code": "BIAS_NOT_PERMITTED",
+      "stage": "bias_permission"
+    },
+    {
+      "ok": false,
+      "reason_code": "RETEST_REQUIRED",
+      "stage": "sr_retest"
+    },
+    {
+      "ok": false,
+      "reason_code": "CONFLUENCE_TOO_WEAK",
+      "stage": "secondary_confluence"
+    },
+    {
+      "ok": true,
+      "reason_code": "IDEMPOTENCY_DUPLICATE",
+      "stage": "idempotency"
+    },
+    {
+      "ok": true,
+      "reason_code": "DAILY_CAP_REACHED",
+      "stage": "daily_cap"
+    },
+    {
+      "ok": true,
+      "reason_code": "ACTIVE_RISK_CAP_REACHED",
+      "stage": "active_risk_cap"
+    },
+    {
+      "ok": true,
+      "reason_code": "COOLDOWN_ACTIVE",
+      "stage": "cooldown"
+    }
+  ],
+  "htf_anchor_tf": "4H",
+  "max_adverse_excursion_r": null,
+  "max_favorable_excursion_r": null,
+  "pnl_pct": null,
+  "pnl_r": null,
+  "policy_snapshot": {
+    "cooldown_seconds": 900,
+    "daily_max_loss_usd": 500.0,
+    "daily_max_trades": 4,
+    "htf_anchor_tf": "4H",
+    "htf_chop_max": 50.0,
+    "itf_tf": "1H",
+    "ltf_trigger_tfs": [
+      "15m",
+      "5m"
+    ],
+    "max_active_risk_positions": 2,
+    "min_secondary_confluence_hits": 2,
+    "policy_version": "v1",
+    "profile_id": "I",
+    "require_candle_close": true,
+    "require_sr_first_retest": true
+  },
+  "policy_version": "v1",
+  "position_state_after": {
+    "active_risk_positions": 0,
+    "open_positions": 0
+  },
+  "position_state_before": {
+    "active_risk_positions": 0,
+    "open_positions": 0,
+    "promoted_position_ids": [],
+    "tp1_promotions_this_cycle": 0
+  },
+  "proposal_decision": "rejected",
+  "risk_pct_allowed": null,
+  "risk_pct_requested": null,
+  "risk_usd": 25.0,
+  "rulebook_ref": "TRADING_STRATEGY_PLAYBOOK_V1",
+  "run_id": "paper-20260221T042944.503181+0000-intraday-btcusdt",
+  "score_gate_passed": false,
+  "score_total": 5.65,
+  "sr_context": {
+    "distance_bps": 20.0,
+    "first_retest_eligible": false,
+    "nearest_htf_level": 157.5694,
+    "nearest_itf_level": 157.5694
+  },
+  "stop_loss_initial": 159.6137,
+  "stop_policy": {
+    "break_even_price": 157.2549,
+    "move_to_break_even_on_tp1": true,
+    "post_tp1_trailing": "disabled_by_default"
+  },
+  "strategy": "intraday",
+  "symbol": "BTCUSDT",
+  "timestamp": "2026-02-21T04:29:44.503181+00:00",
+  "tp_events": [],
+  "tp_levels": [
+    158.8274,
+    160.4
+  ],
+  "tp_plan": [
+    {
+      "level": 158.8274,
+      "size_pct": 0.5
+    },
+    {
+      "level": 160.4,
+      "size_pct": 0.5
+    }
+  ],
+  "trigger_influence": null,
+  "trigger_trace_id": null
+}

@@ -1,0 +1,53 @@
+{
+  "task": "17_26",
+  "artifact_version": "v1",
+  "gate_summary": {
+    "feed_lane_recommendation": "GO",
+    "promotion_blocked": false
+  },
+  "evidence": {
+    "adversarial": {
+      "pass1": {
+        "ok": true,
+        "total": 2,
+        "failures": []
+      },
+      "pass2": {
+        "ok": true,
+        "total": 2,
+        "failures": []
+      },
+      "promotion_blocked": false,
+      "reason_codes": []
+    },
+    "feed_benchmark": {
+      "benchmark_ok": true,
+      "metrics": {
+        "cycles_total": 5,
+        "coverage_rate": 1.0,
+        "freshness_rate": 1.0,
+        "gap_rate": 0.0,
+        "rate_limit_rate": 0.0,
+        "tripped_rate": 0.0,
+        "retry_outcomes": {
+          "total": 1,
+          "recovered_ok": 1
+        }
+      },
+      "replay_parity": {
+        "1D": true,
+        "1H": true,
+        "ok": true
+      },
+      "reason_codes": []
+    },
+    "recommendation": "GO",
+    "promotion_blocked": false
+  },
+  "refresh_meta": {
+    "refreshed_at_utc": "2026-02-26T15:01:59Z",
+    "source": "post-daily-loss-breaker targeted evidence refresh",
+    "targeted_pytest_bundle": "tests/test_execution_boundary_breaker_t3.py, tests/test_execution_boundary_task16.py, tests/test_paper_daemon_ops.py, tests/test_paper_daemon_smoke.py, tests/test_replay_harness.py, tests/test_replay_harness_task22.py, tests/test_adversarial_validation_task17_26.py",
+    "targeted_pytest_result": "27 passed"
+  }
+}
