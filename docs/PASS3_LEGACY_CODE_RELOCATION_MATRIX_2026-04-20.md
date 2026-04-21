@@ -54,10 +54,11 @@ Why this was the right first move:
 - TradingView surface
   - canonical implementation home: `legacy/tradingview/`
   - compatibility kept through repo-root symlink `tradingview -> legacy/tradingview`
+- Strategy sweep tooling
+  - canonical implementation home: `legacy/strategy_sweep/`
+  - compatibility kept through symlink `tools/strategy_sweep -> ../legacy/strategy_sweep`
 
 ### Keep path-stable for a later relocation pass
-- `tools/strategy_sweep/`
-  - still imported directly by tests and still used as the default script/output path
 - paper-runtime modules under `liquidsniper/core`, `liquidsniper/ops`, `liquidsniper/debug`
   - still heavily referenced by tests, helpers, and artifact persistence logic
 - `artifacts/paper_mvp/`, `artifacts/tradingview/`, `artifacts/validation/`
@@ -73,9 +74,9 @@ No delete happened in this pass because the remaining candidates are still too p
 
 ## Recommended next pass
 
-1. decide whether `tools/strategy_sweep/` should become:
-   - a fully legacy home,
+1. decide whether any of the now-relocated legacy surfaces should eventually become:
    - a separate repo/tooling package,
+   - a frozen archive,
    - or be retired outright
 2. split paper-runtime surfaces into:
    - retained reusable primitives
