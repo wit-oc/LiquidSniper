@@ -155,4 +155,4 @@ A later code cleanup pass should:
    - move those surfaces under explicit `legacy/` or `archive/` paths and update references, or
    - delete them if no longer justified
 4. keep Surveyor / Arbiter imports and UI/feed paths green throughout
-5. follow up on smaller semantic cleanup, mainly `policy_gate.py` paper assumptions and any mixed historical docs still pointing at retired paper outputs
+5. follow up on mixed historical docs and any remaining paper-era wording still pointing at retired paper outputs

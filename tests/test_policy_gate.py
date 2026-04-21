@@ -16,7 +16,7 @@ def _trade_intent(**overrides: object) -> dict[str, object]:
         "intent_id": "8e8947f4-e1f7-4d6a-b5fa-362db4f8b735",
         "ts": "2026-02-19T15:00:00Z",
         "strategy_id": "intraday",
-        "mode": "paper",
+        "mode": "live",
         "venue": "blofin",
         "symbol": "BTCUSDT",
         "side": "buy",
@@ -42,9 +42,9 @@ def test_trade_intent_validates_and_normalizes() -> None:
     ("payload", "reason_code"),
     [
         ({"mode": "oops"}, "INVALID_ENUM"),
+        ({"mode": "paper"}, "INVALID_ENUM"),
         ({"size_notional_usd": 0}, "NON_POSITIVE"),
         ({"intent_id": "bad"}, "INVALID_UUID"),
-        ({"strategy_id": "legacy-v0"}, "INVALID_STRATEGY"),
     ],
 )
 def test_trade_intent_rejections_are_deterministic(payload: dict[str, object], reason_code: str) -> None:
