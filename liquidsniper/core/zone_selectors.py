@@ -5,6 +5,9 @@ from typing import Any
 from liquidsniper.core.zone_primitives import as_float, side_aware_interaction
 
 
+DAILY_MAJOR_MIN_MEANINGFUL_TOUCHES = 3
+
+
 def zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
     return (
         float(z.get("selection_score") or z.get("strength_score") or 0.0),
@@ -421,6 +424,13 @@ def _daily_macro_interval(zone: dict[str, Any]) -> tuple[float, float, float] | 
     return low, high, mid
 
 
+def _daily_major_has_min_touch_evidence(zone: dict[str, Any]) -> bool:
+    try:
+        return int(zone.get("meaningful_touch_count") or 0) >= DAILY_MAJOR_MIN_MEANINGFUL_TOUCHES
+    except (TypeError, ValueError):
+        return False
+
+
 def _apply_daily_current_regime_coverage(
     selected: list[dict[str, Any]],
     *,
@@ -469,6 +479,8 @@ def _apply_daily_current_regime_coverage(
                 for zone in candidates:
                     zone_id = str(zone.get("zone_id") or "")
                     if zone_id in selected_by_id:
+                        continue
+                    if not _daily_major_has_min_touch_evidence(zone):
                         continue
                     interval = _daily_macro_interval(zone)
                     if interval is None:
@@ -544,6 +556,8 @@ def _apply_daily_current_regime_coverage(
     for zone in candidates:
         zone_id = str(zone.get("zone_id") or "")
         if zone_id in selected_by_id:
+            continue
+        if not _daily_major_has_min_touch_evidence(zone):
             continue
         interval = _daily_macro_interval(zone)
         if interval is None:
@@ -781,7 +795,8 @@ def select_daily_majors(
 ) -> list[dict[str, Any]]:
     confirmed = [z for z in zones if z.get("status") == "confirmed"]
     scored = apply_daily_soft_retest_weights(confirmed, strict_mode=strict_retest_quality)
-    prefilter = [z for z in scored if float(z.get("strength_score") or 0.0) >= min_strength]
+    touch_eligible = [z for z in scored if _daily_major_has_min_touch_evidence(z)]
+    prefilter = [z for z in touch_eligible if float(z.get("strength_score") or 0.0) >= min_strength]
     band = select_daily_local_band_representatives(
         prefilter,
         max_zones=max(max_zones * 2, max_zones),

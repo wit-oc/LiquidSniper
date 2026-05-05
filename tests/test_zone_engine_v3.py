@@ -261,6 +261,40 @@ def test_select_daily_majors_consolidates_nested_macro_pocket_representatives():
     assert selected[0]["daily_pocket_demoted_ids"] == ["d-low"]
 
 
+def test_select_daily_majors_rejects_low_touch_daily_major_even_with_strong_structure_confluence():
+    one_touch_structure = {
+        **_zone("d-one-touch", 650.0, tf="1D", strength=100.0, selection=140.0, retest="reject"),
+        "zone_low": 630.0,
+        "zone_high": 690.0,
+        "zone_mid": 650.0,
+        "meaningful_touch_count": 1,
+        "candidate_sources": ["structure", "reaction"],
+        "merge_family_count": 2,
+        "structure_provenance": {"family": "structure", "seed_kind": "flip_anchor"},
+    }
+    three_touch_base = {
+        **_zone("d-three-touch", 850.0, tf="1D", strength=84.0, selection=84.0, retest="reject"),
+        "zone_low": 830.0,
+        "zone_high": 880.0,
+        "zone_mid": 855.0,
+        "meaningful_touch_count": 3,
+        "candidate_sources": ["base", "reaction"],
+        "merge_family_count": 2,
+    }
+    selected = select_daily_majors(
+        [one_touch_structure, three_touch_base],
+        min_strength=70.0,
+        min_zone_separation_bps=120.0,
+        max_zones=4,
+        strict_retest_quality=True,
+        reference_price=680.0,
+    )
+    ids = [z["zone_id"] for z in selected]
+    assert "d-one-touch" not in ids
+    assert "d-three-touch" in ids
+    assert all(int(z.get("meaningful_touch_count") or 0) >= 3 for z in selected)
+
+
 def test_select_daily_majors_adds_current_regime_coverage_anchor_when_large_gap_exists():
     distant_lower = {
         **_zone("d-lower", 210.0, tf="1D", strength=88.0, selection=88.0, retest="reject"),
