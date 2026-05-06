@@ -202,6 +202,36 @@ def test_select_daily_majors_adds_overlap_density_core_when_family_bounds_overla
 
 
 
+def test_select_daily_majors_expands_too_tight_overlap_core_to_daily_width_floor():
+    seam = {
+        **_zone("dseam", 85721.475, tf="1D", strength=90.0, selection=95.0, retest="reject"),
+        "zone_low": 83063.9,
+        "zone_high": 88651.2,
+        "zone_mid": 85721.475,
+        "zone_width_atr": 2.063077,
+        "arbitration_diagnostics": {
+            "candidates": [
+                {"zone_id": "base", "low": 83063.9, "high": 85600.0, "base_score": 100.0},
+                {"zone_id": "reaction", "low": 85570.8, "high": 88651.2, "base_score": 66.4993},
+            ]
+        },
+    }
+    selected = select_daily_majors(
+        [seam],
+        min_strength=70.0,
+        min_zone_separation_bps=120.0,
+        max_zones=1,
+        strict_retest_quality=True,
+    )
+    core_width = selected[0]["core_high"] - selected[0]["core_low"]
+    # Raw overlap is only 29.2 wide; Daily actionable cores should not collapse
+    # into a one-tick seam. The floor uses max(0.20% price, 0.20*ATR).
+    assert core_width >= 541.642
+    assert selected[0]["core_low"] < 85570.8
+    assert selected[0]["core_high"] > 85600.0
+    assert selected[0]["core_definition"] == "overlap_density_core_width_floored"
+
+
 def test_select_daily_majors_falls_back_to_midpoint_narrowed_core_when_no_overlap_exists():
     broad = {
         **_zone("dbroad", 100.0, tf="1D", strength=85.0, retest="reject"),

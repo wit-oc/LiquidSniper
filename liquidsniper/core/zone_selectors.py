@@ -6,6 +6,8 @@ from liquidsniper.core.zone_primitives import as_float, side_aware_interaction
 
 
 DAILY_MAJOR_MIN_MEANINGFUL_TOUCHES = 3
+DAILY_OPERATOR_CORE_MIN_WIDTH_PCT = 0.002
+DAILY_OPERATOR_CORE_MIN_WIDTH_ATR_MULT = 0.20
 
 
 def zone_rank_key(z: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
@@ -747,6 +749,55 @@ def _daily_core_from_arbitration(zone: dict[str, Any]) -> tuple[tuple[float, flo
     return (representative_low, representative_high), "representative_family_core"
 
 
+def _daily_operator_core_width_floor(zone: dict[str, Any], *, zone_low: float, zone_high: float) -> float:
+    macro_width = max(zone_high - zone_low, 0.0)
+    if macro_width <= 0.0:
+        return 0.0
+
+    zone_mid = as_float(zone.get("zone_mid"))
+    if zone_mid is None:
+        zone_mid = (zone_low + zone_high) / 2.0
+    pct_floor = abs(zone_mid) * DAILY_OPERATOR_CORE_MIN_WIDTH_PCT
+
+    atr_refs = [
+        value
+        for value in (as_float(zone.get("atr_local")), as_float(zone.get("atr_ref")))
+        if value is not None and value > 0.0
+    ]
+    width_atr = as_float(zone.get("zone_width_atr"))
+    if width_atr is not None and width_atr > 0.0:
+        atr_refs.append(macro_width / width_atr)
+    atr_ref = max(atr_refs) if atr_refs else 0.0
+    atr_floor = atr_ref * DAILY_OPERATOR_CORE_MIN_WIDTH_ATR_MULT
+    return min(macro_width, max(pct_floor, atr_floor, 0.0))
+
+
+def _expand_daily_operator_core_to_floor(
+    *,
+    core_low: float,
+    core_high: float,
+    zone_low: float,
+    zone_high: float,
+    min_width: float,
+) -> tuple[float, float, bool]:
+    if min_width <= 0.0 or core_high - core_low >= min_width:
+        return core_low, core_high, False
+    macro_width = zone_high - zone_low
+    if macro_width <= 0.0:
+        return core_low, core_high, False
+    target_width = min(min_width, macro_width)
+    midpoint = (core_low + core_high) / 2.0
+    expanded_low = midpoint - (target_width / 2.0)
+    expanded_high = midpoint + (target_width / 2.0)
+    if expanded_low < zone_low:
+        expanded_high = min(zone_high, expanded_high + (zone_low - expanded_low))
+        expanded_low = zone_low
+    if expanded_high > zone_high:
+        expanded_low = max(zone_low, expanded_low - (expanded_high - zone_high))
+        expanded_high = zone_high
+    return expanded_low, expanded_high, True
+
+
 def _apply_daily_operator_core(zone: dict[str, Any]) -> dict[str, Any]:
     refined = dict(zone)
     try:
@@ -776,6 +827,16 @@ def _apply_daily_operator_core(zone: dict[str, Any]) -> dict[str, Any]:
             core_low = max(zone_low, midpoint - half_width)
             core_high = min(zone_high, midpoint + half_width)
             core_definition = "midpoint_narrowed_core"
+
+    core_low, core_high, floored = _expand_daily_operator_core_to_floor(
+        core_low=core_low,
+        core_high=core_high,
+        zone_low=zone_low,
+        zone_high=zone_high,
+        min_width=_daily_operator_core_width_floor(refined, zone_low=zone_low, zone_high=zone_high),
+    )
+    if floored and core_definition:
+        core_definition = f"{core_definition}_width_floored"
 
     refined["core_low"] = round(core_low, 8)
     refined["core_high"] = round(core_high, 8)
