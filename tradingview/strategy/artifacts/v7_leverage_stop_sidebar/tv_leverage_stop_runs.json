@@ -1,0 +1,642 @@
+{
+  "version": 1,
+  "defaultRun": "v7-leverage-stop-uniform-100x-100bps",
+  "defaults": {
+    "chromeProfileEnv": "TV_CHROME_PROFILE_DIR",
+    "chromeChannel": "chromium",
+    "headless": false,
+    "artifactsDir": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/tradingview/automation",
+    "scriptNamePrefix": "Codex Scratch",
+    "timeoutMs": 30000,
+    "navigationTimeoutMs": 60000,
+    "downloadTimeoutMs": 240000,
+    "waitAfterLoadMs": 10000,
+    "ignoreDefaultArgs": [
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--disable-sync"
+    ],
+    "viewport": {
+      "width": 1440,
+      "height": 950
+    }
+  },
+  "runs": [
+    {
+      "id": "v7-leverage-stop-uniform-100x-100bps",
+      "description": "Control plus creator-style 100x leverage stop floor: 100bps applied uniformly. BTC/ETH/ZEC on 15m and 5m. Sidebar-only leverage stop floor pressure test.",
+      "variant": "leverage_stop_uniform_100x_100bps",
+      "stopMode": "leverage-floor",
+      "geometry": "Uniform 100x 100bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/generated/v7-leverage-stop-uniform-100x-100bps.pine",
+      "scriptName": "Codex Scratch - v7-leverage-stop-uniform-100x-100bps",
+      "scriptTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 100x 100bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 100x 100bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-leverage-stop-control-125bps",
+      "description": "Drawdown-first control from the latest stop-engine verdict: 125bps applied uniformly. BTC/ETH/ZEC on 15m and 5m. Sidebar-only leverage stop floor pressure test.",
+      "variant": "leverage_stop_control_125bps",
+      "stopMode": "leverage-floor",
+      "geometry": "Control 125bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/generated/v7-leverage-stop-control-125bps.pine",
+      "scriptName": "Codex Scratch - v7-leverage-stop-control-125bps",
+      "scriptTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Control 125bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Control 125bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-leverage-stop-uniform-50x-200bps",
+      "description": "Creator-style 50x leverage stop floor: 200bps applied uniformly. BTC/ETH/ZEC on 15m and 5m. Sidebar-only leverage stop floor pressure test.",
+      "variant": "leverage_stop_uniform_50x_200bps",
+      "stopMode": "leverage-floor",
+      "geometry": "Uniform 50x 200bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/generated/v7-leverage-stop-uniform-50x-200bps.pine",
+      "scriptName": "Codex Scratch - v7-leverage-stop-uniform-50x-200bps",
+      "scriptTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 50x 200bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 50x 200bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-leverage-stop-uniform-20x-500bps",
+      "description": "Creator-style 20x leverage stop floor: 500bps applied uniformly. BTC/ETH/ZEC on 15m and 5m. Sidebar-only leverage stop floor pressure test.",
+      "variant": "leverage_stop_uniform_20x_500bps",
+      "stopMode": "leverage-floor",
+      "geometry": "Uniform 20x 500bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/generated/v7-leverage-stop-uniform-20x-500bps.pine",
+      "scriptName": "Codex Scratch - v7-leverage-stop-uniform-20x-500bps",
+      "scriptTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 20x 500bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 20x 500bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-leverage-stop-uniform-10x-1000bps",
+      "description": "Creator-style 10x leverage stop floor: 1000bps applied uniformly. BTC/ETH/ZEC on 15m and 5m. Sidebar-only leverage stop floor pressure test.",
+      "variant": "leverage_stop_uniform_10x_1000bps",
+      "stopMode": "leverage-floor",
+      "geometry": "Uniform 10x 1000bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/generated/v7-leverage-stop-uniform-10x-1000bps.pine",
+      "scriptName": "Codex Scratch - v7-leverage-stop-uniform-10x-1000bps",
+      "scriptTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 10x 1000bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Uniform 10x 1000bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-leverage-stop-profile-btc100-eth200-zec500",
+      "description": "Market-profile leverage floor: BTC 100bps, ETH 200bps, ZEC 500bps. BTC/ETH/ZEC on 15m and 5m. Sidebar-only leverage stop floor pressure test.",
+      "variant": "leverage_stop_profile_btc100_eth200_zec500",
+      "stopMode": "leverage-profile",
+      "geometry": "Profile BTC100 ETH200 ZEC500",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/generated/v7-leverage-stop-profile-btc100-eth200-zec500.pine",
+      "scriptName": "Codex Scratch - v7-leverage-stop-profile-btc100-eth200-zec500",
+      "scriptTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Profile BTC100 ETH200 ZEC500",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Profile BTC100 ETH200 ZEC500",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-leverage-stop-profile-btc125-eth500-zec1000",
+      "description": "Wider market-profile leverage floor: BTC 125bps, ETH 500bps, ZEC 1000bps. BTC/ETH/ZEC on 15m and 5m. Sidebar-only leverage stop floor pressure test.",
+      "variant": "leverage_stop_profile_btc125_eth500_zec1000",
+      "stopMode": "leverage-profile",
+      "geometry": "Profile BTC125 ETH500 ZEC1000",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_leverage_stop_sidebar/generated/v7-leverage-stop-profile-btc125-eth500-zec1000.pine",
+      "scriptName": "Codex Scratch - v7-leverage-stop-profile-btc125-eth500-zec1000",
+      "scriptTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Profile BTC125 ETH500 ZEC1000",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Leverage Stop Sidebar Profile BTC125 ETH500 ZEC1000",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    }
+  ]
+}

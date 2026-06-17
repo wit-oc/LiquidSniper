@@ -1,0 +1,773 @@
+//@version=5
+strategy(
+     "Unity UTM Strategy v7 Verdict Harness Template",
+     overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.fixed,
+     default_qty_value=1,
+     commission_type=strategy.commission.percent,
+     commission_value=0.05,
+     pyramiding=0,
+     process_orders_on_close=true,
+     max_labels_count=80,
+     max_lines_count=80,
+     max_bars_back=5000)
+
+// Unity UTM V7 verdict harness.
+// Contract: HTF liquidity sweep/reclaim -> Oracle AIO internal MSS after sweep
+// -> optional same-side Oracle AIO Buy/Sell Trend Alert treatment
+// -> 4H/1D bias-aligned intent -> Oracle Strength direction.
+// This harness intentionally uses one full-position TP1/stop/max-hold exit so
+// TradingView partial-exit reservation cannot contaminate verdict telemetry.
+
+// ---------------------------- Inputs -----------------------------------------
+g_meta = "00. Metadata"
+logic_version = input.string("unity-utm-v7-verdict-harness-template", "Logic Version", group=g_meta)
+entry_profile = input.string("Verdict Harness", "Entry Profile", options=["Verdict Harness", "AIO MSS Confirm-Close", "AIO MSS + AIO BOS", "AIO MSS Retest Fidelity"], group=g_meta)
+verdict_system = input.string("A Current", "Verdict System", options=["A Current", "B Alert Score", "B Alert Required"], group=g_meta)
+verdict_stop_mode = input.string("Sweep Wick", "Verdict Stop Mode", options=["Sweep Wick", "MSS Swing", "Retest POI"], group=g_meta)
+auto_scale_windows = input.bool(true, "Auto-Scale 15m Windows On Lower Timeframes", group=g_meta)
+
+g_sources = "01. Required Source Mappings"
+validate_sources = input.bool(true, "Validate Required Sources", group=g_sources)
+source_close_epsilon_bps = input.float(0.05, "Close-Mapping Detection Epsilon (bps)", minval=0.0, maxval=10.0, step=0.01, group=g_sources)
+aio_bull_mss_src = input.source(close, "REQ AIO Internal Bullish MSS", group=g_sources)
+aio_bear_mss_src = input.source(close, "REQ AIO Internal Bearish MSS", group=g_sources)
+aio_buy_alert_src = input.source(close, "REQ AIO Buy Trend Alert", group=g_sources)
+aio_sell_alert_src = input.source(close, "REQ AIO Sell Trend Alert", group=g_sources)
+oracle_strength_src = input.source(close, "REQ Oracle Strength", group=g_sources)
+aio_bull_bos_src = input.source(close, "Optional AIO Internal Bullish BOS", group=g_sources)
+aio_bear_bos_src = input.source(close, "Optional AIO Internal Bearish BOS", group=g_sources)
+phase_regime_src = input.source(close, "DIAG Phase1 Bus Regime Direction", group=g_sources)
+phase_choch_src = input.source(close, "DIAG Phase1 Bus CHoCH Direction", group=g_sources)
+phase_bos_src = input.source(close, "DIAG Phase1 Bus BoS Direction", group=g_sources)
+
+g_optional = "02. Optional Unity Evidence"
+use_oracle_ribbon = input.bool(false, "Use Oracle Strength Plot Ribbon", group=g_optional)
+oracle_fast_plot_src = input.source(close, "Optional Oracle Strength Plot 1", group=g_optional)
+oracle_slow_plot_src = input.source(close, "Optional Oracle Strength Plot 7", group=g_optional)
+
+g_bias = "03. HTF Bias"
+use_htf_bias = input.bool(true, "Require 4H/1D Bias Alignment", group=g_bias)
+bias_mode = input.string("4H Primary / 1D Not Opposed", "Bias Mode", options=["4H Primary / 1D Not Opposed", "4H And 1D Aligned", "4H Or 1D Aligned"], group=g_bias)
+bias_4h_tf = input.timeframe("240", "4H Bias Timeframe", group=g_bias)
+bias_1d_tf = input.timeframe("D", "1D Bias Timeframe", group=g_bias)
+bias_fast_len = input.int(20, "Bias Fast EMA", minval=1, maxval=500, group=g_bias)
+bias_slow_len = input.int(50, "Bias Slow EMA", minval=2, maxval=1000, group=g_bias)
+
+g_levels = "04. HTF Liquidity"
+min_level_quality = input.int(2, "Minimum Level Quality", minval=1, maxval=10, group=g_levels)
+level_touch_bps = input.float(12.0, "Sweep Piercing Buffer (bps)", minval=0.0, maxval=250.0, step=0.5, group=g_levels)
+sweep_reclaim_bps = input.float(2.0, "Close-Back Buffer (bps)", minval=0.0, maxval=100.0, step=0.5, group=g_levels)
+rejection_close_frac = input.float(0.62, "Rejection Close Fraction", minval=0.50, maxval=0.95, step=0.01, group=g_levels)
+level_cluster_bps = input.float(18.0, "Level Stack Distance (bps)", minval=1.0, maxval=250.0, step=1.0, group=g_levels)
+zone_width_bps = input.float(24.0, "Retest Zone Width (bps)", minval=1.0, maxval=500.0, step=1.0, group=g_levels)
+swing_left_bars = input.int(5, "Swing Pivot Left Bars", minval=1, maxval=50, group=g_levels)
+swing_right_bars = input.int(5, "Swing Pivot Right Bars", minval=1, maxval=50, group=g_levels)
+use_day_levels = input.bool(true, "Use Previous Day Levels", group=g_levels)
+use_week_levels = input.bool(true, "Use Previous Week Levels", group=g_levels)
+use_month_levels = input.bool(true, "Use Previous Month Levels", group=g_levels)
+use_swing_levels = input.bool(true, "Use Recent Swing Levels", group=g_levels)
+arm_expiry_bars = input.int(12, "Sweep Arm Expiry Bars", minval=1, maxval=500, group=g_levels)
+
+g_confirm = "05. Confirmation"
+mss_window_bars = input.int(12, "MSS Window Bars After Sweep", minval=1, maxval=500, group=g_confirm)
+bos_window_bars = input.int(8, "AIO BoS Window Bars After MSS", minval=1, maxval=500, group=g_confirm)
+quality_bos_window_bars = input.int(24, "Quality BoS Window Bars After MSS", minval=1, maxval=500, group=g_confirm)
+alert_window_bars = input.int(12, "Trend Alert Window Bars After MSS", minval=1, maxval=500, group=g_confirm)
+alert_score_weight = input.int(1, "Trend Alert Confluence Weight", minval=0, maxval=3, group=g_confirm)
+strength_window_bars = input.int(12, "Strength Window Bars After Sweep", minval=1, maxval=500, group=g_confirm)
+oracle_strength_zero = input.float(0.0, "Oracle Strength Zero Line", step=0.01, group=g_confirm)
+allow_strength_slope = input.bool(true, "Allow Near-Zero Strength Improvement", group=g_confirm)
+strength_slope_min = input.float(0.0, "Strength Slope Minimum", minval=0.0, step=0.01, group=g_confirm)
+retest_window_bars = input.int(8, "Retest Window Bars After Structure", minval=1, maxval=500, group=g_confirm)
+mss_stop_lookback_bars = input.int(12, "MSS Swing Stop Lookback Bars", minval=1, maxval=500, group=g_confirm)
+
+g_risk = "06. Orders / Risk"
+enable_orders = input.bool(true, "Enable Strategy Orders", group=g_risk)
+allow_longs = input.bool(true, "Allow Longs", group=g_risk)
+allow_shorts = input.bool(true, "Allow Shorts", group=g_risk)
+sizing_mode = input.string("Risk Based", "Sizing Mode", options=["Risk Based", "Fixed Notional", "TradingView Default"], group=g_risk)
+use_confluence_risk = input.bool(true, "Use Confluence Risk Weighting", group=g_risk)
+risk_pct = input.float(1.0, "Fallback Risk %", minval=0.0, maxval=100.0, step=0.1, group=g_risk)
+max_portfolio_risk_pct = input.float(3.0, "Maximum Portfolio Risk %", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+min_quality_score = input.int(2, "Minimum Quality Score To Trade", minval=0, maxval=10, group=g_risk)
+base_risk_score = input.int(3, "Base Risk Score Threshold", minval=0, maxval=10, group=g_risk)
+high_risk_score = input.int(4, "High Risk Score Threshold", minval=0, maxval=10, group=g_risk)
+elite_risk_score = input.int(5, "Elite Risk Score Threshold", minval=0, maxval=10, group=g_risk)
+low_quality_risk_pct = input.float(0.5, "Low Quality Risk %", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+base_quality_risk_pct = input.float(1.0, "Base Quality Risk %", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+high_quality_risk_pct = input.float(2.0, "High Quality Risk %", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+elite_quality_risk_pct = input.float(3.0, "Elite Quality Risk %", minval=0.0, maxval=10.0, step=0.1, group=g_risk)
+fixed_notional_usd = input.float(1000.0, "Fixed Notional USDT", minval=0.0, step=50.0, group=g_risk)
+max_position_leverage = input.float(3.0, "Max Position Notional / Equity", minval=0.0, maxval=100.0, step=0.25, group=g_risk)
+min_risk_bps = input.float(15.0, "Minimum Stop Distance (bps)", minval=0.0, maxval=1000.0, step=1.0, group=g_risk)
+max_risk_bps = input.float(600.0, "Maximum Stop Distance (bps)", minval=1.0, maxval=10000.0, step=25.0, group=g_risk)
+stop_buffer_bps = input.float(4.0, "Invalidation Stop Buffer (bps)", minval=0.0, maxval=250.0, step=0.5, group=g_risk)
+tp1_r = input.float(1.0, "TP1 R", minval=0.25, step=0.25, group=g_risk)
+tp2_r = input.float(2.0, "TP2 R", minval=0.5, step=0.25, group=g_risk)
+runner_r = input.float(3.0, "Runner R", minval=1.0, step=0.5, group=g_risk)
+tp1_qty_pct = input.float(50.0, "TP1 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+tp2_qty_pct = input.float(30.0, "TP2 Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+runner_qty_pct = input.float(20.0, "Runner Qty %", minval=0.0, maxval=100.0, step=1.0, group=g_risk)
+move_stop_to_be_after_tp1 = input.bool(true, "Move Stop To BE After TP1 Touch", group=g_risk)
+enable_max_hold_exit = input.bool(true, "Enable Max Hold Exit", group=g_risk)
+max_hold_bars = input.int(240, "Max Hold Bars", minval=1, maxval=5000, group=g_risk)
+
+g_time = "07. Backtest Window"
+enable_backtest_window = input.bool(true, "Enable Backtest Window", group=g_time)
+backtest_start = input.time(1704067200000, "Backtest Start", group=g_time)
+backtest_end = input.time(1798761540000, "Backtest End", group=g_time)
+
+g_diag = "08. Diagnostics"
+show_levels = input.bool(true, "Show Active Levels", group=g_diag)
+show_markers = input.bool(true, "Show Setup Markers", group=g_diag)
+show_status_line = input.bool(true, "Show Status-Line Diagnostics", group=g_diag)
+show_diag_table = input.bool(true, "Show Diagnostic Table", group=g_diag)
+diag_position = input.string("Bottom Left", "Diagnostics Position", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group=g_diag)
+
+chartMinutes = timeframe.isminutes ? timeframe.multiplier : 15
+windowScaleRaw = auto_scale_windows and timeframe.isminutes and chartMinutes < 15 ? int(math.round(15.0 / chartMinutes)) : 1
+windowScale = math.max(1, windowScaleRaw)
+armExpiryEff = arm_expiry_bars * windowScale
+mssWindowEff = mss_window_bars * windowScale
+bosWindowEff = bos_window_bars * windowScale
+qualityBosWindowEff = quality_bos_window_bars * windowScale
+alertWindowEff = alert_window_bars * windowScale
+strengthWindowEff = strength_window_bars * windowScale
+retestWindowEff = retest_window_bars * windowScale
+maxHoldEff = max_hold_bars * windowScale
+mssStopLookbackEff = mss_stop_lookback_bars * windowScale
+
+systemA = verdict_system == "A Current"
+systemBScore = verdict_system == "B Alert Score"
+systemBRequired = verdict_system == "B Alert Required"
+usesRetestStop = verdict_stop_mode == "Retest POI"
+
+// ---------------------------- Constants --------------------------------------
+LEVEL_NONE = 0
+LEVEL_PDL = 11
+LEVEL_PWL = 12
+LEVEL_PML = 13
+LEVEL_SWING_LOW = 14
+LEVEL_PDH = 21
+LEVEL_PWH = 22
+LEVEL_PMH = 23
+LEVEL_SWING_HIGH = 24
+
+FAIL_NO_LEVEL = 1
+FAIL_NO_SWEEP = 2
+FAIL_NO_MSS = 4
+FAIL_NO_BOS = 8
+FAIL_NO_STRENGTH = 16
+FAIL_BAD_RISK = 32
+FAIL_NO_RETEST = 64
+FAIL_BAD_SOURCE = 128
+FAIL_LOW_QUALITY = 256
+FAIL_BAD_BIAS = 512
+FAIL_NO_ALERT = 1024
+
+STAGE_IDLE = 0
+STAGE_ARMED = 1
+STAGE_CHOCH = 2
+STAGE_BOS = 3
+STAGE_STRENGTH = 4
+STAGE_RETEST = 5
+STAGE_ENTERED = 6
+
+// ---------------------------- Helpers ----------------------------------------
+levelTolBps(level, bps) =>
+    math.abs(level) * bps / 10000.0
+
+nearPairBps(a, b, bps) =>
+    not na(a) and not na(b) and math.abs(a - b) <= math.abs(a) * bps / 10000.0
+
+sourceLooksLikeClose(src) =>
+    tolerance = math.max(syminfo.mintick * 2.0, math.abs(close) * source_close_epsilon_bps / 10000.0)
+    prevTolerance = math.max(syminfo.mintick * 2.0, math.abs(close[1]) * source_close_epsilon_bps / 10000.0)
+    prev2Tolerance = math.max(syminfo.mintick * 2.0, math.abs(close[2]) * source_close_epsilon_bps / 10000.0)
+    currentClose = not na(src) and math.abs(src - close) <= tolerance
+    priorClose = bar_index < 1 or na(src[1]) ? true : math.abs(src[1] - close[1]) <= prevTolerance
+    prior2Close = bar_index < 2 or na(src[2]) ? true : math.abs(src[2] - close[2]) <= prev2Tolerance
+    currentClose and priorClose and prior2Close
+
+directionSourceMapped(src) =>
+    not na(src) and (not validate_sources or not sourceLooksLikeClose(src)) and math.abs(src) <= 1.5
+
+oscillatorSourceMapped(src) =>
+    not na(src) and (not validate_sources or not sourceLooksLikeClose(src))
+
+stateSourceMapped(src) =>
+    not na(src) and (not validate_sources or not sourceLooksLikeClose(src))
+
+directionSide(src) =>
+    directionSourceMapped(src) ? src > 0.5 ? 1 : src < -0.5 ? -1 : 0 : 0
+
+oscillatorSide(src, zeroLine) =>
+    oscillatorSourceMapped(src) ? src > zeroLine ? 1 : src < zeroLine ? -1 : 0 : 0
+
+stateActive(src) =>
+    stateSourceMapped(src) and src > 0.5
+
+statePairSide(bullSrc, bearSrc) =>
+    bull = stateActive(bullSrc)
+    bear = stateActive(bearSrc)
+    bull and not bear ? 1 : bear and not bull ? -1 : 0
+
+emaBias(closeValue, fastEma, slowEma) =>
+    closeValue > slowEma and fastEma > slowEma ? 1 :
+     closeValue < slowEma and fastEma < slowEma ? -1 : 0
+
+biasAligned(side, fourHourSide, dailySide) =>
+    not use_htf_bias ? true :
+     bias_mode == "4H And 1D Aligned" ? fourHourSide == side and dailySide == side :
+     bias_mode == "4H Or 1D Aligned" ? fourHourSide == side or dailySide == side :
+     fourHourSide == side and dailySide != -side
+
+sideTxt(side) =>
+    side == 1 ? "LONG" : side == -1 ? "SHORT" : "NONE"
+
+levelTxt(code) =>
+    code == LEVEL_PDL ? "PDL" :
+     code == LEVEL_PWL ? "PWL" :
+     code == LEVEL_PML ? "PML" :
+     code == LEVEL_SWING_LOW ? "SWING_LOW" :
+     code == LEVEL_PDH ? "PDH" :
+     code == LEVEL_PWH ? "PWH" :
+     code == LEVEL_PMH ? "PMH" :
+     code == LEVEL_SWING_HIGH ? "SWING_HIGH" : "NONE"
+
+diagPosition() =>
+    diag_position == "Top Right" ? position.top_right :
+     diag_position == "Bottom Left" ? position.bottom_left :
+     diag_position == "Bottom Right" ? position.bottom_right : position.top_left
+
+baseQuality(code) =>
+    code == LEVEL_PML or code == LEVEL_PMH ? 4 :
+     code == LEVEL_PWL or code == LEVEL_PWH ? 3 :
+     code == LEVEL_SWING_LOW or code == LEVEL_SWING_HIGH ? 2 :
+     code == LEVEL_PDL or code == LEVEL_PDH ? 1 : 0
+
+stackCount(level, a, b, c) =>
+    count = 0
+    count += nearPairBps(level, a, level_cluster_bps) ? 1 : 0
+    count += nearPairBps(level, b, level_cluster_bps) ? 1 : 0
+    count += nearPairBps(level, c, level_cluster_bps) ? 1 : 0
+    count
+
+levelQualityScore(quality) =>
+    quality >= 4 ? 3 : quality >= 3 ? 2 : quality >= 2 ? 1 : 0
+
+weightedRiskPct(score) =>
+    rawRisk = use_confluence_risk ?
+     score >= elite_risk_score ? elite_quality_risk_pct :
+     score >= high_risk_score ? high_quality_risk_pct :
+     score >= base_risk_score ? base_quality_risk_pct :
+     low_quality_risk_pct : risk_pct
+    math.min(rawRisk, max_portfolio_risk_pct)
+
+longReclaim(level) =>
+    rng = math.max(syminfo.mintick, high - low)
+    closeBack = close > level + levelTolBps(level, sweep_reclaim_bps)
+    rejection = close > level and (close - low) / rng >= rejection_close_frac
+    closeBack or rejection
+
+shortReclaim(level) =>
+    rng = math.max(syminfo.mintick, high - low)
+    closeBack = close < level - levelTolBps(level, sweep_reclaim_bps)
+    rejection = close < level and (high - close) / rng >= rejection_close_frac
+    closeBack or rejection
+
+sweptBelow(level) =>
+    not na(level) and low < level - levelTolBps(level, level_touch_bps) and longReclaim(level)
+
+sweptAbove(level) =>
+    not na(level) and high > level + levelTolBps(level, level_touch_bps) and shortReclaim(level)
+
+// ---------------------------- Liquidity --------------------------------------
+pdh = request.security(syminfo.tickerid, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pdl = request.security(syminfo.tickerid, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+pwh = request.security(syminfo.tickerid, "W", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pwl = request.security(syminfo.tickerid, "W", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+pmh = request.security(syminfo.tickerid, "M", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pml = request.security(syminfo.tickerid, "M", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+
+pivotHigh = ta.pivothigh(high, swing_left_bars, swing_right_bars)
+pivotLow = ta.pivotlow(low, swing_left_bars, swing_right_bars)
+var float recentSwingHigh = na
+var float recentSwingLow = na
+if not na(pivotHigh)
+    recentSwingHigh := pivotHigh
+if not na(pivotLow)
+    recentSwingLow := pivotLow
+
+pdlQuality = baseQuality(LEVEL_PDL) + stackCount(pdl, pwl, pml, recentSwingLow)
+pwlQuality = baseQuality(LEVEL_PWL) + stackCount(pwl, pdl, pml, recentSwingLow)
+pmlQuality = baseQuality(LEVEL_PML) + stackCount(pml, pdl, pwl, recentSwingLow)
+swingLowQuality = baseQuality(LEVEL_SWING_LOW) + stackCount(recentSwingLow, pdl, pwl, pml)
+
+pdhQuality = baseQuality(LEVEL_PDH) + stackCount(pdh, pwh, pmh, recentSwingHigh)
+pwhQuality = baseQuality(LEVEL_PWH) + stackCount(pwh, pdh, pmh, recentSwingHigh)
+pmhQuality = baseQuality(LEVEL_PMH) + stackCount(pmh, pdh, pwh, recentSwingHigh)
+swingHighQuality = baseQuality(LEVEL_SWING_HIGH) + stackCount(recentSwingHigh, pdh, pwh, pmh)
+
+float longSweepLevel = na
+int longSweepCode = LEVEL_NONE
+int longSweepQuality = 0
+if use_month_levels and sweptBelow(pml) and pmlQuality >= min_level_quality
+    longSweepLevel := pml
+    longSweepCode := LEVEL_PML
+    longSweepQuality := pmlQuality
+else if use_week_levels and sweptBelow(pwl) and pwlQuality >= min_level_quality
+    longSweepLevel := pwl
+    longSweepCode := LEVEL_PWL
+    longSweepQuality := pwlQuality
+else if use_swing_levels and sweptBelow(recentSwingLow) and swingLowQuality >= min_level_quality
+    longSweepLevel := recentSwingLow
+    longSweepCode := LEVEL_SWING_LOW
+    longSweepQuality := swingLowQuality
+else if use_day_levels and sweptBelow(pdl) and pdlQuality >= min_level_quality
+    longSweepLevel := pdl
+    longSweepCode := LEVEL_PDL
+    longSweepQuality := pdlQuality
+
+float shortSweepLevel = na
+int shortSweepCode = LEVEL_NONE
+int shortSweepQuality = 0
+if use_month_levels and sweptAbove(pmh) and pmhQuality >= min_level_quality
+    shortSweepLevel := pmh
+    shortSweepCode := LEVEL_PMH
+    shortSweepQuality := pmhQuality
+else if use_week_levels and sweptAbove(pwh) and pwhQuality >= min_level_quality
+    shortSweepLevel := pwh
+    shortSweepCode := LEVEL_PWH
+    shortSweepQuality := pwhQuality
+else if use_swing_levels and sweptAbove(recentSwingHigh) and swingHighQuality >= min_level_quality
+    shortSweepLevel := recentSwingHigh
+    shortSweepCode := LEVEL_SWING_HIGH
+    shortSweepQuality := swingHighQuality
+else if use_day_levels and sweptAbove(pdh) and pdhQuality >= min_level_quality
+    shortSweepLevel := pdh
+    shortSweepCode := LEVEL_PDH
+    shortSweepQuality := pdhQuality
+
+longSweep = longSweepCode != LEVEL_NONE
+shortSweep = shortSweepCode != LEVEL_NONE
+dualSweep = longSweep and shortSweep
+
+// ---------------------------- Source Contract --------------------------------
+requiresBos = entry_profile == "AIO MSS + AIO BOS" or entry_profile == "AIO MSS Retest Fidelity"
+requiresRetest = entry_profile == "AIO MSS Retest Fidelity" or usesRetestStop
+
+phaseRegimeMapped = directionSourceMapped(phase_regime_src)
+phaseChochMapped = directionSourceMapped(phase_choch_src)
+phaseBosMapped = directionSourceMapped(phase_bos_src)
+aioBullMssMapped = stateSourceMapped(aio_bull_mss_src)
+aioBearMssMapped = stateSourceMapped(aio_bear_mss_src)
+aioBuyAlertMapped = stateSourceMapped(aio_buy_alert_src)
+aioSellAlertMapped = stateSourceMapped(aio_sell_alert_src)
+aioBullBosMapped = stateSourceMapped(aio_bull_bos_src)
+aioBearBosMapped = stateSourceMapped(aio_bear_bos_src)
+oracleStrengthMapped = oscillatorSourceMapped(oracle_strength_src)
+sourceContractOk = aioBullMssMapped and aioBearMssMapped and oracleStrengthMapped and (systemA or (aioBuyAlertMapped and aioSellAlertMapped)) and (not requiresBos or (aioBullBosMapped and aioBearBosMapped))
+
+phaseRegimeSide = directionSide(phase_regime_src)
+phaseChochSide = directionSide(phase_choch_src)
+phaseBosSide = directionSide(phase_bos_src)
+aioMssSide = statePairSide(aio_bull_mss_src, aio_bear_mss_src)
+aioAlertSide = statePairSide(aio_buy_alert_src, aio_sell_alert_src)
+aioBosSide = statePairSide(aio_bull_bos_src, aio_bear_bos_src)
+oracleStrengthSide = oscillatorSide(oracle_strength_src, oracle_strength_zero)
+strengthCrossUp = ta.crossover(oracle_strength_src, oracle_strength_zero)
+strengthCrossDown = ta.crossunder(oracle_strength_src, oracle_strength_zero)
+strengthSlope = oracle_strength_src - nz(oracle_strength_src[1], oracle_strength_src)
+
+fastPlotMapped = oscillatorSourceMapped(oracle_fast_plot_src)
+slowPlotMapped = oscillatorSourceMapped(oracle_slow_plot_src)
+ribbonMapped = fastPlotMapped and slowPlotMapped
+ribbonSide = ribbonMapped ? oracle_fast_plot_src > oracle_slow_plot_src ? 1 : oracle_fast_plot_src < oracle_slow_plot_src ? -1 : 0 : 0
+
+aioLongMss = aioMssSide == 1
+aioShortMss = aioMssSide == -1
+aioLongAlert = aioAlertSide == 1
+aioShortAlert = aioAlertSide == -1
+aioLongBos = aioBosSide == 1
+aioShortBos = aioBosSide == -1
+
+bias4hClose = request.security(syminfo.tickerid, bias_4h_tf, close, barmerge.gaps_off, barmerge.lookahead_off)
+bias4hFast = request.security(syminfo.tickerid, bias_4h_tf, ta.ema(close, bias_fast_len), barmerge.gaps_off, barmerge.lookahead_off)
+bias4hSlow = request.security(syminfo.tickerid, bias_4h_tf, ta.ema(close, bias_slow_len), barmerge.gaps_off, barmerge.lookahead_off)
+bias1dClose = request.security(syminfo.tickerid, bias_1d_tf, close, barmerge.gaps_off, barmerge.lookahead_off)
+bias1dFast = request.security(syminfo.tickerid, bias_1d_tf, ta.ema(close, bias_fast_len), barmerge.gaps_off, barmerge.lookahead_off)
+bias1dSlow = request.security(syminfo.tickerid, bias_1d_tf, ta.ema(close, bias_slow_len), barmerge.gaps_off, barmerge.lookahead_off)
+bias4hSide = emaBias(bias4hClose, bias4hFast, bias4hSlow)
+bias1dSide = emaBias(bias1dClose, bias1dFast, bias1dSlow)
+longBiasOk = biasAligned(1, bias4hSide, bias1dSide)
+shortBiasOk = biasAligned(-1, bias4hSide, bias1dSide)
+longBiasScore = (bias4hSide == 1 ? 1 : 0) + (bias1dSide == 1 ? 1 : 0)
+shortBiasScore = (bias4hSide == -1 ? 1 : 0) + (bias1dSide == -1 ? 1 : 0)
+
+// ---------------------------- State Machine ----------------------------------
+var int setupSide = 0
+var int setupStage = STAGE_IDLE
+var int armBar = na
+var int armCode = LEVEL_NONE
+var int armQuality = 0
+var float armedLevel = na
+var float armedZoneLow = na
+var float armedZoneHigh = na
+var float sweepLow = na
+var float sweepHigh = na
+var float armInvalidation = na
+var int longChochBar = na
+var int shortChochBar = na
+var int longBosBar = na
+var int shortBosBar = na
+var int longQualityBosBar = na
+var int shortQualityBosBar = na
+var int longAlertBar = na
+var int shortAlertBar = na
+var int longStrengthBar = na
+var int shortStrengthBar = na
+var int longRetestBar = na
+var int shortRetestBar = na
+var float longRetestStopAnchor = na
+var float shortRetestStopAnchor = na
+var int tradedArmBar = na
+
+if longSweep and not dualSweep
+    pad = levelTolBps(longSweepLevel, zone_width_bps)
+    setupSide := 1
+    setupStage := STAGE_ARMED
+    armBar := bar_index
+    armCode := longSweepCode
+    armQuality := longSweepQuality
+    armedLevel := longSweepLevel
+    armedZoneLow := longSweepLevel - pad
+    armedZoneHigh := longSweepLevel + pad
+    sweepLow := low
+    sweepHigh := na
+    armInvalidation := low
+    longChochBar := na
+    shortChochBar := na
+    longBosBar := na
+    shortBosBar := na
+    longQualityBosBar := na
+    shortQualityBosBar := na
+    longAlertBar := na
+    shortAlertBar := na
+    longStrengthBar := na
+    shortStrengthBar := na
+    longRetestBar := na
+    shortRetestBar := na
+    longRetestStopAnchor := na
+    shortRetestStopAnchor := na
+
+if shortSweep and not dualSweep
+    pad = levelTolBps(shortSweepLevel, zone_width_bps)
+    setupSide := -1
+    setupStage := STAGE_ARMED
+    armBar := bar_index
+    armCode := shortSweepCode
+    armQuality := shortSweepQuality
+    armedLevel := shortSweepLevel
+    armedZoneLow := shortSweepLevel - pad
+    armedZoneHigh := shortSweepLevel + pad
+    sweepLow := na
+    sweepHigh := high
+    armInvalidation := high
+    longChochBar := na
+    shortChochBar := na
+    longBosBar := na
+    shortBosBar := na
+    longQualityBosBar := na
+    shortQualityBosBar := na
+    longAlertBar := na
+    shortAlertBar := na
+    longStrengthBar := na
+    shortStrengthBar := na
+    longRetestBar := na
+    shortRetestBar := na
+    longRetestStopAnchor := na
+    shortRetestStopAnchor := na
+
+armAge = setupSide != 0 and not na(armBar) ? bar_index - armBar : na
+armActive = setupSide != 0 and not na(armAge) and armAge <= armExpiryEff
+if setupSide != 0 and not armActive and strategy.position_size == 0
+    setupSide := 0
+    setupStage := STAGE_IDLE
+
+withinMssWindow = armActive and not na(armAge) and armAge > 0 and armAge <= mssWindowEff
+if sourceContractOk and withinMssWindow and setupSide == 1 and aioLongMss
+    longChochBar := na(longChochBar) ? bar_index : longChochBar
+    setupStage := math.max(setupStage, STAGE_CHOCH)
+if sourceContractOk and withinMssWindow and setupSide == -1 and aioShortMss
+    shortChochBar := na(shortChochBar) ? bar_index : shortChochBar
+    setupStage := math.max(setupStage, STAGE_CHOCH)
+
+longChochAge = not na(longChochBar) ? bar_index - longChochBar : na
+shortChochAge = not na(shortChochBar) ? bar_index - shortChochBar : na
+withinLongBosWindow = sourceContractOk and setupSide == 1 and not na(longChochBar) and bar_index >= longChochBar and bar_index - longChochBar <= bosWindowEff
+withinShortBosWindow = sourceContractOk and setupSide == -1 and not na(shortChochBar) and bar_index >= shortChochBar and bar_index - shortChochBar <= bosWindowEff
+if withinLongBosWindow and aioLongBos
+    longBosBar := na(longBosBar) ? bar_index : longBosBar
+    setupStage := math.max(setupStage, STAGE_BOS)
+if withinShortBosWindow and aioShortBos
+    shortBosBar := na(shortBosBar) ? bar_index : shortBosBar
+    setupStage := math.max(setupStage, STAGE_BOS)
+
+withinLongQualityBosWindow = sourceContractOk and setupSide == 1 and not na(longChochBar) and bar_index >= longChochBar and bar_index - longChochBar <= qualityBosWindowEff
+withinShortQualityBosWindow = sourceContractOk and setupSide == -1 and not na(shortChochBar) and bar_index >= shortChochBar and bar_index - shortChochBar <= qualityBosWindowEff
+if withinLongQualityBosWindow and aioLongBos
+    longQualityBosBar := na(longQualityBosBar) ? bar_index : longQualityBosBar
+if withinShortQualityBosWindow and aioShortBos
+    shortQualityBosBar := na(shortQualityBosBar) ? bar_index : shortQualityBosBar
+
+withinLongAlertWindow = sourceContractOk and setupSide == 1 and not na(longChochBar) and bar_index >= longChochBar and bar_index - longChochBar <= alertWindowEff
+withinShortAlertWindow = sourceContractOk and setupSide == -1 and not na(shortChochBar) and bar_index >= shortChochBar and bar_index - shortChochBar <= alertWindowEff
+if withinLongAlertWindow and aioLongAlert
+    longAlertBar := na(longAlertBar) ? bar_index : longAlertBar
+if withinShortAlertWindow and aioShortAlert
+    shortAlertBar := na(shortAlertBar) ? bar_index : shortAlertBar
+
+withinStrengthWindow = armActive and not na(armAge) and armAge > 0 and armAge <= strengthWindowEff
+longStrengthSignal = sourceContractOk and setupSide == 1 and withinStrengthWindow and (oracleStrengthSide == 1 or strengthCrossUp or (allow_strength_slope and strengthSlope > strength_slope_min and oracle_strength_src <= oracle_strength_zero))
+shortStrengthSignal = sourceContractOk and setupSide == -1 and withinStrengthWindow and (oracleStrengthSide == -1 or strengthCrossDown or (allow_strength_slope and strengthSlope < -strength_slope_min and oracle_strength_src >= oracle_strength_zero))
+if longStrengthSignal
+    longStrengthBar := na(longStrengthBar) ? bar_index : longStrengthBar
+    setupStage := math.max(setupStage, STAGE_STRENGTH)
+if shortStrengthSignal
+    shortStrengthBar := na(shortStrengthBar) ? bar_index : shortStrengthBar
+    setupStage := math.max(setupStage, STAGE_STRENGTH)
+
+priceInArmedZone = setupSide == 1 ? low <= armedZoneHigh and high >= armedZoneLow : setupSide == -1 ? high >= armedZoneLow and low <= armedZoneHigh : false
+longContinuationClose = close > open and close > armedLevel
+shortContinuationClose = close < open and close < armedLevel
+withinLongRetestWindow = setupSide == 1 and not na(longChochBar) and bar_index > longChochBar and bar_index - longChochBar <= retestWindowEff
+withinShortRetestWindow = setupSide == -1 and not na(shortChochBar) and bar_index > shortChochBar and bar_index - shortChochBar <= retestWindowEff
+if requiresRetest and withinLongRetestWindow and priceInArmedZone and longContinuationClose
+    longRetestBar := na(longRetestBar) ? bar_index : longRetestBar
+    longRetestStopAnchor := na(longRetestStopAnchor) ? low : longRetestStopAnchor
+    setupStage := math.max(setupStage, STAGE_RETEST)
+if requiresRetest and withinShortRetestWindow and priceInArmedZone and shortContinuationClose
+    shortRetestBar := na(shortRetestBar) ? bar_index : shortRetestBar
+    shortRetestStopAnchor := na(shortRetestStopAnchor) ? high : shortRetestStopAnchor
+    setupStage := math.max(setupStage, STAGE_RETEST)
+
+longChochOk = setupSide == 1 and not na(longChochBar) and longChochBar > armBar and longChochAge <= mssWindowEff
+shortChochOk = setupSide == -1 and not na(shortChochBar) and shortChochBar > armBar and shortChochAge <= mssWindowEff
+longBosAge = not na(longBosBar) ? bar_index - longBosBar : na
+shortBosAge = not na(shortBosBar) ? bar_index - shortBosBar : na
+longBosOk = not requiresBos or (longChochOk and not na(longBosBar) and longBosBar >= longChochBar and longBosAge <= bosWindowEff)
+shortBosOk = not requiresBos or (shortChochOk and not na(shortBosBar) and shortBosBar >= shortChochBar and shortBosAge <= bosWindowEff)
+longQualityBosAge = not na(longQualityBosBar) ? bar_index - longQualityBosBar : na
+shortQualityBosAge = not na(shortQualityBosBar) ? bar_index - shortQualityBosBar : na
+longQualityBosOk = longChochOk and not na(longQualityBosBar) and longQualityBosBar >= longChochBar and longQualityBosAge <= qualityBosWindowEff
+shortQualityBosOk = shortChochOk and not na(shortQualityBosBar) and shortQualityBosBar >= shortChochBar and shortQualityBosAge <= qualityBosWindowEff
+longAlertAge = not na(longAlertBar) ? bar_index - longAlertBar : na
+shortAlertAge = not na(shortAlertBar) ? bar_index - shortAlertBar : na
+longAlertOk = longChochOk and not na(longAlertBar) and longAlertBar >= longChochBar and longAlertAge <= alertWindowEff
+shortAlertOk = shortChochOk and not na(shortAlertBar) and shortAlertBar >= shortChochBar and shortAlertAge <= alertWindowEff
+longStrengthAge = not na(longStrengthBar) ? bar_index - longStrengthBar : na
+shortStrengthAge = not na(shortStrengthBar) ? bar_index - shortStrengthBar : na
+longRibbonOk = not use_oracle_ribbon or (ribbonMapped and ribbonSide == 1)
+shortRibbonOk = not use_oracle_ribbon or (ribbonMapped and ribbonSide == -1)
+longStrengthOk = setupSide == 1 and not na(longStrengthBar) and longStrengthAge <= strengthWindowEff and longRibbonOk
+shortStrengthOk = setupSide == -1 and not na(shortStrengthBar) and shortStrengthAge <= strengthWindowEff and shortRibbonOk
+longRetestAge = not na(longRetestBar) ? bar_index - longRetestBar : na
+shortRetestAge = not na(shortRetestBar) ? bar_index - shortRetestBar : na
+longRetestOk = not requiresRetest or (longStrengthOk and not na(longRetestBar) and longRetestAge <= retestWindowEff)
+shortRetestOk = not requiresRetest or (shortStrengthOk and not na(shortRetestBar) and shortRetestAge <= retestWindowEff)
+requiresAlert = systemBRequired
+longAlertGateOk = not requiresAlert or longAlertOk
+shortAlertGateOk = not requiresAlert or shortAlertOk
+
+longPhaseRegimeOk = phaseRegimeSide == 1
+shortPhaseRegimeOk = phaseRegimeSide == -1
+longPhaseStructureOk = phaseChochSide == 1 or phaseBosSide == 1
+shortPhaseStructureOk = phaseChochSide == -1 or phaseBosSide == -1
+levelScore = levelQualityScore(armQuality)
+longQualityScore = setupSide == 1 ? levelScore + longBiasScore + (longQualityBosOk ? 1 : 0) + (systemBScore and longAlertOk ? alert_score_weight : 0) + (longPhaseRegimeOk ? 1 : 0) + (longPhaseStructureOk ? 1 : 0) : 0
+shortQualityScore = setupSide == -1 ? levelScore + shortBiasScore + (shortQualityBosOk ? 1 : 0) + (systemBScore and shortAlertOk ? alert_score_weight : 0) + (shortPhaseRegimeOk ? 1 : 0) + (shortPhaseStructureOk ? 1 : 0) : 0
+activeQualityScore = setupSide == 1 ? longQualityScore : setupSide == -1 ? shortQualityScore : 0
+qualityOk = activeQualityScore >= min_quality_score
+activeBiasOk = setupSide == 1 ? longBiasOk : setupSide == -1 ? shortBiasOk : not use_htf_bias
+activeRiskPct = weightedRiskPct(activeQualityScore)
+
+// ---------------------------- Risk + Entries --------------------------------
+timeOk = not enable_backtest_window or (time >= backtest_start and time <= backtest_end)
+mssLongStopAnchor = ta.lowest(low, mssStopLookbackEff)
+mssShortStopAnchor = ta.highest(high, mssStopLookbackEff)
+longStopAnchor = verdict_stop_mode == "MSS Swing" ? mssLongStopAnchor : verdict_stop_mode == "Retest POI" ? longRetestStopAnchor : armInvalidation
+shortStopAnchor = verdict_stop_mode == "MSS Swing" ? mssShortStopAnchor : verdict_stop_mode == "Retest POI" ? shortRetestStopAnchor : armInvalidation
+longStop = setupSide == 1 and not na(longStopAnchor) ? longStopAnchor * (1.0 - stop_buffer_bps / 10000.0) : na
+shortStop = setupSide == -1 and not na(shortStopAnchor) ? shortStopAnchor * (1.0 + stop_buffer_bps / 10000.0) : na
+longRisk = not na(longStop) ? close - longStop : na
+shortRisk = not na(shortStop) ? shortStop - close : na
+longRiskBps = not na(longRisk) and longRisk > 0 ? longRisk / close * 10000.0 : na
+shortRiskBps = not na(shortRisk) and shortRisk > 0 ? shortRisk / close * 10000.0 : na
+longRiskOk = not na(longRiskBps) and longRiskBps >= min_risk_bps and longRiskBps <= max_risk_bps
+shortRiskOk = not na(shortRiskBps) and shortRiskBps >= min_risk_bps and shortRiskBps <= max_risk_bps
+
+riskBudgetUsd = strategy.equity * (activeRiskPct / 100.0)
+longRiskQty = not na(longRisk) and longRisk > syminfo.mintick and riskBudgetUsd > 0 ? riskBudgetUsd / longRisk : na
+shortRiskQty = not na(shortRisk) and shortRisk > syminfo.mintick and riskBudgetUsd > 0 ? riskBudgetUsd / shortRisk : na
+fixedQty = fixed_notional_usd > 0 ? fixed_notional_usd / close : na
+maxLeverageQty = max_position_leverage > 0 ? strategy.equity * max_position_leverage / close : na
+longQtyRaw = sizing_mode == "Fixed Notional" ? fixedQty : sizing_mode == "Risk Based" ? longRiskQty : na
+shortQtyRaw = sizing_mode == "Fixed Notional" ? fixedQty : sizing_mode == "Risk Based" ? shortRiskQty : na
+longQty = not na(maxLeverageQty) and not na(longQtyRaw) ? math.min(longQtyRaw, maxLeverageQty) : longQtyRaw
+shortQty = not na(maxLeverageQty) and not na(shortQtyRaw) ? math.min(shortQtyRaw, maxLeverageQty) : shortQtyRaw
+longQtyOk = sizing_mode == "TradingView Default" or (not na(longQty) and longQty > 0)
+shortQtyOk = sizing_mode == "TradingView Default" or (not na(shortQty) and shortQty > 0)
+
+longReady = sourceContractOk and armActive and setupSide == 1 and activeBiasOk and longChochOk and longBosOk and longAlertGateOk and longStrengthOk and longRetestOk and longRiskOk and qualityOk
+shortReady = sourceContractOk and armActive and setupSide == -1 and activeBiasOk and shortChochOk and shortBosOk and shortAlertGateOk and shortStrengthOk and shortRetestOk and shortRiskOk and qualityOk
+flatForEntry = strategy.position_size == 0
+notTradedThisArm = na(tradedArmBar) or tradedArmBar != armBar
+longEntrySignal = enable_orders and allow_longs and timeOk and flatForEntry and notTradedThisArm and longReady and longQtyOk
+shortEntrySignal = enable_orders and allow_shorts and timeOk and flatForEntry and notTradedThisArm and shortReady and shortQtyOk
+
+int failMask = 0
+failMask += sourceContractOk ? 0 : FAIL_BAD_SOURCE
+failMask += setupSide == 0 ? FAIL_NO_LEVEL + FAIL_NO_SWEEP : 0
+failMask += setupSide != 0 and armQuality < min_level_quality ? FAIL_NO_LEVEL : 0
+failMask += setupSide == 1 and not longChochOk ? FAIL_NO_MSS : setupSide == -1 and not shortChochOk ? FAIL_NO_MSS : 0
+failMask += requiresBos and setupSide == 1 and not longBosOk ? FAIL_NO_BOS : requiresBos and setupSide == -1 and not shortBosOk ? FAIL_NO_BOS : 0
+failMask += requiresAlert and setupSide == 1 and not longAlertOk ? FAIL_NO_ALERT : requiresAlert and setupSide == -1 and not shortAlertOk ? FAIL_NO_ALERT : 0
+failMask += setupSide == 1 and not longStrengthOk ? FAIL_NO_STRENGTH : setupSide == -1 and not shortStrengthOk ? FAIL_NO_STRENGTH : 0
+failMask += setupSide == 1 and not longRiskOk ? FAIL_BAD_RISK : setupSide == -1 and not shortRiskOk ? FAIL_BAD_RISK : 0
+failMask += requiresRetest and setupSide == 1 and not longRetestOk ? FAIL_NO_RETEST : requiresRetest and setupSide == -1 and not shortRetestOk ? FAIL_NO_RETEST : 0
+failMask += setupSide != 0 and not qualityOk ? FAIL_LOW_QUALITY : 0
+failMask += setupSide != 0 and not activeBiasOk ? FAIL_BAD_BIAS : 0
+
+var float activeEntry = na
+var float activeStop = na
+var float activeTp1 = na
+var float activeTp2 = na
+var float activeRunner = na
+var int activeEntryBar = na
+var int activeEntrySide = 0
+var bool tp1Touched = false
+
+longCandidateTp1 = setupSide == 1 and not na(longRisk) ? close + longRisk * tp1_r : na
+longCandidateTp2 = setupSide == 1 and not na(longRisk) ? close + longRisk * tp2_r : na
+longCandidateRunner = setupSide == 1 and not na(longRisk) ? close + longRisk * runner_r : na
+shortCandidateTp1 = setupSide == -1 and not na(shortRisk) ? close - shortRisk * tp1_r : na
+shortCandidateTp2 = setupSide == -1 and not na(shortRisk) ? close - shortRisk * tp2_r : na
+shortCandidateRunner = setupSide == -1 and not na(shortRisk) ? close - shortRisk * runner_r : na
+
+entryPathCore = "SYS" + verdict_system + "-STOP" + verdict_stop_mode + "-" + levelTxt(armCode) + "-L" + str.tostring(armedLevel, format.mintick) + "-Q" + str.tostring(armQuality) + "-C" + str.tostring(activeQualityScore) + "-R" + str.tostring(activeRiskPct, "#.#") + "-B" + str.tostring(bias4hSide) + "/" + str.tostring(bias1dSide) + "-M" + str.tostring(setupSide == 1 ? longChochAge : shortChochAge) + "-A" + str.tostring(setupSide == 1 ? longAlertAge : shortAlertAge) + "-S" + str.tostring(setupSide == 1 ? longStrengthAge : shortStrengthAge) + "-SS" + str.tostring(strengthSlope, "#.####")
+longEntryPath = entryPathCore + "-SL" + str.tostring(longStop, format.mintick) + "-TP" + str.tostring(longCandidateTp1, format.mintick) + "/" + str.tostring(longCandidateTp2, format.mintick) + "/" + str.tostring(longCandidateRunner, format.mintick)
+shortEntryPath = entryPathCore + "-SL" + str.tostring(shortStop, format.mintick) + "-TP" + str.tostring(shortCandidateTp1, format.mintick) + "/" + str.tostring(shortCandidateTp2, format.mintick) + "/" + str.tostring(shortCandidateRunner, format.mintick)
+
+if longEntrySignal
+    activeEntry := close
+    activeStop := longStop
+    activeTp1 := longCandidateTp1
+    activeTp2 := longCandidateTp2
+    activeRunner := longCandidateRunner
+    activeEntryBar := bar_index
+    activeEntrySide := 1
+    tp1Touched := false
+    setupStage := STAGE_ENTERED
+    tradedArmBar := armBar
+    if sizing_mode == "TradingView Default"
+        strategy.entry("V7VH-LONG", strategy.long, comment="V7VH-L-" + longEntryPath)
+    else
+        strategy.entry("V7VH-LONG", strategy.long, qty=longQty, comment="V7VH-L-" + longEntryPath)
+
+if shortEntrySignal
+    activeEntry := close
+    activeStop := shortStop
+    activeTp1 := shortCandidateTp1
+    activeTp2 := shortCandidateTp2
+    activeRunner := shortCandidateRunner
+    activeEntryBar := bar_index
+    activeEntrySide := -1
+    tp1Touched := false
+    setupStage := STAGE_ENTERED
+    tradedArmBar := armBar
+    if sizing_mode == "TradingView Default"
+        strategy.entry("V7VH-SHORT", strategy.short, comment="V7VH-S-" + shortEntryPath)
+    else
+        strategy.entry("V7VH-SHORT", strategy.short, qty=shortQty, comment="V7VH-S-" + shortEntryPath)
+
+inLong = strategy.position_size > 0
+inShort = strategy.position_size < 0
+if inLong and not tp1Touched and not na(activeTp1) and high >= activeTp1
+    tp1Touched := true
+if inShort and not tp1Touched and not na(activeTp1) and low <= activeTp1
+    tp1Touched := true
+
+effectiveStop = activeStop
+if inLong
+    strategy.exit("V7VH-L-TP1_OR_STOP", "V7VH-LONG", stop=effectiveStop, limit=activeTp1)
+if inShort
+    strategy.exit("V7VH-S-TP1_OR_STOP", "V7VH-SHORT", stop=effectiveStop, limit=activeTp1)
+
+maxHoldExit = enable_max_hold_exit and strategy.position_size != 0 and not na(activeEntryBar) and bar_index - activeEntryBar >= maxHoldEff
+if maxHoldExit and inLong
+    strategy.close("V7VH-LONG", comment="V7VH-L-MAXHOLD")
+if maxHoldExit and inShort
+    strategy.close("V7VH-SHORT", comment="V7VH-S-MAXHOLD")
+
+if strategy.position_size == 0 and nz(strategy.position_size[1], 0) != 0 and not longEntrySignal and not shortEntrySignal
+    activeEntry := na
+    activeStop := na
+    activeTp1 := na
+    activeTp2 := na
+    activeRunner := na
+    activeEntryBar := na
+    activeEntrySide := 0
+    tp1Touched := false
+
+// ---------------------------- Diagnostics ------------------------------------
+activeRiskBps = setupSide == 1 ? longRiskBps : setupSide == -1 ? shortRiskBps : na
+activeQualityBosAge = setupSide == 1 ? longQualityBosAge : setupSide == -1 ? shortQualityBosAge : na
+plot(show_levels ? armedLevel : na, "V7A Armed Level", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_linebr)
+plot(show_levels and strategy.position_size != 0 ? effectiveStop : na, "V7A Active Stop", color=color.new(color.red, 0), linewidth=1, style=plot.style_linebr)
+plot(show_levels and strategy.position_size != 0 ? activeTp1 : na, "V7A TP1", color=color.new(color.green, 0), linewidth=1, style=plot.style_linebr)
+
+plotshape(show_markers and longSweep and not dualSweep, title="V7A Long Sweep Arm", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.tiny, text="V7A ARM")
+plotshape(show_markers and shortSweep and not dualSweep, title="V7A Short Sweep Arm", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="V7A ARM")
+plotshape(show_markers and longEntrySignal, title="V7A Long Entry", style=shape.arrowup, location=location.belowbar, color=color.new(color.lime, 0), size=size.small, text="V7A")
+plotshape(show_markers and shortEntrySignal, title="V7A Short Entry", style=shape.arrowdown, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="V7A")
+
+plot(show_status_line ? setupSide : na, "DBG V7A Setup Side", display=display.status_line + display.data_window)
+plot(show_status_line ? setupStage : na, "DBG V7A Stage", display=display.status_line + display.data_window)
+plot(show_status_line ? armCode : na, "DBG V7A Level Family", display=display.status_line + display.data_window)
+plot(show_status_line ? armQuality : na, "DBG V7A Level Quality", display=display.status_line + display.data_window)
+plot(show_status_line ? failMask : na, "DBG V7A Fail Mask", display=display.status_line + display.data_window)
+plot(show_status_line ? aioMssSide : na, "DBG V7A AIO MSS Side", display=display.status_line + display.data_window)
+plot(show_status_line ? aioAlertSide : na, "DBG V7AMS AIO Alert Side", display=display.status_line + display.data_window)
+plot(show_status_line ? (setupSide == 1 ? longAlertAge : setupSide == -1 ? shortAlertAge : na) : na, "DBG V7AMS Alert Age", display=display.status_line + display.data_window)
+plot(show_status_line ? (setupSide == 1 and longAlertOk ? 1 : setupSide == -1 and shortAlertOk ? 1 : 0) : na, "DBG V7AMS Alert OK", display=display.status_line + display.data_window)
+plot(show_status_line ? aioBosSide : na, "DBG V7A AIO BoS Side", display=display.status_line + display.data_window)
+plot(show_status_line ? phaseRegimeSide : na, "DBG V7A Phase Regime Side", display=display.status_line + display.data_window)
+plot(show_status_line ? phaseChochSide : na, "DBG V7A Phase CHoCH Side", display=display.status_line + display.data_window)
+plot(show_status_line ? phaseBosSide : na, "DBG V7A Phase BoS Side", display=display.status_line + display.data_window)
+plot(show_status_line ? oracle_strength_src : na, "DBG V7A Oracle Strength Raw", display=display.status_line + display.data_window)
+plot(show_status_line ? oracleStrengthSide : na, "DBG V7A Oracle Strength Side", display=display.status_line + display.data_window)
+plot(show_status_line ? activeRiskBps : na, "DBG V7A Risk Bps", display=display.status_line + display.data_window)
+plot(show_status_line ? activeQualityScore : na, "DBG V7Q Quality Score", display=display.status_line + display.data_window)
+plot(show_status_line ? activeRiskPct : na, "DBG V7Q Risk Pct", display=display.status_line + display.data_window)
+plot(show_status_line ? activeQualityBosAge : na, "DBG V7Q Quality BoS Age", display=display.status_line + display.data_window)
+plot(show_status_line ? bias4hSide : na, "DBG V7Q 4H Bias Side", display=display.status_line + display.data_window)
+plot(show_status_line ? bias1dSide : na, "DBG V7Q 1D Bias Side", display=display.status_line + display.data_window)
+plot(show_status_line ? (activeBiasOk ? 1 : 0) : na, "DBG V7Q Bias OK", display=display.status_line + display.data_window)
+
+var table diag = table.new(diagPosition(), 1, 8, border_width=1)
+if barstate.islast and show_diag_table
+    sourceText = "mss+/mss-/alert+/alert-/str=" + str.tostring(aioBullMssMapped) + "/" + str.tostring(aioBearMssMapped) + "/" + str.tostring(aioBuyAlertMapped) + "/" + str.tostring(aioSellAlertMapped) + "/" + str.tostring(oracleStrengthMapped) + " bos+/bos-=" + str.tostring(aioBullBosMapped) + "/" + str.tostring(aioBearBosMapped)
+    sequenceText = "mss=" + str.tostring(setupSide == 1 ? longChochAge : shortChochAge) + " alert=" + str.tostring(setupSide == 1 ? longAlertAge : shortAlertAge) + " bos=" + str.tostring(setupSide == 1 ? longBosAge : shortBosAge) + " qbos=" + str.tostring(setupSide == 1 ? longQualityBosAge : shortQualityBosAge) + " strength=" + str.tostring(setupSide == 1 ? longStrengthAge : shortStrengthAge) + " retest=" + str.tostring(setupSide == 1 ? longRetestAge : shortRetestAge)
+    table.cell(diag, 0, 0, "Unity UTM V7 Verdict | " + syminfo.ticker + " | " + verdict_system + " | " + verdict_stop_mode, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(diag, 0, 1, "State: side=" + sideTxt(setupSide) + " stage=" + str.tostring(setupStage) + " age=" + str.tostring(armAge) + " scale=" + str.tostring(windowScale) + " fail=" + str.tostring(failMask), text_color=color.white, bgcolor=color.new(failMask == 0 ? color.green : color.black, 20))
+    table.cell(diag, 0, 2, "Sources: " + sourceText, text_color=color.white, bgcolor=color.new(sourceContractOk ? color.green : color.red, 35))
+    table.cell(diag, 0, 3, "Level: " + levelTxt(armCode) + " q=" + str.tostring(armQuality) + " level=" + str.tostring(armedLevel, format.mintick) + " zone=" + str.tostring(armedZoneLow, format.mintick) + "/" + str.tostring(armedZoneHigh, format.mintick), text_color=color.white, bgcolor=color.new(armQuality >= min_level_quality ? color.green : color.black, 35))
+    table.cell(diag, 0, 4, "Structure: aio mss/alert/bos=" + str.tostring(aioMssSide) + "/" + str.tostring(aioAlertSide) + "/" + str.tostring(aioBosSide) + " phase reg/choch/bos=" + str.tostring(phaseRegimeSide) + "/" + str.tostring(phaseChochSide) + "/" + str.tostring(phaseBosSide) + " seq=" + sequenceText, text_color=color.white, bgcolor=color.new((longChochOk or shortChochOk) and (longAlertGateOk or shortAlertGateOk) ? color.green : color.black, 35))
+    table.cell(diag, 0, 5, "Strength: raw=" + str.tostring(oracle_strength_src, "#.####") + " side=" + str.tostring(oracleStrengthSide) + " ribbon=" + str.tostring(use_oracle_ribbon ? ribbonSide : 0), text_color=color.white, bgcolor=color.new(longStrengthOk or shortStrengthOk ? color.green : color.black, 35))
+    table.cell(diag, 0, 6, "Risk: bps=" + str.tostring(activeRiskBps, "#.##") + " pct=" + str.tostring(activeRiskPct, "#.#") + " score=" + str.tostring(activeQualityScore) + " bias4h/1d=" + str.tostring(bias4hSide) + "/" + str.tostring(bias1dSide) + " stop=" + str.tostring(setupSide == 1 ? longStop : setupSide == -1 ? shortStop : activeStop, format.mintick), text_color=color.white, bgcolor=color.new((longRiskOk or shortRiskOk) and qualityOk and activeBiasOk ? color.green : color.black, 35))
+    table.cell(diag, 0, 7, "Orders: enabled=" + str.tostring(enable_orders) + " time=" + str.tostring(timeOk) + " flat=" + str.tostring(flatForEntry) + " tradedArm=" + str.tostring(tradedArmBar), text_color=color.white, bgcolor=color.new(timeOk and flatForEntry ? color.green : color.black, 35))
+if barstate.islast and not show_diag_table
+    table.clear(diag, 0, 0, 0, 7)

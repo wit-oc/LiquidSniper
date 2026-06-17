@@ -1,0 +1,229 @@
+{
+  "version": 1,
+  "defaultRun": "v7-htf-premise-qs3-4h",
+  "defaults": {
+    "chromeProfileEnv": "TV_CHROME_PROFILE_DIR",
+    "chromeChannel": "chromium",
+    "headless": false,
+    "artifactsDir": "tradingview/strategy/artifacts/v7_htf_premise_validation/tradingview/automation",
+    "scriptNamePrefix": "Codex Scratch",
+    "timeoutMs": 30000,
+    "navigationTimeoutMs": 60000,
+    "downloadTimeoutMs": 240000,
+    "waitAfterLoadMs": 10000,
+    "ignoreDefaultArgs": [
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--disable-sync"
+    ],
+    "viewport": {
+      "width": 1440,
+      "height": 950
+    }
+  },
+  "runs": [
+    {
+      "id": "v7-htf-premise-qs3-4h",
+      "description": "TradingView-only HTF premise validation: raw 4H port of current QS3 Displacement Quality candidate with Pine backtest window disabled. No threshold tuning.",
+      "variant": "htf_premise_qs3_4h",
+      "stopMode": "structural-control",
+      "geometry": "QS3 4H HTF Premise Validation",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_htf_premise_validation/generated/v7-htf-premise-qs3-validation.pine",
+      "scriptName": "Codex Scratch - v7-htf-premise-qs3-4h",
+      "scriptTitle": "Unity UTM Strategy v7 HTF Premise QS3 Validation",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 HTF Premise QS3 Validation",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=240",
+      "symbols": [
+        "BINANCE:ZECUSDT",
+        "BINANCE:ADAUSDT",
+        "BINANCE:LINKUSDT",
+        "BINANCE:XRPUSDT",
+        "BINANCE:ARBUSDT",
+        "BINANCE:PYTHUSDT",
+        "BINANCE:SEIUSDT",
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:SOLUSDT",
+        "BINANCE:BNBUSDT",
+        "BINANCE:DOGEUSDT",
+        "BINANCE:LTCUSDT",
+        "BINANCE:HYPEUSDT.P",
+        "BINANCE:AEROUSDT.P",
+        "BINANCE:VIRTUALUSDT.P",
+        "BINANCE:RENDERUSDT.P"
+      ],
+      "timeframes": [
+        {
+          "label": "4H",
+          "interval": "240"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 17,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000,
+      "symbolMetadata": {
+        "BINANCE:ZECUSDT": {
+          "asset": "ZEC",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "mid",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:ADAUSDT": {
+          "asset": "ADA",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "mid",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:LINKUSDT": {
+          "asset": "LINK",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "mid",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:XRPUSDT": {
+          "asset": "XRP",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "major",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:ARBUSDT": {
+          "asset": "ARB",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:PYTHUSDT": {
+          "asset": "PYTH",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:SEIUSDT": {
+          "asset": "SEI",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:BTCUSDT": {
+          "asset": "BTC",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:ETHUSDT": {
+          "asset": "ETH",
+          "regimeTier": "major control",
+          "liquidityTier": "major",
+          "priorOutcome": "diagnostic-only"
+        },
+        "BINANCE:SOLUSDT": {
+          "asset": "SOL",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:BNBUSDT": {
+          "asset": "BNB",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:DOGEUSDT": {
+          "asset": "DOGE",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:LTCUSDT": {
+          "asset": "LTC",
+          "regimeTier": "major control",
+          "liquidityTier": "major",
+          "priorOutcome": "marginal"
+        },
+        "BINANCE:HYPEUSDT.P": {
+          "asset": "HYPE",
+          "regimeTier": "perp route probe",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "spot-route-unresolved"
+        },
+        "BINANCE:AEROUSDT.P": {
+          "asset": "AERO",
+          "regimeTier": "perp route probe",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "spot-route-unresolved"
+        },
+        "BINANCE:VIRTUALUSDT.P": {
+          "asset": "VIRTUAL",
+          "regimeTier": "perp route probe",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:RENDERUSDT.P": {
+          "asset": "RENDER",
+          "regimeTier": "perp route probe",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "spot-route-fail",
+          "aliasGroup": "RENDER/RNDR"
+        }
+      }
+    }
+  ]
+}

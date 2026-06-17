@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "defaultRun": "v7-liquidity-scope-perp-probe-125bps",
+  "defaults": {
+    "chromeProfileEnv": "TV_CHROME_PROFILE_DIR",
+    "chromeChannel": "chromium",
+    "headless": false,
+    "artifactsDir": "tradingview/strategy/artifacts/v7_liquidity_scope_perp_probe/tradingview/automation",
+    "scriptNamePrefix": "Codex Scratch",
+    "timeoutMs": 30000,
+    "navigationTimeoutMs": 60000,
+    "downloadTimeoutMs": 240000,
+    "waitAfterLoadMs": 10000,
+    "ignoreDefaultArgs": [
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--disable-sync"
+    ],
+    "viewport": {
+      "width": 1440,
+      "height": 950
+    }
+  },
+  "runs": [
+    {
+      "id": "v7-liquidity-scope-perp-probe-125bps",
+      "description": "Fixed V7 System A Displacement Quality 125bps structural stop candidate on Binance USDT.P routes for HYPE, AERO, and RENDER. Targeted route sanity probe only.",
+      "variant": "liquidity_scope_perp_probe_125bps",
+      "stopMode": "structural-control",
+      "geometry": "Liquidity Scope Perp Probe 125bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_liquidity_scope_perp_probe/generated/v7-liquidity-scope-perp-probe-125bps.pine",
+      "scriptName": "Codex Scratch - v7-liquidity-scope-perp-probe-125bps",
+      "scriptTitle": "Unity UTM Strategy v7 Liquidity Scope Perp Probe 125bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Liquidity Scope Perp Probe 125bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:HYPEUSDT.P",
+        "BINANCE:AEROUSDT.P",
+        "BINANCE:RENDERUSDT.P"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000,
+      "symbolMetadata": {
+        "BINANCE:HYPEUSDT.P": {
+          "asset": "HYPE",
+          "regimeTier": "smaller/reflexive perp probe",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "spot-route-unresolved"
+        },
+        "BINANCE:AEROUSDT.P": {
+          "asset": "AERO",
+          "regimeTier": "smaller/reflexive perp probe",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "spot-route-unresolved"
+        },
+        "BINANCE:RENDERUSDT.P": {
+          "asset": "RENDER",
+          "regimeTier": "smaller/reflexive perp probe",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "spot-route-fail",
+          "aliasGroup": "RENDER/RNDR"
+        }
+      }
+    }
+  ]
+}

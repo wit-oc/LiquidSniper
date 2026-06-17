@@ -1,0 +1,554 @@
+{
+  "version": 1,
+  "defaultRun": "v7-stop-engine-current",
+  "defaults": {
+    "chromeProfileEnv": "TV_CHROME_PROFILE_DIR",
+    "chromeChannel": "chromium",
+    "headless": false,
+    "artifactsDir": "tradingview/strategy/artifacts/v7_stop_engine_robustness/tradingview/automation",
+    "scriptNamePrefix": "Codex Scratch",
+    "timeoutMs": 30000,
+    "navigationTimeoutMs": 60000,
+    "downloadTimeoutMs": 240000,
+    "waitAfterLoadMs": 10000,
+    "ignoreDefaultArgs": [
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--disable-sync"
+    ],
+    "viewport": {
+      "width": 1440,
+      "height": 950
+    }
+  },
+  "runs": [
+    {
+      "id": "v7-stop-engine-current",
+      "description": "Current Displacement Quality stop engine: 4bps invalidation buffer and baseline minimum stop distance. BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "stop_engine_current",
+      "stopMode": "sweep",
+      "geometry": "Current Stop Baseline",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_stop_engine_robustness/generated/v7-stop-engine-current.pine",
+      "scriptName": "Codex Scratch - v7-stop-engine-current",
+      "scriptTitle": "Unity UTM Strategy v7 Stop Engine Test Current Stop Baseline",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Stop Engine Test Current Stop Baseline",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-stop-engine-floor-75bps",
+      "description": "Stop-distance robustness test: current stop engine with 75bps minimum stop distance. BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "stop_engine_floor_75bps",
+      "stopMode": "sweep",
+      "geometry": "Stop Floor 75bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_stop_engine_robustness/generated/v7-stop-engine-floor-75bps.pine",
+      "scriptName": "Codex Scratch - v7-stop-engine-floor-75bps",
+      "scriptTitle": "Unity UTM Strategy v7 Stop Engine Test Stop Floor 75bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Stop Engine Test Stop Floor 75bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-stop-engine-floor-100bps",
+      "description": "Stop-distance robustness test: current stop engine with 100bps minimum stop distance. BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "stop_engine_floor_100bps",
+      "stopMode": "sweep",
+      "geometry": "Stop Floor 100bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_stop_engine_robustness/generated/v7-stop-engine-floor-100bps.pine",
+      "scriptName": "Codex Scratch - v7-stop-engine-floor-100bps",
+      "scriptTitle": "Unity UTM Strategy v7 Stop Engine Test Stop Floor 100bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Stop Engine Test Stop Floor 100bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-stop-engine-floor-125bps",
+      "description": "Stop-distance robustness test: current stop engine with 125bps minimum stop distance. BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "stop_engine_floor_125bps",
+      "stopMode": "sweep",
+      "geometry": "Stop Floor 125bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_stop_engine_robustness/generated/v7-stop-engine-floor-125bps.pine",
+      "scriptName": "Codex Scratch - v7-stop-engine-floor-125bps",
+      "scriptTitle": "Unity UTM Strategy v7 Stop Engine Test Stop Floor 125bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Stop Engine Test Stop Floor 125bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-stop-engine-buffer-20bps-floor-100bps",
+      "description": "Sweep-tolerance test: structural stop with 20bps invalidation buffer and 100bps minimum stop distance. BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "stop_engine_buffer_20bps_floor_100bps",
+      "stopMode": "sweep-buffer",
+      "geometry": "Wide Buffer 20bps Floor 100bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_stop_engine_robustness/generated/v7-stop-engine-buffer-20bps-floor-100bps.pine",
+      "scriptName": "Codex Scratch - v7-stop-engine-buffer-20bps-floor-100bps",
+      "scriptTitle": "Unity UTM Strategy v7 Stop Engine Test Wide Buffer 20bps Floor 100bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Stop Engine Test Wide Buffer 20bps Floor 100bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-stop-engine-close-confirm-floor-100bps",
+      "description": "Sweep-tolerance diagnostic: TP limit plus close-confirmed invalidation with 100bps minimum stop distance. BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "stop_engine_close_confirm_floor_100bps",
+      "stopMode": "sweep-close-confirmed",
+      "geometry": "Close Confirmed Floor 100bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_stop_engine_robustness/generated/v7-stop-engine-close-confirm-floor-100bps.pine",
+      "scriptName": "Codex Scratch - v7-stop-engine-close-confirm-floor-100bps",
+      "scriptTitle": "Unity UTM Strategy v7 Stop Engine Test Close Confirmed Floor 100bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Stop Engine Test Close Confirmed Floor 100bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    }
+  ]
+}

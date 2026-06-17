@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "generatedAt": "2026-06-13T00:00:00.000Z",
+  "defaultRun": "v7-qs3-pdf-filters-eth-install-canary",
+  "note": "PDF-guided V7 QS3 refinement canary. Installs the edited same-title script and exports ETH in the same browser session before any basket run.",
+  "defaults": {
+    "chromeProfileEnv": "TV_CHROME_PROFILE_DIR",
+    "chromeChannel": "chromium",
+    "headless": false,
+    "artifactsDir": "tradingview/strategy/artifacts/v7_pdf_strategy_refinement/tradingview/automation",
+    "scriptNamePrefix": "Codex Scratch",
+    "timeoutMs": 30000,
+    "navigationTimeoutMs": 60000,
+    "downloadTimeoutMs": 300000,
+    "waitAfterLoadMs": 10000,
+    "ignoreDefaultArgs": [
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--disable-sync"
+    ],
+    "viewport": {
+      "width": 1440,
+      "height": 950
+    }
+  },
+  "runs": [
+    {
+      "id": "v7-qs3-pdf-filters-eth-install-canary",
+      "description": "Install uniquely titled V7 QS3 with PDF execution filters, remap sources per symbol, then export the representative 15m hydrated-source basket in the same session.",
+      "variant": "pdf-filters-install-canary",
+      "kind": "strategy",
+      "skipInstall": false,
+      "installFirstItemOnly": false,
+      "expectedActiveLayout": "Codex-Automation",
+      "loadExpectedActiveLayout": true,
+      "waitAfterLayoutLoadMs": 12000,
+      "scriptPath": "tradingview/strategy/artifacts/v7_generalization_independent_variables/generated/v7-generalization-quality-score-3.pine",
+      "scriptName": "Codex Scratch - v7-qs3-pdf-filter-canary-k",
+      "scriptTitle": "Unity UTM Strategy v7 QS3 PDF Filter Canary K",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 QS3 PDF Filter Canary K",
+      "sourceSentinelText": "CODEX_INSTALL_SENTINEL_QS3_PDF_CANARY_K",
+      "preferActiveStrategyReportExport": true,
+      "savePineScriptBeforeAdd": true,
+      "requiresManualSettingsCommit": false,
+      "requiresSourceContractVerification": false,
+      "applyV6MappingsEachSymbol": true,
+      "applyV6MappingsFirstItemOnly": false,
+      "saveLayoutAfterInstall": false,
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "strategyReportDateRange": {
+        "mode": "entire-history",
+        "requestedLabel": "Entire history",
+        "requiredSelectionPattern": "Entire history|All history",
+        "minimumStart": "2024-01-01",
+        "source": "TradingView Strategy Tester / Deep Backtesting visible date range dropdown"
+      },
+      "pineBacktestWindow": {
+        "application": "generated-pine-input-defaults-2024-window",
+        "enabled": true,
+        "start": "2024-01-01T00:00:00.000Z",
+        "end": "2026-12-31T23:59:00.000Z",
+        "startEpochMs": 1704067200000,
+        "endEpochMs": 1798761540000,
+        "sourceInputs": [
+          "Enable Backtest Window",
+          "Backtest Start",
+          "Backtest End"
+        ]
+      },
+      "chartUrl": "https://www.tradingview.com/chart/SxOuhr10/?symbol=BINANCE:ETHUSDT.P&interval=15",
+      "symbols": [
+        "BINANCE:ETHUSDT.P",
+        "BINANCE:SOLUSDT.P",
+        "BLOFIN:DOGEUSDT.P",
+        "BLOFIN:ZECUSDT.P"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 1,
+        "minRows": 0,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 600000,
+      "strategyReportReadyPollMs": 5000,
+      "strategyReportReadyMinElapsedMs": 90000,
+      "strategyReportReadyStablePolls": 2,
+      "symbolMetadata": {
+        "BINANCE:ETHUSDT.P": {
+          "asset": "ETH",
+          "priorOutcome": "manual-hydrated-baseline-canary"
+        },
+        "BINANCE:SOLUSDT.P": {
+          "asset": "SOL",
+          "priorOutcome": "manual-hydrated-basket-positive-baseline"
+        },
+        "BLOFIN:DOGEUSDT.P": {
+          "asset": "DOGE",
+          "priorOutcome": "manual-hydrated-basket-negative-baseline"
+        },
+        "BLOFIN:ZECUSDT.P": {
+          "asset": "ZEC",
+          "priorOutcome": "manual-hydrated-basket-negative-baseline"
+        }
+      }
+    }
+  ]
+}

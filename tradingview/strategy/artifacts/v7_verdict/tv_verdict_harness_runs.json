@@ -1,0 +1,809 @@
+{
+  "version": 1,
+  "defaultRun": "v7-verdict-a-current-sweep",
+  "defaults": {
+    "chromeProfileEnv": "TV_CHROME_PROFILE_DIR",
+    "chromeChannel": "chromium",
+    "headless": false,
+    "artifactsDir": "tradingview/strategy/artifacts/v7_verdict/tradingview/automation",
+    "scriptNamePrefix": "Codex Scratch",
+    "timeoutMs": 30000,
+    "navigationTimeoutMs": 60000,
+    "downloadTimeoutMs": 240000,
+    "waitAfterLoadMs": 10000,
+    "ignoreDefaultArgs": [
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--disable-sync"
+    ],
+    "viewport": {
+      "width": 1440,
+      "height": 950
+    }
+  },
+  "runs": [
+    {
+      "id": "v7-verdict-a-current-sweep",
+      "description": "Verdict harness: A Current, Sweep Wick stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_a_current",
+      "stopMode": "sweep",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-a-current-sweep.pine",
+      "scriptName": "Codex Scratch - v7-verdict-a-current-sweep",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict A Current Sweep Wick",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict A Current Sweep Wick",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-a-current-mss-swing",
+      "description": "Verdict harness: A Current, MSS Swing stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_a_current",
+      "stopMode": "mss-swing",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-a-current-mss-swing.pine",
+      "scriptName": "Codex Scratch - v7-verdict-a-current-mss-swing",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict A Current MSS Swing",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict A Current MSS Swing",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-a-current-retest-poi",
+      "description": "Verdict harness: A Current, Retest POI stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_a_current",
+      "stopMode": "retest-poi",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-a-current-retest-poi.pine",
+      "scriptName": "Codex Scratch - v7-verdict-a-current-retest-poi",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict A Current Retest POI",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict A Current Retest POI",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-b-alert-score-sweep",
+      "description": "Verdict harness: B Alert Score, Sweep Wick stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_b_alert_score",
+      "stopMode": "sweep",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-b-alert-score-sweep.pine",
+      "scriptName": "Codex Scratch - v7-verdict-b-alert-score-sweep",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict B Alert Score Sweep Wick",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict B Alert Score Sweep Wick",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-b-alert-score-mss-swing",
+      "description": "Verdict harness: B Alert Score, MSS Swing stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_b_alert_score",
+      "stopMode": "mss-swing",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-b-alert-score-mss-swing.pine",
+      "scriptName": "Codex Scratch - v7-verdict-b-alert-score-mss-swing",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict B Alert Score MSS Swing",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict B Alert Score MSS Swing",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-b-alert-score-retest-poi",
+      "description": "Verdict harness: B Alert Score, Retest POI stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_b_alert_score",
+      "stopMode": "retest-poi",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-b-alert-score-retest-poi.pine",
+      "scriptName": "Codex Scratch - v7-verdict-b-alert-score-retest-poi",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict B Alert Score Retest POI",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict B Alert Score Retest POI",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-b-alert-required-sweep",
+      "description": "Verdict harness: B Alert Required, Sweep Wick stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_b_alert_required",
+      "stopMode": "sweep",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-b-alert-required-sweep.pine",
+      "scriptName": "Codex Scratch - v7-verdict-b-alert-required-sweep",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict B Alert Required Sweep Wick",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict B Alert Required Sweep Wick",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-b-alert-required-mss-swing",
+      "description": "Verdict harness: B Alert Required, MSS Swing stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_b_alert_required",
+      "stopMode": "mss-swing",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-b-alert-required-mss-swing.pine",
+      "scriptName": "Codex Scratch - v7-verdict-b-alert-required-mss-swing",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict B Alert Required MSS Swing",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict B Alert Required MSS Swing",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    },
+    {
+      "id": "v7-verdict-b-alert-required-retest-poi",
+      "description": "Verdict harness: B Alert Required, Retest POI stop, BTC/ETH/ZEC on 15m and 5m.",
+      "variant": "system_b_alert_required",
+      "stopMode": "retest-poi",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_verdict/generated/v7-verdict-b-alert-required-retest-poi.pine",
+      "scriptName": "Codex Scratch - v7-verdict-b-alert-required-retest-poi",
+      "scriptTitle": "Unity UTM Strategy v7 Verdict B Alert Required Retest POI",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Verdict B Alert Required Retest POI",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "REQ AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "REQ AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 6,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "TradingView Pine Loop"
+  short_description: "Automate Pine compile/export loops"
+  default_prompt: "Use $tradingview-pine-loop to install my Pine script in TradingView, export results, and validate the run."
+policy:
+  allow_implicit_invocation: true

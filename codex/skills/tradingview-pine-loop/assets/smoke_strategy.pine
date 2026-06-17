@@ -1,0 +1,17 @@
+//@version=5
+strategy("Codex Pine Loop Smoke Strategy", overlay=true, initial_capital=10000)
+
+fast = ta.sma(close, 5)
+slow = ta.sma(close, 20)
+longSignal = ta.crossover(fast, slow)
+shortSignal = ta.crossunder(fast, slow)
+
+if longSignal
+    strategy.entry("SMOKE-L", strategy.long)
+if shortSignal
+    strategy.close("SMOKE-L")
+
+plot(fast, "SMOKE_FAST")
+plot(slow, "SMOKE_SLOW")
+plot(longSignal ? 1 : 0, "ASSERT_ALL")
+plot(ta.cum(longSignal ? 1 : 0), "TRIGGER_COUNT")

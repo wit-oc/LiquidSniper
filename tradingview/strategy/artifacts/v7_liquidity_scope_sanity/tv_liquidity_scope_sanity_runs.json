@@ -1,0 +1,311 @@
+{
+  "version": 1,
+  "defaultRun": "v7-liquidity-scope-sanity-125bps",
+  "defaults": {
+    "chromeProfileEnv": "TV_CHROME_PROFILE_DIR",
+    "chromeChannel": "chromium",
+    "headless": false,
+    "artifactsDir": "tradingview/strategy/artifacts/v7_liquidity_scope_sanity/tradingview/automation",
+    "scriptNamePrefix": "Codex Scratch",
+    "timeoutMs": 30000,
+    "navigationTimeoutMs": 60000,
+    "downloadTimeoutMs": 240000,
+    "waitAfterLoadMs": 10000,
+    "ignoreDefaultArgs": [
+      "--use-mock-keychain",
+      "--password-store=basic",
+      "--disable-sync"
+    ],
+    "viewport": {
+      "width": 1440,
+      "height": 950
+    }
+  },
+  "runs": [
+    {
+      "id": "v7-liquidity-scope-sanity-125bps",
+      "description": "Fixed V7 System A Displacement Quality 125bps structural stop candidate across controls and smaller/reflexive symbols. Classification-only liquidity-scope sanity pass.",
+      "variant": "liquidity_scope_sanity_125bps",
+      "stopMode": "structural-control",
+      "geometry": "Liquidity Scope Sanity 125bps",
+      "kind": "strategy",
+      "scriptPath": "tradingview/strategy/artifacts/v7_liquidity_scope_sanity/generated/v7-liquidity-scope-sanity-125bps.pine",
+      "scriptName": "Codex Scratch - v7-liquidity-scope-sanity-125bps",
+      "scriptTitle": "Unity UTM Strategy v7 Liquidity Scope Sanity 125bps",
+      "expectedStrategyTitle": "Unity UTM Strategy v7 Liquidity Scope Sanity 125bps",
+      "requiresManualSettingsCommit": true,
+      "requiresSourceContractVerification": true,
+      "applyV6MappingsEachSymbol": true,
+      "samePaneSymbolSwitch": false,
+      "reuseV6MappingsAfterSamePaneSwitch": false,
+      "saveLayoutAfterInstall": false,
+      "strategyReportDateRange": "Entire history",
+      "v6Mappings": [
+        {
+          "label": "REQ AIO Internal Bullish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish MSS"
+        },
+        {
+          "label": "REQ AIO Internal Bearish MSS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish MSS"
+        },
+        {
+          "label": "DIAG AIO Buy Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Buy Trend Alert"
+        },
+        {
+          "label": "DIAG AIO Sell Trend Alert",
+          "value": "The Oracle AIO - [Unity] - V2: Sell Trend Alert"
+        },
+        {
+          "label": "REQ Oracle Strength",
+          "value": "The Oracle Strength - [Unity] - V2: Oracle Strength"
+        },
+        {
+          "label": "Optional AIO Internal Bullish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bullish BOS"
+        },
+        {
+          "label": "Optional AIO Internal Bearish BOS",
+          "value": "The Oracle AIO - [Unity] - V2: Internal Bearish BOS"
+        },
+        {
+          "label": "DIAG Phase1 Bus Regime Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus Regime Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus CHoCH Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus CHoCH Direction"
+        },
+        {
+          "label": "DIAG Phase1 Bus BoS Direction",
+          "value": "HTF Phase 1 Structure v3.3 (structure-first): Bus BoS Direction"
+        }
+      ],
+      "chartUrl": "https://www.tradingview.com/chart/EU0fwd29/?symbol=BINANCE:BTCUSDT&interval=15",
+      "symbols": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:ZECUSDT",
+        "BINANCE:ADAUSDT",
+        "BINANCE:LINKUSDT",
+        "BINANCE:XRPUSDT",
+        "BINANCE:SOLUSDT",
+        "BINANCE:BNBUSDT",
+        "BINANCE:DOGEUSDT",
+        "BINANCE:LTCUSDT",
+        "BINANCE:HYPEUSDT",
+        "BINANCE:AEROUSDT",
+        "BINANCE:VIRTUALUSDT",
+        "BINANCE:FETUSDT",
+        "BINANCE:RENDERUSDT",
+        "BINANCE:RNDRUSDT",
+        "BINANCE:WIFUSDT",
+        "BINANCE:SEIUSDT",
+        "BINANCE:TIAUSDT",
+        "BINANCE:SUIUSDT",
+        "BINANCE:INJUSDT",
+        "BINANCE:JUPUSDT",
+        "BINANCE:ONDOUSDT",
+        "BINANCE:ENAUSDT",
+        "BINANCE:PYTHUSDT",
+        "BINANCE:PENDLEUSDT",
+        "BINANCE:ARBUSDT",
+        "BINANCE:OPUSDT"
+      ],
+      "timeframes": [
+        {
+          "label": "15m",
+          "interval": "15"
+        },
+        {
+          "label": "5m",
+          "interval": "5"
+        }
+      ],
+      "exportChartData": false,
+      "exportStrategyData": true,
+      "validation": {
+        "minCsvFiles": 56,
+        "minRows": 1,
+        "requiredColumns": [],
+        "nonConstantColumns": [],
+        "nonZeroColumns": [],
+        "numericChecks": []
+      },
+      "strategyReportReadyTimeoutMs": 240000,
+      "symbolMetadata": {
+        "BINANCE:BTCUSDT": {
+          "asset": "BTC",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:ETHUSDT": {
+          "asset": "ETH",
+          "regimeTier": "major control",
+          "liquidityTier": "major",
+          "priorOutcome": "diagnostic-only"
+        },
+        "BINANCE:ZECUSDT": {
+          "asset": "ZEC",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "mid",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:ADAUSDT": {
+          "asset": "ADA",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "mid",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:LINKUSDT": {
+          "asset": "LINK",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "mid",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:XRPUSDT": {
+          "asset": "XRP",
+          "regimeTier": "prior admitted control",
+          "liquidityTier": "major",
+          "priorOutcome": "pass"
+        },
+        "BINANCE:SOLUSDT": {
+          "asset": "SOL",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:BNBUSDT": {
+          "asset": "BNB",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:DOGEUSDT": {
+          "asset": "DOGE",
+          "regimeTier": "prior failed control",
+          "liquidityTier": "major",
+          "priorOutcome": "fail"
+        },
+        "BINANCE:LTCUSDT": {
+          "asset": "LTC",
+          "regimeTier": "major control",
+          "liquidityTier": "major",
+          "priorOutcome": "marginal"
+        },
+        "BINANCE:HYPEUSDT": {
+          "asset": "HYPE",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:AEROUSDT": {
+          "asset": "AERO",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:VIRTUALUSDT": {
+          "asset": "VIRTUAL",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:FETUSDT": {
+          "asset": "FET",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:RENDERUSDT": {
+          "asset": "RENDER",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new",
+          "aliasGroup": "RENDER/RNDR"
+        },
+        "BINANCE:RNDRUSDT": {
+          "asset": "RNDR",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new",
+          "aliasGroup": "RENDER/RNDR"
+        },
+        "BINANCE:WIFUSDT": {
+          "asset": "WIF",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:SEIUSDT": {
+          "asset": "SEI",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:TIAUSDT": {
+          "asset": "TIA",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:SUIUSDT": {
+          "asset": "SUI",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:INJUSDT": {
+          "asset": "INJ",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:JUPUSDT": {
+          "asset": "JUP",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:ONDOUSDT": {
+          "asset": "ONDO",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:ENAUSDT": {
+          "asset": "ENA",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:PYTHUSDT": {
+          "asset": "PYTH",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:PENDLEUSDT": {
+          "asset": "PENDLE",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:ARBUSDT": {
+          "asset": "ARB",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        },
+        "BINANCE:OPUSDT": {
+          "asset": "OP",
+          "regimeTier": "smaller/reflexive",
+          "liquidityTier": "smaller/reflexive",
+          "priorOutcome": "new"
+        }
+      }
+    }
+  ]
+}

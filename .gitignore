@@ -15,6 +15,17 @@ build/
 /data/
 /artifacts/
 
+# TradingView telemetry / generated exports
+tradingview/strategy/.telemetry/
+tradingview/strategy/artifacts/**/tradingview/automation/
+tradingview/strategy/artifacts/**/export_logs/
+tradingview/strategy/artifacts/**/generated/
+tradingview/strategy/artifacts/**/verdict_harness_metrics.json
+tradingview/strategy/artifacts/**/*_metrics.json
+tradingview/strategy/artifacts/**/current_evidence_metrics.json
+tradingview/strategy/artifacts/**/bakeoff_metrics.json
+tradingview/strategy/artifacts/**/*_runs_skip_*.json
+
 # OS
 .DS_Store
 
